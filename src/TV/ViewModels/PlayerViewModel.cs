@@ -1,0 +1,931 @@
+using System.Collections.ObjectModel;
+using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.Input;
+using LibVLCSharp.Shared;
+using Microsoft.UI.Dispatching;
+using Microsoft.UI.Xaml;
+using TV.Models;
+using TV.Services;
+using TV.Services.Playback;
+using TV.Services.Vod.Native;
+
+namespace TV.ViewModels;
+
+public sealed partial class PlayerViewModel : ObservableObject
+{
+    private readonly AppServices _services;
+    private readonly DispatcherQueueTimer _timer;
+    private readonly DispatcherQueue _dispatcher;
+    private PlaybackRequest? _request;
+    private DateTime _lastSaved = DateTime.MinValue;
+    private bool _suppressSelection;
+    private bool _isLive;
+    private bool _autoNext = true;
+    private bool _autoSwitchLine = true;
+    private bool _lineRecoveryAttempted;
+    private bool _hasPlayedMedia;
+    private TaskCompletionSource _viewReady = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private CancellationTokenSource _loadCts = new();
+    private CancellationTokenSource? _cloudSubtitleCts;
+    private readonly SemaphoreSlim _loadGate = new(1, 1);
+    private int _tickRunning;
+    private int _recoveryRunning;
+    private long _lastProgressMs = -1;
+    private DateTimeOffset _lastProgressAt;
+    private DateTimeOffset _bufferResumeAt;
+    private DateTimeOffset _bufferWindowAt;
+    private DateTimeOffset _lastRecoveryAt;
+    private bool _bufferingPaused;
+    private bool _manualPaused;
+    private bool _adaptiveQuality = true;
+    private int _bufferEvents;
+    private bool _refreshedSource;
+    private bool _introSkipped;
+    private bool _outroSkipped;
+    private string _timingKey = string.Empty;
+    private PlaybackRequest? _resolvedMedia;
+    private Uri? _selectedCloudSubtitleAddress;
+
+    public PlayerViewModel(AppServices services, DispatcherQueue dispatcher)
+    {
+        _services = services;
+        _dispatcher = dispatcher;
+        _timer = dispatcher.CreateTimer();
+        _timer.Interval = TimeSpan.FromMilliseconds(500);
+        _timer.Tick += OnTick;
+        if (!services.PlayerOnly) _services.Cloud.AuthenticationRequired += OnCloudAuthenticationRequired;
+    }
+
+    public ObservableCollection<PlaybackLine> Lines { get; } = [];
+    public ObservableCollection<Episode> Episodes { get; } = [];
+    [ObservableProperty] private string _title = "尚未播放";
+    [ObservableProperty] private string _subtitle = string.Empty;
+    [ObservableProperty] private string _statusMessage = string.Empty;
+    [ObservableProperty] private bool _isPlaying;
+    [ObservableProperty] private bool _isBuffering;
+    [ObservableProperty] private string _bufferingText = string.Empty;
+    [ObservableProperty] private string _playPauseGlyph = "\uE768";
+    [ObservableProperty] private string _volumeGlyph = "\uE767";
+    [ObservableProperty] private double _positionMs;
+    [ObservableProperty] private double _durationMs;
+    [ObservableProperty] private string _positionText = "00:00";
+    [ObservableProperty] private string _durationText = "00:00";
+    [ObservableProperty] private int _volume = 85;
+    [ObservableProperty] private double _rate = 1;
+    [ObservableProperty] private string _rateText = "1.0x";
+    [ObservableProperty] private PlaybackLine? _selectedLine;
+    [ObservableProperty] private Episode? _selectedEpisode;
+    [ObservableProperty] private bool _hasPlaylist;
+    [ObservableProperty] private bool _canNext;
+    [ObservableProperty] private bool _canPrevious;
+    [ObservableProperty, NotifyPropertyChangedFor(nameof(HasRequiredLogin))] private CloudProviderKind? _requiredLoginProvider;
+    public bool HasRequiredLogin => RequiredLoginProvider.HasValue;
+    [ObservableProperty, NotifyPropertyChangedFor(nameof(QualityButtonText))] private QualityOption _selectedQuality = new("自动", 0);
+    public string QualityButtonText => SelectedQuality.RequestsOriginal ? "原画" : SelectedQuality.ProviderId switch
+    {
+        100 => "修复", 120 => "4K", 125 => "HDR", 126 => "杜比", 127 => "8K",
+        _ => SelectedQuality.Height > 0 ? $"{SelectedQuality.Height}p" : SelectedQuality.Name
+    };
+    private static readonly IReadOnlyList<QualityOption> DefaultQualityOptions = [new("自动", 0), new("原画", -1), new("1080p", 1080), new("720p", 720), new("420p", 420)];
+    public IReadOnlyList<QualityOption> QualityOptions =>
+        _resolvedMedia?.AvailableQualities is { } options ? [DefaultQualityOptions[0], .. options] :
+        _resolvedMedia is { UsesProviderVideoHeights: true, AvailableVideoHeights: { Count: > 0 } heights }
+            ? DefaultQualityOptions.Take(2).Concat(heights.OrderDescending().Select(height => new QualityOption($"{height}p", height))).ToArray()
+            : _request?.Kind == PlaybackKind.Live ? [DefaultQualityOptions[0]] : [DefaultQualityOptions[0], DefaultQualityOptions[1]];
+    internal bool IsBilibiliPlayback => !_services.PlayerOnly && _request is { Kind: PlaybackKind.Vod } request &&
+        _services.Config.Current?.Sites.Any(site => site.Key == request.SiteKey && BilibiliVodProvider.Supports(site)) == true;
+    [ObservableProperty] private string _qualityMessage = string.Empty;
+    private CancellationTokenSource? _qualityCts;
+    private bool _settingQuality;
+
+    public event EventHandler? FullScreenRequested;
+    public event EventHandler? CompactOverlayRequested;
+    public event EventHandler<Uri?>? DanmakuChanged;
+    public TV.Services.Playback.PlayerService Service => _services.Player;
+    internal IReadOnlyList<CloudSubtitleTrack> CloudSubtitleTracks => _resolvedMedia?.CloudSubtitles ?? [];
+    internal CloudSubtitleTrack? SelectedCloudSubtitle { get; private set; }
+    public IReadOnlyList<PlaybackTrack> AudioTracks => Service.LastSnapshot.AudioTracks;
+    public IReadOnlyList<PlaybackTrack> SubtitleTracks => Service.LastSnapshot.SubtitleTracks;
+    public int SelectedAudioTrack => Service.LastSnapshot.AudioTrack;
+    public int SelectedSubtitleTrack => Service.LastSnapshot.SubtitleTrack;
+    public event EventHandler<IReadOnlyList<VodItem>>? SourceRecoveryOffered;
+    [ObservableProperty] private EpisodeTiming _timing = new();
+    [ObservableProperty] private bool _skipEnabled = true;
+    [ObservableProperty] private string _timingMessage = string.Empty;
+    public bool HasTiming => Timing.IntroEndMs > 0 || Timing.OutroStartMs > 0;
+    partial void OnTimingChanged(EpisodeTiming value) => OnPropertyChanged(nameof(HasTiming));
+
+    /// <summary>是否已请求媒体：供播放器页中央空态使用。</summary>
+    public bool HasMedia => _request is not null;
+    /// <summary>中央提示/错误态是否可见：缓冲中不叠加提示面板。</summary>
+    public bool ShowStatusPanel => !IsBuffering && !string.IsNullOrWhiteSpace(StatusMessage);
+
+    partial void OnStatusMessageChanged(string value) => OnPropertyChanged(nameof(ShowStatusPanel));
+    partial void OnIsBufferingChanged(bool value) => OnPropertyChanged(nameof(ShowStatusPanel));
+
+    /// <summary>播放器页面把 VideoView 挂好后调用，避免“先播后挂”导致黑屏无声。</summary>
+    public void NotifyVideoReady() => _viewReady.TrySetResult();
+
+    internal PlaybackRequest? GetResumeRequest()
+    {
+        var resume = _request?.Copy();
+        if (resume is not null && _resolvedMedia is not null && !_services.Player.IsStopping)
+            resume.StartPositionMs = Math.Max(0, _services.Player.LastSnapshot.TimeMs);
+        return resume;
+    }
+
+
+    private void ResetVideoReady()
+    {
+        if (_viewReady.Task.IsCompleted) _viewReady = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+    }
+
+    public async Task LoadAsync(PlaybackRequest request)
+    {
+        _loadCts.Cancel();
+        await _loadGate.WaitAsync();
+        try { await LoadCoreAsync(request); }
+        finally { _loadGate.Release(); }
+    }
+
+    private async Task LoadCoreAsync(PlaybackRequest request)
+    {
+        _loadCts.Cancel();
+        _loadCts = new CancellationTokenSource();
+        var token = _loadCts.Token;
+        _qualityCts?.Cancel();
+        ResetCloudSubtitles();
+        RequiredLoginProvider = null;
+        QualityMessage = string.Empty;
+        StopTimerAndSave();
+        DanmakuChanged?.Invoke(this, null);
+        try
+        {
+            if (_request is not null)
+            {
+                var previous = _resolvedMedia;
+                await _services.StopPlayerAsync();
+                ReleaseMedia(previous);
+            }
+        }
+        catch (Exception ex)
+        {
+            if (!token.IsCancellationRequested) StatusMessage = "无法停止上一条视频：" + ex.Message;
+            return;
+        }
+        if (token.IsCancellationRequested) return;
+        request = request.Copy();
+        _request = request;
+        OnPropertyChanged(nameof(HasMedia));
+        _resolvedMedia = null;
+        _isLive = request.Kind == PlaybackKind.Live;
+        _hasPlayedMedia = false;
+        _lineRecoveryAttempted = false;
+        _refreshedSource = false;
+        _manualPaused = false;
+        _bufferingPaused = false;
+        _bufferEvents = 0;
+        _lastProgressMs = -1;
+        _lastProgressAt = DateTimeOffset.UtcNow;
+        _introSkipped = _outroSkipped = false;
+        Timing = new();
+        TimingMessage = string.Empty;
+        _settingQuality = true;
+        SelectedQuality = QualityOptions[0];
+        _settingQuality = false;
+        PositionMs = 0;
+        DurationMs = 0;
+        try
+        {
+            var settings = _services.Database;
+            _autoNext = !string.Equals(await settings.GetSettingAsync("playback.autoNext", token), "false", StringComparison.OrdinalIgnoreCase);
+            _autoSwitchLine = !string.Equals(await settings.GetSettingAsync("playback.autoSwitchLine", token), "false", StringComparison.OrdinalIgnoreCase);
+            var defaultQuality = request.Kind == PlaybackKind.Vod
+                ? DefaultQualityOptions[Math.Clamp(await ReadIntAsync("playback.defaultQuality", 0, 0, 4), 0, DefaultQualityOptions.Count - 1)]
+                : DefaultQualityOptions[0];
+            _settingQuality = true;
+            SelectedQuality = defaultQuality;
+            _settingQuality = false;
+            if (string.Equals(await settings.GetSettingAsync("playback.resume", token), "false", StringComparison.OrdinalIgnoreCase)) request.StartPositionMs = 0;
+            _services.Player.HardwareDecoding = !string.Equals(await settings.GetSettingAsync("playback.hardware", token), "false", StringComparison.OrdinalIgnoreCase);
+            _services.Player.NetworkCachingMs = await ReadIntAsync("playback.networkCache", 3600, 1200, 12000);
+            _services.Player.LiveCachingMs = await ReadIntAsync("playback.liveCache", 1800, 500, 8000);
+            _adaptiveQuality = !string.Equals(await settings.GetSettingAsync("playback.adaptiveQuality", token), "false", StringComparison.OrdinalIgnoreCase);
+            SkipEnabled = !string.Equals(await settings.GetSettingAsync("playback.skipEnabled", token), "false", StringComparison.OrdinalIgnoreCase);
+            if (_lastSaved == DateTime.MinValue) Volume = await ReadIntAsync("playback.volume", 85, 0, 100);
+
+            Title = request.Title;
+            Subtitle = request.Subtitle;
+            StatusMessage = "正在解析播放地址…";
+            HasPlaylist = request.Kind == PlaybackKind.Vod && request.Lines.Count > 0;
+            Lines.Clear();
+            Episodes.Clear();
+            _suppressSelection = true;
+            foreach (var line in request.Lines) Lines.Add(line);
+            SelectedLine = request.Lines.ElementAtOrDefault(request.LineIndex) ?? request.Lines.FirstOrDefault();
+            if (SelectedLine is not null) foreach (var episode in SelectedLine.Episodes) Episodes.Add(episode);
+            SelectedEpisode = SelectedLine?.Episodes.ElementAtOrDefault(request.EpisodeIndex) ?? SelectedLine?.Episodes.FirstOrDefault();
+            _suppressSelection = false;
+            UpdateNavigationState();
+            await LoadTimingAsync(token);
+
+            PlaybackRequest media;
+            try { media = await _services.Playback.ResolveAsync(request, SelectedQuality, GetHdrOutputAsync, token); }
+            catch (NotSupportedException) when (SelectedQuality.IsSpecific)
+            {
+                QualityMessage = $"默认 {SelectedQuality.Name} 不可用，已使用自动画质";
+                _settingQuality = true;
+                SelectedQuality = QualityOptions[0];
+                _settingQuality = false;
+                media = await _services.Playback.ResolveAsync(request, SelectedQuality, GetHdrOutputAsync, token);
+            }
+            StatusMessage = "正在打开媒体…";
+            await _viewReady.Task.WaitAsync(TimeSpan.FromSeconds(8), token);
+            await _services.Player.PlayAsync(media, token);
+            _resolvedMedia = media;
+            SelectedQuality = DisplayQuality(media, SelectedQuality);
+            DanmakuChanged?.Invoke(this, media.Danmaku);
+            _timer.Start();
+        }
+        catch (OperationCanceledException) { }
+        catch (CloudAuthenticationException ex) when (!token.IsCancellationRequested)
+        {
+            RequiredLoginProvider = ex.Provider;
+            StatusMessage = $"{ex.Provider} 网盘需要登录后才能播放。登录成功将继续当前影片。";
+            Diagnostics.Log($"Cloud authentication required: {ex.Provider}");
+        }
+        catch (Exception ex)
+        {
+            if (token.IsCancellationRequested) return;
+            Diagnostics.Log("Play failed: " + ex);
+            if (ex is not NotSupportedException && request.Item is not null)
+            {
+                StatusMessage = "当前来源打开失败，正在尝试恢复…";
+                _ = RecoverPlaybackAsync();
+            }
+            else StatusMessage = "播放失败：" + ex.Message;
+        }
+    }
+
+    public async Task ResumeAfterCloudLoginAsync()
+    {
+        if (_request is null) return;
+        var request = _request.Copy();
+        if (_resolvedMedia is not null && !_services.Player.IsStopping)
+            request.StartPositionMs = Math.Max(0, _services.Player.LastSnapshot.TimeMs);
+        RequiredLoginProvider = null;
+        await LoadAsync(request);
+    }
+
+    [RelayCommand]
+    private void TogglePause()
+    {
+        _manualPaused = _services.Player.LastSnapshot.IsPlaying;
+        _bufferingPaused = false;
+        _services.Player.TogglePause();
+    }
+
+    [RelayCommand]
+    private async Task StopAsync()
+    {
+        _loadCts.Cancel();
+        _qualityCts?.Cancel();
+        ResetCloudSubtitles();
+        StopTimerAndSave();
+        DanmakuChanged?.Invoke(this, null);
+        try
+        {
+            await _services.StopPlayerAsync();
+            ReleaseMedia(_resolvedMedia);
+            StatusMessage = "已停止播放";
+        }
+        catch (Exception ex) { StatusMessage = ex.Message; }
+    }
+
+    /// <summary>离开播放器页面前调用：停播并等解码线程退出，避免交换链被销毁后 VLC 写帧导致进程崩溃。</summary>
+    public async Task PrepareLeaveAsync()
+    {
+        _loadCts.Cancel();
+        _qualityCts?.Cancel();
+        ResetVideoReady();
+        ResetCloudSubtitles();
+        _timer.Stop();
+        DanmakuChanged?.Invoke(this, null);
+        if (_request is not null)
+        {
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+            var save = SaveHistoryAsync(timeout.Token);
+            _request = null;
+            OnPropertyChanged(nameof(HasMedia));
+            _hasPlayedMedia = false;
+            await Task.WhenAll(save.WaitAsync(timeout.Token), _services.StopPlayerAsync().WaitAsync(timeout.Token))
+                .ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing | ConfigureAwaitOptions.ContinueOnCapturedContext);
+            ReleaseMedia(_resolvedMedia);
+        }
+        StatusMessage = string.Empty;
+    }
+
+    [RelayCommand]
+    private void FullScreen() => FullScreenRequested?.Invoke(this, EventArgs.Empty);
+
+    [RelayCommand]
+    private void CompactOverlay() => CompactOverlayRequested?.Invoke(this, EventArgs.Empty);
+
+    [RelayCommand]
+    private void NextEpisode() => StepEpisode(1);
+
+    [RelayCommand]
+    private void PreviousEpisode() => StepEpisode(-1);
+
+    private void StepEpisode(int delta)
+    {
+        if (SelectedLine is null || _request is null) return;
+        var next = _request.EpisodeIndex + delta;
+        if (next < 0 || next >= SelectedLine.Episodes.Count) return;
+        PlaySelection(_request.LineIndex, next, SelectedLine, SelectedLine.Episodes[next]);
+    }
+
+    public void SeekBy(double seconds)
+    {
+        var snapshot = _services.Player.LastSnapshot;
+        if (snapshot.LengthMs <= 0) return;
+        _services.Player.Seek(Math.Clamp(snapshot.TimeMs + (long)(seconds * 1000), 0, snapshot.LengthMs));
+    }
+
+    partial void OnSelectedEpisodeChanged(Episode? value)
+    {
+        if (_suppressSelection || value is null || _request is null || SelectedLine is null) return;
+        var index = SelectedLine.Episodes.IndexOf(value);
+        if (index < 0 || index == _request.EpisodeIndex && _request.Url == value.Url) return;
+        PlaySelection(_request.LineIndex, index, SelectedLine, value);
+    }
+
+    partial void OnSelectedLineChanged(PlaybackLine? value)
+    {
+        if (_suppressSelection || value is null || _request is null) return;
+        _suppressSelection = true;
+        Episodes.Clear();
+        foreach (var episode in value.Episodes) Episodes.Add(episode);
+        SelectedEpisode = value.Episodes.FirstOrDefault();
+        _suppressSelection = false;
+        if (SelectedEpisode is { } firstEpisode) PlaySelection(Lines.IndexOf(value), 0, value, firstEpisode);
+    }
+
+    private void PlaySelection(int lineIndex, int episodeIndex, PlaybackLine line, Episode episode, long startPositionMs = 0)
+    {
+        if (_request is not { } current) return;
+        var next = current.Copy();
+        next.LineIndex = lineIndex;
+        next.EpisodeIndex = episodeIndex;
+        next.Url = episode.Url;
+        next.Subtitle = $"{next.Item?.SiteName} · {line.Name} · {episode.Name}";
+        next.StartPositionMs = startPositionMs;
+        _ = LoadAsync(next);
+    }
+
+    public Task ChangeQualityAsync(QualityOption quality) => ApplyQualityAsync(quality, refresh: false);
+
+    internal Task RefreshBilibiliQualityAsync()
+    {
+        if (!IsBilibiliPlayback || _request is null) return Task.CompletedTask;
+        return _resolvedMedia is null ? LoadAsync(_request) : ApplyQualityAsync(DefaultQualityOptions[0], refresh: true);
+    }
+
+    private static QualityOption DisplayQuality(PlaybackRequest media, QualityOption requested) =>
+        (requested.IsSpecific || requested.RequestsOriginal) && media.ResolvedQuality is { } actual ? actual : requested;
+
+    private async Task ApplyQualityAsync(QualityOption quality, bool refresh)
+    {
+        if (_settingQuality || _request is not { } current || !refresh &&
+            (SelectedQuality == quality || !CanSelectQuality(quality))) return;
+        if (_resolvedMedia?.HasFixedVideoTrack == true && _services.Player.CurrentVideoHeight > 0)
+        {
+            QualityMessage = string.Empty;
+            SelectedQuality = quality;
+            return;
+        }
+        _qualityCts?.Cancel();
+        _qualityCts?.Dispose();
+        _qualityCts = CancellationTokenSource.CreateLinkedTokenSource(_loadCts.Token);
+        var token = _qualityCts.Token;
+        QualityMessage = string.Empty;
+        PlaybackRequest? media = null;
+        try
+        {
+            media = await _services.Playback.ResolveAsync(current, quality, GetHdrOutputAsync, token);
+            token.ThrowIfCancellationRequested();
+            media.StartPositionMs = current.Kind == PlaybackKind.Vod ? Math.Max(0, _services.Player.LastSnapshot.TimeMs) : 0;
+            if (_resolvedMedia?.AvailableQualities?.FirstOrDefault(option => option.IsOriginal && option.Height > 0) is { } original &&
+                media.AvailableQualities is { } available && available.Any(option => option.RequestsOriginal && option.Height < 0))
+                media.AvailableQualities = available.Select(option => option.RequestsOriginal ? original : option).ToArray();
+            var tracks = await _services.Player.CaptureTrackSelectionAsync(token);
+            CancelCloudSubtitleLoad();
+            if (SelectedCloudSubtitle is { } currentSubtitle && _selectedCloudSubtitleAddress is { } address &&
+                media.CloudSubtitles.Any(track => track.Source == currentSubtitle.Source))
+            {
+                if (!media.Subtitles.Contains(address)) media.Subtitles.Add(address);
+            }
+            else ClearCloudSubtitleSelection();
+            _hasPlayedMedia = false;
+            var previous = _resolvedMedia;
+            await _services.Player.PlayAsync(media, tracks, token);
+            _resolvedMedia = media;
+            ReleaseMedia(previous, media);
+            DanmakuChanged?.Invoke(this, media.Danmaku);
+            SelectedQuality = DisplayQuality(media, quality);
+            _timer.Start();
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested) { }
+        catch (Exception ex) { if (!token.IsCancellationRequested) QualityMessage = ex.Message; }
+        finally { if (!ReferenceEquals(_resolvedMedia, media)) ReleaseMedia(media, _resolvedMedia); }
+    }
+
+    internal bool CanSelectQuality(QualityOption quality)
+    {
+        if (_request is null || _resolvedMedia is null || _services.Player.IsStopping || !quality.IsAvailable ||
+            _request.Kind == PlaybackKind.Live && _resolvedMedia?.AvailableQualities is null) return false;
+        if (!quality.IsSpecific) return true;
+        if (_resolvedMedia?.AvailableQualities is { } options) return options.Contains(quality);
+        if (_resolvedMedia?.AvailableVideoHeights is { } heights) return heights.Contains(quality.Height);
+        return _resolvedMedia?.HasFixedVideoTrack != true || _services.Player.CurrentVideoHeight == quality.Height;
+    }
+
+    private void ReleaseMedia(PlaybackRequest? media, PlaybackRequest? retained = null)
+    {
+        if (media is null || _services.PlayerOnly) return;
+        if (media.Url != retained?.Url) _services.Cloud.ReleaseMedia(media.Url);
+        foreach (var track in media.AudioTracks)
+            if (retained?.AudioTracks.Contains(track) != true) _services.Cloud.ReleaseMedia(track.AbsoluteUri);
+    }
+
+    private void ReadFixedVideoQuality(VideoFormat? format)
+    {
+        if (_resolvedMedia is not { HasFixedVideoTrack: true } media || media.ResolvedQuality?.Height > 0 || format is not { } actual) return;
+        var original = VideoFormat.ToOptions([actual])[0];
+        media.AvailableQualities = media.AvailableQualities is { } options
+            ? options.Select(option => option.RequestsOriginal ? original : option).ToArray() : [original];
+        media.ResolvedQuality = original;
+        SelectedQuality = DisplayQuality(media, SelectedQuality);
+    }
+
+    private async Task<bool> GetHdrOutputAsync(CancellationToken token)
+    {
+        await _viewReady.Task.WaitAsync(TimeSpan.FromSeconds(8), token);
+        return _services.Player.HasHdrSurface && VideoDisplay.IsHdrActive(App.Window.AppWindow.Id);
+    }
+
+    internal async Task<OnlineMediaMatch> MatchOnlineMediaAsync(CancellationToken token)
+    {
+        if (_request is not { } request) throw new InvalidOperationException("当前没有可匹配的视频。");
+        var title = request.Item?.Name ?? request.Title;
+        var episode = SelectedEpisode?.Name ?? request.Subtitle;
+        if (IsBilibiliPlayback && request.Url.Split('+', 2) is { Length: 2 } ids &&
+            long.TryParse(ids[0], out var aid) && long.TryParse(ids[1], out var cid))
+            return new OnlineMediaMatch(title, episode, aid, cid);
+        var match = await _services.OnlineMedia.MatchAsync(title, episode, request.EpisodeIndex, token);
+        QualityMessage = $"已匹配：{match.Title} · {match.EpisodeTitle}";
+        return match;
+    }
+
+    internal async Task<IReadOnlyList<OnlineSubtitleTrack>> GetOnlineSubtitlesAsync(CancellationToken token)
+    {
+        var match = await MatchOnlineMediaAsync(token);
+        return await _services.OnlineMedia.GetSubtitlesAsync(match, token);
+    }
+
+    internal async Task SelectOnlineSubtitleAsync(OnlineSubtitleTrack track)
+    {
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(_loadCts.Token);
+        timeout.CancelAfter(TimeSpan.FromSeconds(15));
+        QualityMessage = "正在下载并转换在线字幕…";
+        var file = await _services.OnlineMedia.SaveSubtitleAsync(track, timeout.Token);
+        if (!await AddSubtitleAsync(file)) throw new InvalidOperationException("播放器无法加载在线字幕。");
+        QualityMessage = $"已加载在线字幕：{track.Name}";
+    }
+
+    internal async Task<bool> AddSubtitleAsync(Uri file)
+    {
+        if (_request is not { } request || !await _services.Player.AddSubtitleAsync(file)) return false;
+        if (!request.Subtitles.Contains(file)) request.Subtitles.Add(file);
+        CancelCloudSubtitleLoad();
+        ClearCloudSubtitleSelection();
+        return true;
+    }
+
+    internal async Task SelectTrackAsync(bool subtitle, int id)
+    {
+        if (subtitle) CancelCloudSubtitleLoad();
+        var success = await _services.Player.SelectTrackAsync(subtitle, id) || subtitle && id < 0;
+        QualityMessage = success ? string.Empty : "无法切换该轨道。";
+        if (subtitle && success) ClearCloudSubtitleSelection();
+    }
+
+    internal async Task SelectCloudSubtitleAsync(CloudSubtitleTrack track)
+    {
+        if (_resolvedMedia is not { } media || !media.CloudSubtitles.Contains(track) || SelectedCloudSubtitle == track) return;
+        CancelCloudSubtitleLoad();
+        var request = CancellationTokenSource.CreateLinkedTokenSource(_loadCts.Token);
+        _cloudSubtitleCts = request;
+        var token = request.Token;
+        QualityMessage = "正在加载字幕…";
+        try
+        {
+            var address = await _services.Cloud.ResolveSubtitleAsync(track, token);
+            token.ThrowIfCancellationRequested();
+            if (!ReferenceEquals(_resolvedMedia, media)) return;
+            if (!await _services.Player.AddSubtitleAsync(address))
+                throw new InvalidOperationException("无法加载字幕。");
+            _selectedCloudSubtitleAddress = address;
+            SelectedCloudSubtitle = track;
+            QualityMessage = string.Empty;
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested) { }
+        catch (Exception ex)
+        {
+            if (!token.IsCancellationRequested) QualityMessage = $"字幕加载失败：{ex.Message}";
+        }
+        finally
+        {
+            if (ReferenceEquals(_cloudSubtitleCts, request))
+            {
+                _cloudSubtitleCts = null;
+                request.Dispose();
+            }
+        }
+    }
+
+    private void CancelCloudSubtitleLoad()
+    {
+        if (_cloudSubtitleCts is not { } pending) return;
+        _cloudSubtitleCts = null;
+        pending.Cancel();
+        pending.Dispose();
+        QualityMessage = string.Empty;
+    }
+
+    private void ClearCloudSubtitleSelection()
+    {
+        SelectedCloudSubtitle = null;
+        _selectedCloudSubtitleAddress = null;
+    }
+
+    private void ResetCloudSubtitles()
+    {
+        CancelCloudSubtitleLoad();
+        ClearCloudSubtitleSelection();
+        _resolvedMedia = null;
+    }
+
+    private async Task LoadTimingAsync(CancellationToken token)
+    {
+        if (_request is not { } request) return;
+        var episode = request.Lines.ElementAtOrDefault(request.LineIndex)?.Episodes.ElementAtOrDefault(request.EpisodeIndex)?.Name ?? request.EpisodeIndex.ToString();
+        var identity = $"{request.SiteKey}|{request.VodId}|{request.LineIndex}|{request.EpisodeIndex}|{episode}";
+        _timingKey = "playback.timing." + Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(identity)))[..24];
+        try
+        {
+            var json = await _services.Database.GetSettingAsync(_timingKey, token);
+            Timing = string.IsNullOrWhiteSpace(json) ? new() : EpisodeTiming.Normalize(System.Text.Json.JsonSerializer.Deserialize<EpisodeTiming>(json));
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            Diagnostics.Log($"片头片尾设置读取失败: {ex.GetType().Name}");
+            Timing = new();
+        }
+    }
+
+    internal async Task SaveTimingAsync(double introSeconds, double outroSeconds, bool enabled)
+    {
+        if (!double.IsFinite(introSeconds) || !double.IsFinite(outroSeconds) || introSeconds < 0 || outroSeconds < 0)
+            throw new InvalidDataException("片头片尾时间必须是有效的非负秒数。");
+        var duration = _services.Player.LastSnapshot.LengthMs;
+        var intro = (long)Math.Round(introSeconds * 1000);
+        var outro = (long)Math.Round(outroSeconds * 1000);
+        if (duration > 0 && (intro >= duration || outro >= duration)) throw new InvalidDataException("跳过时间必须小于当前视频总时长。");
+        if (outro > 0 && outro <= intro) throw new InvalidDataException("片尾开始时间必须晚于片头结束时间。");
+        Timing = EpisodeTiming.Normalize(new EpisodeTiming(intro, outro));
+        SkipEnabled = enabled;
+        _introSkipped = _outroSkipped = false;
+        if (!string.IsNullOrEmpty(_timingKey))
+            await _services.Database.SetSettingAsync(_timingKey, System.Text.Json.JsonSerializer.Serialize(Timing));
+        await _services.Database.SetSettingAsync("playback.skipEnabled", enabled ? "true" : "false");
+        TimingMessage = "已保存当前线路、当前集的片头片尾设置。";
+    }
+
+    internal Task SetTimingFromPositionAsync(bool intro)
+    {
+        var seconds = _services.Player.LastSnapshot.TimeMs / 1000d;
+        return SaveTimingAsync(intro ? seconds : Timing.IntroEndMs / 1000d, intro ? Timing.OutroStartMs / 1000d : seconds, SkipEnabled);
+    }
+
+    [RelayCommand]
+    private void SkipIntro()
+    {
+        if (Timing.IntroEndMs <= 0) return;
+        _introSkipped = true;
+        _services.Player.Seek(Timing.IntroEndMs);
+    }
+
+    [RelayCommand]
+    private void SkipOutro() => FinishOutro();
+
+    private void FinishOutro()
+    {
+        if (_outroSkipped) return;
+        _outroSkipped = true;
+        if (CanNext) NextEpisode();
+        else _services.Player.Seek(Math.Max(0, _services.Player.LastSnapshot.LengthMs));
+    }
+
+    private void ApplyEpisodeTiming(long position, long duration)
+    {
+        if (!SkipEnabled || _isSeeking) return;
+        if (Timing.IntroEndMs > 1000 && !_introSkipped && position >= 0 && position < Timing.IntroEndMs - 750)
+        {
+            _introSkipped = true;
+            _services.Player.Seek(Timing.IntroEndMs);
+            TimingMessage = $"已跳过片头至 {Format(Timing.IntroEndMs)}";
+        }
+        if (Timing.OutroStartMs > 0 && !_outroSkipped && duration >= Timing.OutroStartMs && position >= Timing.OutroStartMs)
+            FinishOutro();
+    }
+
+    private async Task<int> ReadIntAsync(string key, int fallback, int minimum, int maximum)
+    {
+        var value = await _services.Database.GetSettingAsync(key);
+        return int.TryParse(value, out var result) ? Math.Clamp(result, minimum, maximum) : fallback;
+    }
+
+    partial void OnVolumeChanged(int value)
+    {
+        _services.Player.SetVolume(value);
+        VolumeGlyph = value == 0 ? "\uE74F" : value < 50 ? "\uE993" : "\uE767";
+    }
+
+    partial void OnRateChanged(double value)
+    {
+        if (value > 0)
+        {
+            _services.Player.SetRate((float)value);
+            RateText = $"{value:0.##}x";
+        }
+    }
+
+    private async void OnTick(object? sender, object e)
+    {
+        if (Interlocked.CompareExchange(ref _tickRunning, 1, 0) != 0 || _services.Player.IsStopping) return;
+        try
+        {
+            using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+            var snapshot = await _services.Player.ReadSnapshotAsync(deadline.Token);
+            if (_request is null || _loadCts.IsCancellationRequested) return;
+            IsPlaying = snapshot.IsPlaying;
+            PlayPauseGlyph = IsPlaying ? "\uE769" : "\uE768";
+            if (snapshot.State == VLCState.Playing)
+            {
+                _hasPlayedMedia = true;
+                ReadFixedVideoQuality(snapshot.VideoFormat);
+            }
+            IsBuffering = snapshot.State is VLCState.Opening or VLCState.Buffering;
+            BufferingText = snapshot.State == VLCState.Buffering
+                ? $"网络缓冲 {Math.Clamp(snapshot.BufferingPercent, 0, 100):0}% · 缓冲后自动续播" : "正在打开媒体…";
+            if (_request.Kind == PlaybackKind.Vod)
+            {
+                PositionMs = _isSeeking ? PositionMs : snapshot.TimeMs;
+                DurationMs = snapshot.LengthMs;
+                PositionText = Format(snapshot.TimeMs);
+                DurationText = Format(snapshot.LengthMs);
+                ApplyEpisodeTiming(snapshot.TimeMs, snapshot.LengthMs);
+                if (_hasPlayedMedia && !_manualPaused) UpdateBuffering(snapshot);
+            }
+            else
+            {
+                PositionText = "直播";
+                DurationText = string.Empty;
+            }
+            if (!IsBuffering && snapshot.State is VLCState.Playing or VLCState.Paused) StatusMessage = string.Empty;
+            if (snapshot.State == VLCState.Error)
+            {
+                StatusMessage = "正在尝试恢复播放…";
+                _ = RecoverPlaybackAsync();
+            }
+            else if (snapshot.State == VLCState.Ended && _request.Kind == PlaybackKind.Vod && _recoveryRunning == 0)
+            {
+                if (_hasPlayedMedia && CanNext && _autoNext) NextEpisode();
+                else if (!_hasPlayedMedia && _autoSwitchLine && TryNextLine()) return;
+                else if (_hasPlayedMedia) StatusMessage = "播放完毕";
+                else
+                {
+                    StatusMessage = "媒体地址可能已失效，正在查找可用来源…";
+                    _ = RecoverPlaybackAsync();
+                }
+            }
+            if (DateTime.UtcNow - _lastSaved > TimeSpan.FromSeconds(5)) _ = SaveHistoryAsync();
+        }
+        catch (OperationCanceledException)
+        {
+            BufferingText = "播放器响应较慢，正在等待解码器恢复；界面仍可操作。";
+        }
+        catch (Exception ex) { Diagnostics.Log($"Player state read failed: {ex.GetType().Name}"); }
+        finally { Interlocked.Exchange(ref _tickRunning, 0); }
+    }
+
+    private void UpdateBuffering(PlayerSnapshot snapshot)
+    {
+        var now = DateTimeOffset.UtcNow;
+        if (snapshot.TimeMs > _lastProgressMs + 40)
+        {
+            _lastProgressMs = snapshot.TimeMs;
+            _lastProgressAt = now;
+            if (_bufferingPaused)
+            {
+                _bufferingPaused = false;
+                _services.Player.SetBufferingPause(false);
+            }
+            return;
+        }
+        if (!_bufferingPaused && snapshot.State == VLCState.Playing && now - _lastProgressAt < TimeSpan.FromSeconds(6)) return;
+        if (!_bufferingPaused && snapshot.State == VLCState.Buffering && now - _lastProgressAt < TimeSpan.FromSeconds(2)) return;
+        if (!_bufferingPaused)
+        {
+            _bufferingPaused = true;
+            _bufferResumeAt = now + TimeSpan.FromMilliseconds(Math.Clamp(_services.Player.NetworkCachingMs, 2500, 6000));
+            _bufferEvents = now - _bufferWindowAt > TimeSpan.FromSeconds(90) ? 1 : _bufferEvents + 1;
+            _bufferWindowAt = now;
+            _services.Player.SetBufferingPause(true);
+            IsBuffering = true;
+            BufferingText = "网络波动，正在预缓存，稍后自动续播";
+            _services.Player.NetworkCachingMs = Math.Min(8000, _services.Player.NetworkCachingMs + 1000);
+            if (_adaptiveQuality && !SelectedQuality.RequestsOriginal && _bufferEvents >= 3) _ = LowerQualityAfterBufferingAsync();
+            return;
+        }
+        if (now < _bufferResumeAt || snapshot.BufferingPercent < 99 && now - _bufferResumeAt < TimeSpan.FromSeconds(5)) return;
+        _bufferingPaused = false;
+        _lastProgressAt = now;
+        _services.Player.SetBufferingPause(false);
+        IsBuffering = false;
+    }
+
+    private async Task LowerQualityAfterBufferingAsync()
+    {
+        if (_resolvedMedia?.HasFixedVideoTrack == true || _settingQuality) return;
+        var ceiling = SelectedQuality.Height > 0 ? SelectedQuality.Height - 1 : 1080;
+        var quality = QualityOptions.Where(option => option.IsSpecific && !option.RequestsOriginal && option.Height > 0 && option.Height <= ceiling && CanSelectQuality(option))
+            .OrderByDescending(option => option.Height).FirstOrDefault();
+        if (quality is null) return;
+        _bufferEvents = 0;
+        QualityMessage = $"网络多次缓冲，自动切换至 {quality.Name}；可随时手动切回原画";
+        await ApplyQualityAsync(quality, false);
+    }
+
+    private async Task RecoverPlaybackAsync()
+    {
+        if (Interlocked.CompareExchange(ref _recoveryRunning, 1, 0) != 0 || _request is not { } request) return;
+        try
+        {
+            if (_loadCts.IsCancellationRequested || DateTimeOffset.UtcNow - _lastRecoveryAt < TimeSpan.FromSeconds(8)) return;
+            _lastRecoveryAt = DateTimeOffset.UtcNow;
+            var resume = _services.Player.LastSnapshot.TimeMs;
+            if (_services.Player.HardwareDecoding && _resolvedMedia is { } media)
+            {
+                _services.Player.HardwareDecoding = false;
+                var retry = media.Copy();
+                retry.StartPositionMs = resume;
+                await _services.Player.PlayAsync(retry, _loadCts.Token);
+                _resolvedMedia = retry;
+                QualityMessage = "已切换兼容解码模式，正在恢复播放。";
+                _timer.Start();
+                return;
+            }
+            if (_autoSwitchLine && !_hasPlayedMedia && TryNextLine()) return;
+            if (request.Item is null)
+            {
+                StatusMessage = "播放失败，请尝试其他线路。";
+                return;
+            }
+            if (!_refreshedSource)
+            {
+                _refreshedSource = true;
+                var copy = request.Copy();
+                copy.StartPositionMs = resume;
+                try
+                {
+                    var refreshed = await _services.Playback.ResolveAsync(copy, QualityOptions[0], GetHdrOutputAsync, _loadCts.Token);
+                    refreshed.StartPositionMs = resume;
+                    var previous = _resolvedMedia;
+                    await _services.Player.PlayAsync(refreshed, _loadCts.Token);
+                    _resolvedMedia = refreshed;
+                    ReleaseMedia(previous, refreshed);
+                    DanmakuChanged?.Invoke(this, refreshed.Danmaku);
+                    _timer.Start();
+                    StatusMessage = "正在使用刷新后的媒体地址恢复播放…";
+                    return;
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    Diagnostics.Log($"原来源刷新失败: {ex.GetType().Name}");
+                }
+            }
+            StatusMessage = request.RecoverMissingSource ? "历史来源失效，正在自动获取最新资源…" : "当前来源可能失效，正在查找可用来源…";
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(_loadCts.Token);
+            timeout.CancelAfter(TimeSpan.FromSeconds(24));
+            var candidates = await _services.SourceRecovery.FindAsync(request.Item, timeout.Token);
+            if (candidates.Count == 0)
+            {
+                StatusMessage = "暂未找到有效的新来源，原播放记录已保留。可稍后重试。";
+                return;
+            }
+            if (request.RecoverMissingSource)
+            {
+                var selected = candidates[0];
+                var next = _services.SourceRecovery.Switch(request, selected);
+                next.RecoverMissingSource = false;
+                next.StartPositionMs = resume;
+                QualityMessage = $"已自动切换到 {selected.SiteName}";
+                await LoadAsync(next);
+                return;
+            }
+            SourceRecoveryOffered?.Invoke(this, candidates);
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception ex)
+        {
+            if (!_loadCts.IsCancellationRequested) StatusMessage = "恢复播放失败：" + ex.Message + "。可返回详情页更换来源。";
+        }
+        finally { Interlocked.Exchange(ref _recoveryRunning, 0); }
+    }
+
+    internal async Task SwitchSourceAsync(VodItem source)
+    {
+        if (_request is null) return;
+        var next = _services.SourceRecovery.Switch(_request, source);
+        next.StartPositionMs = _services.Player.LastSnapshot.TimeMs;
+        next.RecoverMissingSource = false;
+        await LoadAsync(next);
+    }
+
+    private bool _isSeeking;
+    public void BeginSeek() => _isSeeking = true;
+    public void EndSeek(double value)
+    {
+        _isSeeking = false;
+        _services.Player.Seek((long)value);
+    }
+
+    private bool TryNextLine()
+    {
+        if (_lineRecoveryAttempted || SelectedLine is null || _request is null) return false;
+        _lineRecoveryAttempted = true;
+        var index = Lines.IndexOf(SelectedLine);
+        if (index < 0 || index + 1 >= Lines.Count) return false;
+        var line = Lines[index + 1];
+        if (line.Episodes.ElementAtOrDefault(Math.Clamp(_request.EpisodeIndex, 0, line.Episodes.Count - 1)) is not { } episode) return false;
+        QualityMessage = "当前线路未能起播，正在尝试下一线路";
+        PlaySelection(index + 1, Math.Clamp(_request.EpisodeIndex, 0, line.Episodes.Count - 1), line, episode, _services.Player.LastSnapshot.TimeMs);
+        return true;
+    }
+
+    private void UpdateNavigationState()
+    {
+        CanNext = SelectedLine is not null && _request is not null && _request.EpisodeIndex < SelectedLine.Episodes.Count - 1;
+        CanPrevious = SelectedLine is not null && _request is not null && _request.EpisodeIndex > 0;
+    }
+
+    private void StopTimerAndSave()
+    {
+        _timer.Stop();
+        _ = SaveHistoryAsync();
+    }
+
+    private async Task SaveHistoryAsync(CancellationToken cancellationToken = default)
+    {
+        if (_request is not { } request || !_hasPlayedMedia) return;
+        _lastSaved = DateTime.UtcNow;
+        try
+        {
+            var service = _services.Player;
+            var snapshot = request.Copy();
+            var state = service.LastSnapshot;
+            var position = Math.Max(0, state.TimeMs);
+            var duration = Math.Max(0, state.LengthMs);
+            await Task.Run(() => _services.Database.SaveHistoryAsync(snapshot, position, duration, cancellationToken), cancellationToken);
+        }
+        catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"保存播放记录失败: {ex.Message}"); }
+    }
+
+    private void OnCloudAuthenticationRequired(object? sender, CloudProviderKind provider)
+    {
+        _dispatcher.TryEnqueue(() =>
+        {
+            if (_request is null) return;
+            RequiredLoginProvider = provider;
+            StatusMessage = $"{provider} 网盘登录已过期，重新登录后将继续播放。";
+        });
+    }
+
+    private static string Format(long milliseconds)
+    {
+        var time = TimeSpan.FromMilliseconds(Math.Max(0, milliseconds));
+        return time.TotalHours >= 1 ? time.ToString(@"h\:mm\:ss") : time.ToString(@"mm\:ss");
+    }
+}

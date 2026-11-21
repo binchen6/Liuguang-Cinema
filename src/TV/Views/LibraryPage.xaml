@@ -1,0 +1,476 @@
+<Page x:Class="TV.Views.LibraryPage" x:Name="PageRoot"
+      xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+      xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+      xmlns:controls="using:TV.Controls"
+      Background="Transparent" Loaded="OnLoaded">
+    <Page.Resources>
+        <!-- 媒体库尺寸：继续观看大卡片、行列表缩略图（规格来自 1.2 设计规范 5.7/7） -->
+        <x:Double x:Key="WatchCardWidth">300</x:Double>
+        <x:Double x:Key="WatchCardHeight">170</x:Double>
+        <x:Double x:Key="ThumbnailWidth">56</x:Double>
+        <x:Double x:Key="ThumbnailHeight">84</x:Double>
+        <x:Double x:Key="LibraryRowMinHeight">56</x:Double>
+
+        <!-- 卡片底部压暗渐变（仅覆盖图片下部，文字保证可读） -->
+        <LinearGradientBrush x:Key="CardBottomScrim" StartPoint="0,0" EndPoint="0,1">
+            <GradientStop Color="Transparent" Offset="0.4" />
+            <GradientStop Color="#E60B0D12" Offset="1" />
+        </LinearGradientBrush>
+
+        <!-- 分段控件：圆角矩形 + 金色指示条，选中态不只靠颜色 -->
+        <Style x:Key="SegmentItemStyle" TargetType="ListViewItem">
+            <Setter Property="Height" Value="{StaticResource SecondaryButtonHeight}" />
+            <Setter Property="MinHeight" Value="{StaticResource SecondaryButtonHeight}" />
+            <Setter Property="Padding" Value="0,0" />
+            <Setter Property="Margin" Value="0,0,28,0" />
+            <Setter Property="FontSize" Value="{StaticResource FontSizeSecondary}" />
+            <Setter Property="HorizontalContentAlignment" Value="Center" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+            <Setter Property="CornerRadius" Value="{StaticResource RadiusChip}" />
+            <Setter Property="UseSystemFocusVisuals" Value="True" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ListViewItem">
+                        <Grid x:Name="Root" Background="Transparent" CornerRadius="{StaticResource RadiusChip}">
+                            <Border x:Name="Pill" Background="Transparent" CornerRadius="{StaticResource RadiusChip}" />
+                            <ContentPresenter x:Name="Presenter"
+                                              Content="{TemplateBinding Content}"
+                                              ContentTemplate="{TemplateBinding ContentTemplate}"
+                                              Padding="{TemplateBinding Padding}"
+                                              HorizontalContentAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                              VerticalContentAlignment="{TemplateBinding VerticalContentAlignment}" />
+                            <Border x:Name="Indicator" Width="16" Height="2" CornerRadius="{StaticResource RadiusTag}"
+                                    Background="{ThemeResource SelectionIndicatorBrush}" Opacity="0"
+                                    HorizontalAlignment="Center" VerticalAlignment="Bottom" Margin="0,0,0,6" />
+                            <VisualStateManager.VisualStateGroups>
+                                <VisualStateGroup x:Name="CommonStates">
+                                    <VisualState x:Name="Normal" />
+                                    <VisualState x:Name="PointerOver">
+                                        <VisualState.Setters>
+                                            <Setter Target="Pill.Background" Value="{ThemeResource SurfaceHoverBrush}" />
+                                        </VisualState.Setters>
+                                    </VisualState>
+                                    <VisualState x:Name="Pressed">
+                                        <VisualState.Setters>
+                                            <Setter Target="Pill.Background" Value="{ThemeResource SurfaceAltBrush}" />
+                                        </VisualState.Setters>
+                                    </VisualState>
+                                    <VisualState x:Name="Selected">
+                                        <VisualState.Setters>
+                                            <Setter Target="Pill.Background" Value="{ThemeResource SelectionBrush}" />
+                                            <Setter Target="Indicator.Opacity" Value="1" />
+                                        </VisualState.Setters>
+                                    </VisualState>
+                                    <VisualState x:Name="PointerOverSelected">
+                                        <VisualState.Setters>
+                                            <Setter Target="Pill.Background" Value="{ThemeResource AccentSoftBrush}" />
+                                            <Setter Target="Indicator.Opacity" Value="1" />
+                                        </VisualState.Setters>
+                                    </VisualState>
+                                    <VisualState x:Name="PressedSelected">
+                                        <VisualState.Setters>
+                                            <Setter Target="Pill.Background" Value="{ThemeResource SelectionBrush}" />
+                                            <Setter Target="Indicator.Opacity" Value="1" />
+                                        </VisualState.Setters>
+                                    </VisualState>
+                                    <VisualState x:Name="Disabled" />
+                                </VisualStateGroup>
+                                <VisualStateGroup x:Name="MultiSelectStates">
+                                    <VisualState x:Name="MultiSelectDisabled" />
+                                    <VisualState x:Name="MultiSelectEnabled" />
+                                </VisualStateGroup>
+                            </VisualStateManager.VisualStateGroups>
+                        </Grid>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- 继续观看：横向大卡片 -->
+        <Style x:Key="WatchCardItemStyle" TargetType="ListViewItem">
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="Margin" Value="0,2,16,8" />
+            <Setter Property="MinWidth" Value="0" />
+            <Setter Property="HorizontalContentAlignment" Value="Left" />
+            <Setter Property="VerticalContentAlignment" Value="Top" />
+            <Setter Property="UseSystemFocusVisuals" Value="True" />
+        </Style>
+
+        <!-- 收藏 / 下载：高密度行列表 -->
+        <Style x:Key="LibraryRowItemStyle" TargetType="ListViewItem">
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="Margin" Value="0,0,0,2" />
+            <Setter Property="MinHeight" Value="{StaticResource LibraryRowMinHeight}" />
+            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+            <Setter Property="CornerRadius" Value="{StaticResource RadiusControl}" />
+            <Setter Property="UseSystemFocusVisuals" Value="True" />
+        </Style>
+    </Page.Resources>
+
+    <Grid Padding="{StaticResource PagePaddingWide}" RowSpacing="{StaticResource SpaceLarge}">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <!-- 页头 -->
+        <Grid ColumnSpacing="{StaticResource SpaceMedium}">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <StackPanel Spacing="{StaticResource SpaceTiny}" VerticalAlignment="Center">
+                <TextBlock Text="媒体库" Style="{StaticResource PageTitleText}" />
+                <TextBlock Text="继续观看、收藏与下载的统一入口" Style="{StaticResource SecondaryText}" />
+            </StackPanel>
+            <TextBox Grid.Column="1" Width="240" VerticalAlignment="Center"
+                     PlaceholderText="搜索媒体库" AutomationProperties.Name="搜索媒体库"
+                     Text="{Binding SearchQuery, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+            <DropDownButton Grid.Column="2" Content="本地媒体" Style="{StaticResource SecondaryButtonStyle}" VerticalAlignment="Center"
+                            AutomationProperties.Name="本地媒体">
+                <DropDownButton.Flyout>
+                    <MenuFlyout>
+                        <MenuFlyoutItem Text="导入视频文件（可多选）" Command="{Binding ImportFilesCommand}" />
+                        <MenuFlyoutItem Text="导入文件夹并自动更新" Command="{Binding ImportFolderCommand}" />
+                        <MenuFlyoutSeparator />
+                        <MenuFlyoutItem Text="直接打开文件" Command="{Binding OpenFileCommand}" />
+                    </MenuFlyout>
+                </DropDownButton.Flyout>
+            </DropDownButton>
+            <Button Grid.Column="3" Style="{StaticResource IconButtonStyle}" VerticalAlignment="Center"
+                    Click="OnRefreshClick" ToolTipService.ToolTip="刷新"
+                    AutomationProperties.Name="刷新">
+                <FontIcon Glyph="&#xE72C;" FontSize="16" />
+            </Button>
+        </Grid>
+
+        <!-- 错误提示 -->
+        <InfoBar Grid.Row="1" IsOpen="{Binding HasError}" Message="{Binding StatusMessage}"
+                 Severity="Warning" IsClosable="False" />
+
+        <!-- 分段：继续观看 / 收藏 / 下载 -->
+        <ListView x:Name="SegmentList" Grid.Row="2" SelectionMode="Single"
+                  IsItemClickEnabled="False" HorizontalAlignment="Left" Padding="0"
+                  Background="Transparent" BorderThickness="0"
+                  ItemContainerStyle="{StaticResource SegmentItemStyle}"
+                  SelectionChanged="OnSegmentSelectionChanged"
+                  ScrollViewer.HorizontalScrollMode="Disabled"
+                  ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                  ScrollViewer.VerticalScrollMode="Disabled"
+                  ScrollViewer.VerticalScrollBarVisibility="Disabled">
+            <ListView.ItemsPanel>
+                <ItemsPanelTemplate>
+                    <StackPanel Orientation="Horizontal" />
+                </ItemsPanelTemplate>
+            </ListView.ItemsPanel>
+            <ListViewItem AutomationProperties.Name="继续观看" ToolTipService.ToolTip="继续观看">
+                <TextBlock Text="继续观看" Style="{StaticResource BodyText}" />
+            </ListViewItem>
+            <ListViewItem AutomationProperties.Name="收藏" ToolTipService.ToolTip="收藏">
+                <TextBlock Text="收藏" Style="{StaticResource BodyText}" />
+            </ListViewItem>
+            <ListViewItem AutomationProperties.Name="下载" ToolTipService.ToolTip="下载">
+                <TextBlock Text="下载" Style="{StaticResource BodyText}" />
+            </ListViewItem>
+            <ListViewItem AutomationProperties.Name="本地视频" ToolTipService.ToolTip="本地视频">
+                <TextBlock Text="本地视频" Style="{StaticResource BodyText}" />
+            </ListViewItem>
+        </ListView>
+
+        <!-- 内容区 -->
+        <Grid Grid.Row="3">
+
+            <!-- 继续观看 -->
+            <Grid Visibility="{Binding IsHistoryTab, Converter={StaticResource BoolToVisibility}}">
+                <ListView ItemsSource="{Binding History}" SelectionMode="None" IsItemClickEnabled="True"
+                          ItemClick="OnHistoryClick" Padding="0"
+                          Background="Transparent" BorderThickness="0"
+                          ItemContainerStyle="{StaticResource WatchCardItemStyle}"
+                          ScrollViewer.HorizontalScrollMode="Enabled"
+                          ScrollViewer.HorizontalScrollBarVisibility="Auto"
+                          ScrollViewer.VerticalScrollMode="Disabled"
+                          ScrollViewer.VerticalScrollBarVisibility="Disabled">
+                    <ListView.ItemsPanel>
+                        <ItemsPanelTemplate>
+                            <StackPanel Orientation="Horizontal" />
+                        </ItemsPanelTemplate>
+                    </ListView.ItemsPanel>
+                    <ListView.ItemTemplate>
+                        <DataTemplate>
+                            <Grid Width="{StaticResource WatchCardWidth}" Height="{StaticResource WatchCardHeight}">
+                                <Border CornerRadius="{StaticResource RadiusCard}"
+                                        Background="{ThemeResource PosterPlaceholderBrush}"
+                                        BorderBrush="{ThemeResource SubtleBorderBrush}" BorderThickness="1">
+                                    <Grid>
+                                        <!-- 封面：ImageBrush 渲染在圆角 Border 背景上，天然裁圆角 -->
+                                        <Grid>
+                                            <FontIcon Glyph="&#xE8B9;" FontSize="28" Foreground="{ThemeResource TertiaryTextBrush}" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                            <Image Source="{Binding Picture}" Stretch="UniformToFill" controls:PosterImage.AutoFit="True" />
+                                        </Grid>
+                                        <!-- 底部压暗渐变 -->
+                                        <Rectangle Fill="{StaticResource CardBottomScrim}" />
+                                        <StackPanel VerticalAlignment="Bottom" Padding="14,12,14,14"
+                                                    Spacing="{StaticResource SpaceTiny}">
+                                            <TextBlock Text="{Binding Title}" Style="{StaticResource CardTitleText}"
+                                                       MaxLines="1" TextTrimming="CharacterEllipsis" />
+                                            <TextBlock Text="{Binding Subtitle}" Style="{StaticResource MetaText}"
+                                                       TextTrimming="CharacterEllipsis" />
+                                            <Grid Margin="0,6,0,0" ColumnSpacing="{StaticResource SpaceMini}">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*" />
+                                                    <ColumnDefinition Width="Auto" />
+                                                </Grid.ColumnDefinitions>
+                                                <ProgressBar Value="{Binding Progress}" Maximum="100" Height="4"
+                                                             VerticalAlignment="Center"
+                                                             Background="{ThemeResource SubtleBorderBrush}"
+                                                             Foreground="{ThemeResource AccentFillBrush}"
+                                                             Visibility="{Binding HasProgress, Converter={StaticResource BoolToVisibility}}" />
+                                                <TextBlock Grid.Column="1" Text="已看完"
+                                                           Style="{StaticResource MetaText}"
+                                                           Foreground="{ThemeResource AccentBrush}"
+                                                           Visibility="{Binding IsCompleted, Converter={StaticResource BoolToVisibility}}" />
+                                            </Grid>
+                                        </StackPanel>
+                                        <Button Style="{StaticResource IconButtonStyle}" Margin="8"
+                                                HorizontalAlignment="Right" VerticalAlignment="Top"
+                                                Background="{ThemeResource ScrimBrush}" BorderThickness="0"
+                                                Tag="{Binding}" Click="OnDeleteHistoryClick"
+                                                AutomationProperties.Name="删除记录"
+                                                ToolTipService.ToolTip="删除记录">
+                                            <FontIcon Glyph="&#xE74D;" FontSize="16" />
+                                        </Button>
+                                    </Grid>
+                                </Border>
+                            </Grid>
+                        </DataTemplate>
+                    </ListView.ItemTemplate>
+                </ListView>
+                <!-- 空状态 -->
+                <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center"
+                            MaxWidth="380" Spacing="{StaticResource SpaceSmall}"
+                            Visibility="{Binding EmptyHistory, Converter={StaticResource StringToVisibility}}">
+                    <FontIcon Glyph="&#xE8B2;" FontSize="40" HorizontalAlignment="Center"
+                              Foreground="{ThemeResource SecondaryTextBrush}" />
+                    <TextBlock Text="{Binding EmptyHistory}" Style="{StaticResource SectionTitleText}"
+                               TextAlignment="Center" />
+                    <TextBlock Text="在点播页播放影片后，播放进度会自动出现在这里。" Style="{StaticResource SecondaryText}"
+                               TextAlignment="Center" />
+                    <Button Content="浏览点播" Click="OnBrowseVodClick"
+                            Style="{StaticResource PrimaryButtonStyle}"
+                            HorizontalAlignment="Center" />
+                </StackPanel>
+            </Grid>
+
+            <!-- 收藏 -->
+            <Grid Visibility="{Binding IsFavoritesTab, Converter={StaticResource BoolToVisibility}}">
+                <ListView ItemsSource="{Binding Favorites}" SelectionMode="None" IsItemClickEnabled="True"
+                          ItemClick="OnFavoriteClick" Padding="0"
+                          Background="Transparent" BorderThickness="0"
+                          ItemContainerStyle="{StaticResource LibraryRowItemStyle}">
+                    <ListView.ItemTemplate>
+                        <DataTemplate>
+                            <Grid MinHeight="{StaticResource LibraryRowMinHeight}" Padding="8"
+                                  ColumnSpacing="{StaticResource SpaceMedium}">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <Border Width="{StaticResource ThumbnailWidth}" Height="{StaticResource ThumbnailHeight}"
+                                        CornerRadius="{StaticResource RadiusControl}"
+                                        Background="{ThemeResource PosterPlaceholderBrush}"
+                                        BorderBrush="{ThemeResource SubtleBorderBrush}" BorderThickness="1">
+                                    <Grid>
+                                        <FontIcon Glyph="&#xE8B2;" FontSize="20"
+                                                  Foreground="{ThemeResource TertiaryTextBrush}"
+                                                  HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                        <Grid>
+                                            <FontIcon Glyph="&#xE8B9;" FontSize="20" Foreground="{ThemeResource TertiaryTextBrush}" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                            <Image Source="{Binding Picture}" Stretch="UniformToFill" controls:PosterImage.AutoFit="True" />
+                                        </Grid>
+                                    </Grid>
+                                </Border>
+                                <StackPanel Grid.Column="1" VerticalAlignment="Center"
+                                            Spacing="{StaticResource SpaceTiny}">
+                                    <TextBlock Text="{Binding Title}" Style="{StaticResource CardTitleText}"
+                                               MaxLines="1" TextTrimming="CharacterEllipsis" />
+                                    <TextBlock Text="{Binding Subtitle}" Style="{StaticResource MetaText}"
+                                               TextTrimming="CharacterEllipsis" />
+                                </StackPanel>
+                                <StackPanel Grid.Column="2" Orientation="Horizontal"
+                                            Spacing="{StaticResource SpaceMini}" VerticalAlignment="Center">
+                                    <Button Style="{StaticResource IconButtonStyle}" Tag="{Binding}"
+                                            Click="OnRemoveFavoriteClick"
+                                            AutomationProperties.Name="移除收藏"
+                                            ToolTipService.ToolTip="移除收藏">
+                                        <FontIcon Glyph="&#xE74D;" FontSize="16" />
+                                    </Button>
+                                </StackPanel>
+                            </Grid>
+                        </DataTemplate>
+                    </ListView.ItemTemplate>
+                </ListView>
+                <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center"
+                            MaxWidth="380" Spacing="{StaticResource SpaceSmall}"
+                            Visibility="{Binding EmptyFavorites, Converter={StaticResource StringToVisibility}}">
+                    <FontIcon Glyph="&#xE734;" FontSize="40" HorizontalAlignment="Center"
+                              Foreground="{ThemeResource SecondaryTextBrush}" />
+                    <TextBlock Text="{Binding EmptyFavorites}" Style="{StaticResource SectionTitleText}"
+                               TextAlignment="Center" />
+                    <TextBlock Text="在影片详情页点击收藏，影片会集中出现在这里。" Style="{StaticResource SecondaryText}"
+                               TextAlignment="Center" />
+                    <Button Content="刷新媒体库" Command="{Binding LoadCommand}"
+                            Style="{StaticResource PrimaryButtonStyle}"
+                            HorizontalAlignment="Center" />
+                </StackPanel>
+            </Grid>
+
+            <!-- 下载 -->
+            <Grid Visibility="{Binding IsDownloadsTab, Converter={StaticResource BoolToVisibility}}">
+                <ListView ItemsSource="{Binding Downloads}" SelectionMode="None" IsItemClickEnabled="True"
+                          ItemClick="OnDownloadClick" Padding="0"
+                          Background="Transparent" BorderThickness="0"
+                          ItemContainerStyle="{StaticResource LibraryRowItemStyle}">
+                    <ListView.ItemTemplate>
+                        <DataTemplate>
+                            <Grid MinHeight="{StaticResource LibraryRowMinHeight}" Padding="8"
+                                  ColumnSpacing="{StaticResource SpaceMedium}">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <Border Width="{StaticResource ThumbnailWidth}" Height="{StaticResource ThumbnailHeight}"
+                                        CornerRadius="{StaticResource RadiusControl}"
+                                        Background="{ThemeResource PosterPlaceholderBrush}"
+                                        BorderBrush="{ThemeResource SubtleBorderBrush}" BorderThickness="1">
+                                    <FontIcon Glyph="&#xE896;" FontSize="20"
+                                              Foreground="{ThemeResource TertiaryTextBrush}"
+                                              HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                </Border>
+                                <StackPanel Grid.Column="1" VerticalAlignment="Center"
+                                            Spacing="{StaticResource SpaceTiny}">
+                                    <TextBlock Text="{Binding Title}" Style="{StaticResource CardTitleText}"
+                                               MaxLines="1" TextTrimming="CharacterEllipsis" />
+                                    <TextBlock Text="{Binding Episode}" Style="{StaticResource MetaText}"
+                                               TextTrimming="CharacterEllipsis" />
+                                </StackPanel>
+                                <StackPanel Grid.Column="2" Orientation="Horizontal"
+                                            Spacing="{StaticResource SpaceMini}" VerticalAlignment="Center">
+                                    <Button Style="{StaticResource IconButtonStyle}" Tag="{Binding}"
+                                            Click="OnRevealDownloadClick"
+                                            AutomationProperties.Name="所在文件夹"
+                                            ToolTipService.ToolTip="所在文件夹">
+                                        <FontIcon Glyph="&#xE838;" FontSize="16" />
+                                    </Button>
+                                    <Button Style="{StaticResource IconButtonStyle}" Tag="{Binding}"
+                                            Click="OnRemoveDownloadClick"
+                                            AutomationProperties.Name="从媒体库移除"
+                                            ToolTipService.ToolTip="从媒体库移除">
+                                        <FontIcon Glyph="&#xE74D;" FontSize="16" />
+                                    </Button>
+                                </StackPanel>
+                            </Grid>
+                        </DataTemplate>
+                    </ListView.ItemTemplate>
+                </ListView>
+                <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center"
+                            MaxWidth="380" Spacing="{StaticResource SpaceSmall}"
+                            Visibility="{Binding EmptyDownloads, Converter={StaticResource StringToVisibility}}">
+                    <FontIcon Glyph="&#xE896;" FontSize="40" HorizontalAlignment="Center"
+                              Foreground="{ThemeResource SecondaryTextBrush}" />
+                    <TextBlock Text="{Binding EmptyDownloads}" Style="{StaticResource SectionTitleText}"
+                               TextAlignment="Center" />
+                    <TextBlock Text="在详情页选择下载，完成的剧集会归档在这里。" Style="{StaticResource SecondaryText}"
+                               TextAlignment="Center" />
+                    <Button Content="打开文件" Command="{Binding OpenFileCommand}"
+                            Style="{StaticResource PrimaryButtonStyle}"
+                            HorizontalAlignment="Center" />
+                </StackPanel>
+            </Grid>
+
+            <!-- 本地视频：索引与磁盘文件分离，移除索引不会删除原文件。 -->
+            <Grid Visibility="{Binding IsLocalTab, Converter={StaticResource BoolToVisibility}}" RowSpacing="{StaticResource SpaceSmall}">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+                <ScrollViewer HorizontalScrollMode="Auto" HorizontalScrollBarVisibility="Auto" VerticalScrollMode="Disabled"
+                              Visibility="{Binding IsLocalTab, Converter={StaticResource BoolToVisibility}}">
+                    <ItemsControl ItemsSource="{Binding LocalFolders}">
+                        <ItemsControl.ItemsPanel><ItemsPanelTemplate><StackPanel Orientation="Horizontal" /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Border Margin="0,0,8,0" Padding="10,4" CornerRadius="{StaticResource RadiusControl}"
+                                        Background="{ThemeResource SurfaceAltBrush}">
+                                    <StackPanel Orientation="Horizontal" Spacing="{StaticResource SpaceMini}">
+                                        <FontIcon Glyph="&#xE8B7;" FontSize="16" VerticalAlignment="Center" />
+                                        <TextBlock Text="{Binding}" Style="{StaticResource MetaText}" MaxWidth="240"
+                                                   TextTrimming="CharacterEllipsis" VerticalAlignment="Center" ToolTipService.ToolTip="{Binding}" />
+                                        <Button Style="{StaticResource GhostButtonStyle}" Content="停止监视" Tag="{Binding}"
+                                                Click="OnRemoveLocalFolderClick" AutomationProperties.Name="停止监视" />
+                                    </StackPanel>
+                                </Border>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </ScrollViewer>
+                <Grid Grid.Row="1">
+                    <ListView ItemsSource="{Binding LocalFiles}" SelectionMode="None" IsItemClickEnabled="False"
+                              Padding="0" Background="Transparent" BorderThickness="0"
+                              ItemContainerStyle="{StaticResource LibraryRowItemStyle}" AutomationProperties.Name="本地视频列表">
+                        <ListView.ItemTemplate>
+                            <DataTemplate>
+                                <Grid MinHeight="64" Padding="8" ColumnSpacing="{StaticResource SpaceMedium}">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <Button Click="OnLocalMediaClick" AutomationProperties.Name="{Binding Title}"
+                                            HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
+                                            Background="Transparent" BorderThickness="0" Padding="0">
+                                        <Grid ColumnSpacing="{StaticResource SpaceMedium}">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" />
+                                            </Grid.ColumnDefinitions>
+                                            <Border Width="64" Height="48" CornerRadius="{StaticResource RadiusControl}"
+                                                    Background="{ThemeResource SurfaceAltBrush}" VerticalAlignment="Center">
+                                                <FontIcon Glyph="&#xE8B2;" FontSize="24" Foreground="{ThemeResource AccentBrush}"
+                                                          HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                            </Border>
+                                            <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="{StaticResource SpaceTiny}">
+                                                <TextBlock Text="{Binding Title}" Style="{StaticResource CardTitleText}" MaxLines="1" />
+                                                <TextBlock Text="{Binding Path}" Style="{StaticResource MetaText}" TextTrimming="CharacterEllipsis"
+                                                           ToolTipService.ToolTip="{Binding Path}" />
+                                            </StackPanel>
+                                        </Grid>
+                                    </Button>
+                                    <Button Grid.Column="1" Style="{StaticResource IconButtonStyle}" Tag="{Binding}"
+                                            Click="OnRemoveLocalMediaClick" AutomationProperties.Name="从本地库移除"
+                                            ToolTipService.ToolTip="仅从媒体库移除，不删除文件">
+                                        <FontIcon Glyph="&#xE74D;" FontSize="16" />
+                                    </Button>
+                                </Grid>
+                            </DataTemplate>
+                        </ListView.ItemTemplate>
+                    </ListView>
+                    <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" MaxWidth="420"
+                                Spacing="{StaticResource SpaceSmall}" Visibility="{Binding EmptyLocal, Converter={StaticResource StringToVisibility}}">
+                        <FontIcon Glyph="&#xE8B2;" FontSize="40" Foreground="{ThemeResource SecondaryTextBrush}" HorizontalAlignment="Center" />
+                        <TextBlock Text="{Binding EmptyLocal}" Style="{StaticResource SectionTitleText}" TextAlignment="Center" />
+                        <TextBlock Text="导入一个或多个视频文件，或选择文件夹自动读取新增、修改和删除。"
+                                   Style="{StaticResource SecondaryText}" TextAlignment="Center" TextWrapping="Wrap" />
+                        <StackPanel Orientation="Horizontal" Spacing="{StaticResource SpaceMini}" HorizontalAlignment="Center">
+                            <Button Content="导入文件" Command="{Binding ImportFilesCommand}" Style="{StaticResource PrimaryButtonStyle}" />
+                            <Button Content="导入文件夹" Command="{Binding ImportFolderCommand}" Style="{StaticResource SecondaryButtonStyle}" />
+                        </StackPanel>
+                    </StackPanel>
+                </Grid>
+            </Grid>
+        </Grid>
+    </Grid>
+</Page>

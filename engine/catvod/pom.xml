@@ -1,0 +1,79 @@
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+  <groupId>tv</groupId>
+  <artifactId>catvod-engine</artifactId>
+  <version>1.0.0</version>
+  <properties>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    <maven.compiler.release>17</maven.compiler.release>
+  </properties>
+  <dependencies>
+    <dependency><groupId>com.google.android</groupId><artifactId>android</artifactId><version>4.1.1.4</version><scope>provided</scope></dependency>
+     <dependency><groupId>com.squareup.okhttp3</groupId><artifactId>okhttp</artifactId><version>3.12.13</version></dependency>
+    <dependency><groupId>com.google.code.gson</groupId><artifactId>gson</artifactId><version>2.8.6</version></dependency>
+    <dependency><groupId>org.jsoup</groupId><artifactId>jsoup</artifactId><version>1.15.3</version></dependency>
+    <dependency><groupId>cn.wanghaomiao</groupId><artifactId>JsoupXpath</artifactId><version>2.5.1</version></dependency>
+    <dependency><groupId>com.googlecode.juniversalchardet</groupId><artifactId>juniversalchardet</artifactId><version>1.0.3</version></dependency>
+    <dependency><groupId>org.nanohttpd</groupId><artifactId>nanohttpd</artifactId><version>2.3.1</version></dependency>
+    <dependency><groupId>com.google.zxing</groupId><artifactId>core</artifactId><version>3.3.0</version></dependency>
+    <dependency><groupId>org.apache.commons</groupId><artifactId>commons-lang3</artifactId><version>3.17.0</version></dependency>
+    <dependency><groupId>org.json</groupId><artifactId>json</artifactId><version>20231013</version></dependency>
+   </dependencies>
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId><artifactId>maven-antrun-plugin</artifactId><version>3.1.0</version>
+        <executions><execution><id>filter-catvod-sources</id><phase>generate-sources</phase><goals><goal>run</goal></goals>
+          <configuration><target><delete dir="${project.build.directory}/catvod-src"/><copy todir="${project.build.directory}/catvod-src">
+            <fileset dir="${project.basedir}/../../third_party/v2024/CatVodSpider-6a43253/app/src/main/java">
+              <include name="com/github/catvod/bean/**/*.java"/><include name="com/github/catvod/crawler/**/*.java"/>
+              <include name="com/github/catvod/net/**/*.java"/><include name="com/github/catvod/spider/**/*.java"/>
+              <include name="com/github/catvod/utils/**/*.java"/><include name="com/github/catvod/api/AliYun.java"/>
+              <exclude name="**/JSDemo.java"/><exclude name="**/WebDAV.java"/><exclude name="**/Market.java"/>
+              <exclude name="**/Notice.java"/><exclude name="**/Proxy.java"/><exclude name="**/FileProvider.java"/><exclude name="**/bean/webdav/**/*.java"/>
+            </fileset>
+          </copy>
+          <copy todir="${project.build.directory}/catvod-src" overwrite="true">
+            <fileset dir="${project.basedir}/../../third_party/quark/AndroidCatVodSpider-8415d16/app/src/main/java">
+              <include name="com/github/catvod/api/QuarkApi.java"/><include name="com/github/catvod/spider/Quark.java"/>
+              <include name="com/github/catvod/spider/Cloud.java"/><include name="com/github/catvod/spider/Libvio.java"/><include name="com/github/catvod/spider/ChangZhang.java"/><include name="com/github/catvod/bean/quark/**/*.java"/>
+              <include name="com/github/catvod/utils/Util.java"/><include name="com/github/catvod/utils/ProxyVideo.java"/><include name="com/github/catvod/utils/AESEncryption.java"/>
+              <include name="com/github/catvod/utils/Json.java"/><include name="com/github/catvod/net/OkHttp.java"/>
+              <include name="com/github/catvod/net/OkRequest.java"/><include name="com/github/catvod/net/OkResult.java"/><include name="com/github/catvod/net/SSLCompat.java"/>
+            </fileset>
+          </copy></target></configuration>
+        </execution></executions>
+      </plugin>
+      <plugin>
+        <groupId>org.codehaus.mojo</groupId><artifactId>build-helper-maven-plugin</artifactId><version>3.6.0</version>
+        <executions><execution><id>add-catvod-sources</id><phase>generate-sources</phase><goals><goal>add-source</goal></goals>
+          <configuration><sources><source>${project.build.directory}/catvod-src</source></sources></configuration>
+        </execution></executions>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId><artifactId>maven-compiler-plugin</artifactId><version>3.13.0</version>
+        <configuration>
+          <release>17</release>
+          <includes>
+            <include>com/github/catvod/bean/**/*.java</include><include>com/github/catvod/crawler/**/*.java</include>
+            <include>com/github/catvod/net/**/*.java</include><include>com/github/catvod/spider/**/*.java</include>
+            <include>com/github/catvod/utils/**/*.java</include><include>com/github/catvod/api/AliYun.java</include><include>com/github/catvod/api/QuarkApi.java</include><include>com/github/catvod/api/UCApi.java</include>
+            <include>tv/engine/**/*.java</include><include>android/**/*.java</include>
+          </includes>
+          <excludes>
+            <exclude>**/JSDemo.java</exclude><exclude>**/WebDAV.java</exclude><exclude>**/Market.java</exclude>
+            <exclude>**/Notice.java</exclude><exclude>**/FileProvider.java</exclude><exclude>**/bean/webdav/**/*.java</exclude>
+          </excludes>
+        </configuration>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId><artifactId>maven-shade-plugin</artifactId><version>3.6.0</version>
+        <executions><execution><phase>package</phase><goals><goal>shade</goal></goals>
+          <configuration><createDependencyReducedPom>false</createDependencyReducedPom><transformers>
+            <transformer implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer"><manifestEntries><Main-Class>tv.engine.Bridge</Main-Class></manifestEntries></transformer>
+          </transformers></configuration>
+        </execution></executions>
+      </plugin>
+    </plugins>
+  </build>
+</project>

@@ -1,0 +1,20 @@
+<Application
+    x:Class="TV.App"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:converters="using:TV.Converters">
+    <Application.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <XamlControlsResources xmlns="using:Microsoft.UI.Xaml.Controls" />
+                <ResourceDictionary Source="ms-appx:///Styles/Tokens.xaml" />
+                <ResourceDictionary Source="ms-appx:///Styles/Controls.xaml" />
+            </ResourceDictionary.MergedDictionaries>
+
+            <AcrylicBrush x:Key="PlayerGlassBrush" TintColor="#0B0D12" TintOpacity="0.9" FallbackColor="#F20B0D12" />
+            <converters:BoolToVisibilityConverter x:Key="BoolToVisibility" />
+            <converters:StringToVisibilityConverter x:Key="StringToVisibility" />
+            <converters:BoolToFavoriteConverter x:Key="FavoriteText" />
+        </ResourceDictionary>
+    </Application.Resources>
+</Application>

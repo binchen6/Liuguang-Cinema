@@ -1,0 +1,410 @@
+<Page
+    x:Class="TV.Views.SearchPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:controls="using:TV.Controls"
+    xmlns:local="using:TV.Converters"
+    Background="Transparent"
+    Loaded="OnLoaded"
+    Unloaded="OnUnloaded">
+    <Page.Resources>
+        <local:BoolToVisibilityConverter x:Key="BoolToVisibility" />
+        <local:StringToVisibilityConverter x:Key="StringToVisibility" />
+        <Style x:Key="SearchRowContainer" TargetType="ListViewItem">
+            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="Margin" Value="0" />
+            <Setter Property="MinHeight" Value="{StaticResource ListRowHeight}" />
+        </Style>
+        <Style x:Key="SearchSiteContainer" TargetType="ListViewItem" BasedOn="{StaticResource SearchRowContainer}">
+            <Setter Property="Padding" Value="{StaticResource ControlPaddingHorizontal}" />
+            <Setter Property="CornerRadius" Value="{StaticResource RadiusControl}" />
+        </Style>
+    </Page.Resources>
+
+    <Grid Padding="{StaticResource PagePaddingWide}">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <!-- 页头：主标题 + 副信息（同一条 32px 左缘基线） -->
+        <StackPanel Spacing="{StaticResource SpaceTiny}">
+            <TextBlock Text="搜索" Style="{StaticResource PageTitleText}" />
+            <TextBlock Text="跨站点查找片名、年份或类型，逐站显示进度与结果"
+                       Style="{StaticResource SecondaryText}" />
+        </StackPanel>
+
+        <!-- 搜索输入：44 高输入框 + 44 高主按钮，垂直中心对齐；回车或点按才提交 -->
+        <Grid Grid.Row="1" Margin="0,24,0,24" ColumnSpacing="{StaticResource SpaceMini}">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <Grid>
+                <controls:SearchTextBox x:Name="QueryBox"
+                         PlaceholderText="片名、年份或类型，输入时显示建议"
+                         MaxLength="160"
+                         AutomationProperties.Name="搜索关键词"
+                         VerticalAlignment="Center"
+                         Padding="12,10"
+                         Text="{Binding Query, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                         TextChanged="OnSuggestionTextChanged"
+                         TextInputReceived="OnQueryTextInputReceived"
+                         EditingKeyDown="OnQueryKeyDown">
+                    <FlyoutBase.AttachedFlyout>
+                        <Flyout x:Name="SuggestionsFlyout" Placement="BottomEdgeAlignedLeft">
+                            <Border Background="{ThemeResource SurfaceElevatedBrush}" BorderBrush="{ThemeResource SubtleBorderBrush}"
+                                    BorderThickness="1" CornerRadius="{StaticResource RadiusControl}" Padding="4">
+                                <ListView x:Name="SuggestionList" MaxHeight="280" SelectionMode="Single"
+                                          Background="Transparent" BorderThickness="0" AutomationProperties.Name="搜索建议">
+                                    <ListView.ItemTemplate>
+                                        <DataTemplate>
+                                            <Button Content="{Binding}" Click="OnSuggestionClick" HorizontalAlignment="Stretch"
+                                                    HorizontalContentAlignment="Left" Background="Transparent" BorderThickness="0"
+                                                    AutomationProperties.Name="{Binding}" />
+                                        </DataTemplate>
+                                    </ListView.ItemTemplate>
+                                </ListView>
+                            </Border>
+                        </Flyout>
+                    </FlyoutBase.AttachedFlyout>
+                </controls:SearchTextBox>
+            </Grid>
+            <Button Grid.Column="1"
+                    Style="{StaticResource PrimaryButtonStyle}"
+                    VerticalAlignment="Center"
+                    Command="{Binding SubmitCommand}"
+                    AutomationProperties.Name="搜索"
+                    ToolTipService.ToolTip="搜索（回车）">
+                <StackPanel Orientation="Horizontal" Spacing="{StaticResource SpaceMini}">
+                    <FontIcon Glyph="&#xE721;" FontSize="18" Foreground="{ThemeResource AccentInkBrush}" />
+                    <TextBlock Text="搜索" FontWeight="SemiBold" Foreground="{ThemeResource AccentInkBrush}" />
+                </StackPanel>
+            </Button>
+        </Grid>
+
+        <!-- 主体：站点列 + 历史/结果列。
+             两列共用同一行页头（标题行高由 40 高的次按钮决定），列间距 24、页头与内容间距 12。 -->
+        <Grid Grid.Row="2"
+              ColumnSpacing="{StaticResource SpaceLarge}"
+              RowSpacing="{StaticResource SpaceSmall}">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
+            </Grid.RowDefinitions>
+
+            <Grid Width="{StaticResource NavPaneWidth}"
+                  Padding="{StaticResource ControlPaddingHorizontal}"
+                  ColumnSpacing="{StaticResource SpaceMini}" VerticalAlignment="Center">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <TextBlock Text="站点" Style="{StaticResource LabelText}" VerticalAlignment="Center" />
+                <TextBlock Grid.Column="1" Text="逐站进度" Style="{StaticResource MetaText}"
+                           VerticalAlignment="Center" />
+            </Grid>
+
+            <!-- 右列头：历史态（搜索历史 + 清空）/ 结果态（结果标题），筛选始终在最右侧与结果区右缘同一条竖线 -->
+            <Grid Grid.Column="1" ColumnSpacing="{StaticResource SpaceSmall}">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <TextBlock Text="搜索历史" Style="{StaticResource SectionTitleText}"
+                           VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
+                           Visibility="{Binding ShowsHistory, Converter={StaticResource BoolToVisibility}}" />
+                <!-- 结果态标题；历史态隐藏，避免空标题只剩一个孤立「·」 -->
+                <TextBlock Text="{Binding ResultsHeading}" Style="{StaticResource CardTitleText}"
+                           VerticalAlignment="Center" MaxLines="1" TextTrimming="CharacterEllipsis"
+                           Visibility="{Binding ShowsHistory, Converter={StaticResource BoolToVisibility}, ConverterParameter=Inverse}" />
+                <StackPanel Grid.Column="1" VerticalAlignment="Center"
+                            Visibility="{Binding ShowsHistory, Converter={StaticResource BoolToVisibility}}">
+                    <Button Content="清空"
+                            Command="{Binding ClearHistoryCommand}"
+                            Style="{StaticResource SecondaryButtonStyle}"
+                            AutomationProperties.Name="清空"
+                            Visibility="{Binding HasHistory, Converter={StaticResource BoolToVisibility}}" />
+                </StackPanel>
+                <Button x:Name="FilterButton" Grid.Column="2"
+                        Style="{StaticResource SecondaryButtonStyle}"
+                        AutomationProperties.Name="筛选"
+                        VerticalAlignment="Center"
+                        Visibility="{Binding ShowsHistory, Converter={StaticResource BoolToVisibility}, ConverterParameter=Inverse}">
+                    <StackPanel Orientation="Horizontal" Spacing="{StaticResource SpaceMini}">
+                        <FontIcon Glyph="&#xE71C;" FontSize="16" />
+                        <TextBlock Text="筛选" Style="{StaticResource SecondaryText}"
+                                   Foreground="{ThemeResource PrimaryTextBrush}" />
+                    </StackPanel>
+                    <Button.Flyout>
+                        <Flyout Placement="BottomEdgeAlignedRight">
+                            <StackPanel Spacing="{StaticResource SpaceSmall}" Width="240">
+                                <controls:AnchoredChoice Header="类型" ItemsSource="{Binding Types}"
+                                                         SelectedItem="{Binding SelectedType, Mode=TwoWay}"
+                                                         HorizontalAlignment="Stretch" />
+                                <TextBox Header="年份"
+                                         Text="{Binding Year, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                         MaxLength="4" />
+                                <controls:AnchoredChoice Header="排序" Options="相关度|年份"
+                                                         SelectedIndex="{Binding SortIndex, Mode=TwoWay}"
+                                                         HorizontalAlignment="Stretch" />
+                            </StackPanel>
+                        </Flyout>
+                    </Button.Flyout>
+                </Button>
+            </Grid>
+
+            <!-- 站点标题与列表项的文字使用相同的水平内边距。 -->
+            <ListView Grid.Row="1"
+                      Width="{StaticResource NavPaneWidth}"
+                      AutomationProperties.Name="搜索站点"
+                      ItemsSource="{Binding Scopes}"
+                      SelectedItem="{Binding Scope, Mode=TwoWay}"
+                      SelectionMode="Single"
+                      Background="Transparent"
+                      BorderThickness="0"
+                      ItemContainerStyle="{StaticResource SearchSiteContainer}"
+                      ContainerContentChanging="OnScopeContainerChanging">
+                <ListView.ItemTemplate>
+                    <DataTemplate>
+                        <Grid ColumnSpacing="{StaticResource SpaceMini}" VerticalAlignment="Center">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Spacing="0" VerticalAlignment="Center">
+                                <TextBlock Text="{Binding Name}" Style="{StaticResource CardTitleText}"
+                                           MaxLines="1" TextTrimming="CharacterEllipsis" />
+                                <TextBlock Text="{Binding Group.Status}" Style="{StaticResource MetaText}"
+                                           TextTrimming="CharacterEllipsis"
+                                           Visibility="{Binding Group.Status, Converter={StaticResource StringToVisibility}, FallbackValue=Collapsed}" />
+                            </StackPanel>
+                            <Button Grid.Column="1"
+                                    Content="重试"
+                                    Click="OnRetryClick"
+                                    DataContext="{Binding Group}"
+                                    Style="{StaticResource GhostButtonStyle}"
+                                    AutomationProperties.Name="重试"
+                                    ToolTipService.ToolTip="重新搜索该站点"
+                                    Visibility="{Binding CanRetry, Converter={StaticResource BoolToVisibility}, FallbackValue=Collapsed}" />
+                        </Grid>
+                    </DataTemplate>
+                </ListView.ItemTemplate>
+            </ListView>
+
+            <!-- 右列：历史态（搜索历史列表 / 空态） -->
+            <Grid Grid.Row="1" Grid.Column="1"
+                  Visibility="{Binding ShowsHistory, Converter={StaticResource BoolToVisibility}}">
+                <ListView ItemsSource="{Binding RecentSearches}"
+                          SelectionMode="None"
+                          Background="Transparent"
+                          BorderThickness="0"
+                          ItemContainerStyle="{StaticResource SearchRowContainer}"
+                          Visibility="{Binding HasHistory, Converter={StaticResource BoolToVisibility}}">
+                    <ListView.ItemTemplate>
+                        <DataTemplate>
+                            <Grid ColumnSpacing="{StaticResource SpaceMini}">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <Button Click="OnHistoryClick"
+                                        DataContext="{Binding}"
+                                        AutomationProperties.Name="{Binding}"
+                                        HorizontalAlignment="Stretch"
+                                        HorizontalContentAlignment="Left"
+                                        Background="Transparent"
+                                        BorderThickness="0"
+                                        Padding="0"
+                                        MinHeight="{StaticResource ListRowHeight}">
+                                    <StackPanel Orientation="Horizontal" Spacing="{StaticResource SpaceSmall}">
+                                        <FontIcon Glyph="&#xE81C;" FontSize="16"
+                                                  Foreground="{ThemeResource TertiaryTextBrush}" />
+                                        <TextBlock Text="{Binding}" Style="{StaticResource BodyText}"
+                                                   VerticalAlignment="Center" />
+                                    </StackPanel>
+                                </Button>
+                                <Button Grid.Column="1"
+                                        Click="OnRemoveHistoryClick"
+                                        DataContext="{Binding}"
+                                        Style="{StaticResource IconButtonStyle}"
+                                        ToolTipService.ToolTip="删除此条搜索记录"
+                                        AutomationProperties.Name="删除此条搜索记录">
+                                    <FontIcon Glyph="&#xE74D;" FontSize="16" />
+                                </Button>
+                            </Grid>
+                        </DataTemplate>
+                    </ListView.ItemTemplate>
+                </ListView>
+
+                <StackPanel Spacing="{StaticResource SpaceSmall}"
+                            HorizontalAlignment="Center" VerticalAlignment="Center"
+                            MaxWidth="{StaticResource TextParagraphMaxWidth}"
+                            Visibility="{Binding HasHistory, Converter={StaticResource BoolToVisibility}, ConverterParameter=Inverse}">
+                    <FontIcon Glyph="&#xE81C;" FontSize="40"
+                              Foreground="{ThemeResource SecondaryTextBrush}" />
+                    <TextBlock Text="暂无搜索记录" Style="{StaticResource SectionTitleText}"
+                               HorizontalAlignment="Center" Margin="0,12,0,0" />
+                    <TextBlock Text="搜索过的关键词会显示在这里，点一下即可再次搜索。"
+                               Style="{StaticResource SecondaryText}" HorizontalAlignment="Center"
+                               TextAlignment="Center" />
+                </StackPanel>
+            </Grid>
+
+            <!-- 右列：结果态（并站进度 + 海报流，统一加载 / 空 / 失败状态，空态垂直居中） -->
+            <Grid Grid.Row="1" Grid.Column="1"
+                  Visibility="{Binding ShowsHistory, Converter={StaticResource BoolToVisibility}, ConverterParameter=Inverse}">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+
+                <ProgressBar IsIndeterminate="{Binding IsSearching}"
+                             Foreground="{ThemeResource AccentFillBrush}"
+                             Height="3"
+                             Margin="0,0,0,8"
+                             Visibility="{Binding IsSearching, Converter={StaticResource BoolToVisibility}}" />
+
+                <Grid Grid.Row="1">
+                    <GridView x:Name="ResultsList"
+                              AutomationProperties.Name="搜索结果"
+                              ItemsSource="{Binding Rows}"
+                              SelectionMode="None"
+                              Background="Transparent"
+                              BorderThickness="0"
+                              ContainerContentChanging="OnResultContainerChanging"
+                              SizeChanged="OnResultSizeChanged"
+                              ScrollViewer.HorizontalScrollMode="Disabled"
+                              ScrollViewer.VerticalScrollBarVisibility="Auto"
+                              ScrollViewer.IsVerticalScrollChainingEnabled="False">
+                        <GridView.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <ItemsWrapGrid Orientation="Horizontal" ItemWidth="206" ItemHeight="382" />
+                            </ItemsPanelTemplate>
+                        </GridView.ItemsPanel>
+                        <GridView.ItemContainerStyle>
+                            <Style TargetType="GridViewItem">
+                                <Setter Property="Padding" Value="0" />
+                                <Setter Property="Margin" Value="0" />
+                                <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                                <Setter Property="VerticalContentAlignment" Value="Top" />
+                            </Style>
+                        </GridView.ItemContainerStyle>
+                        <GridView.ItemTemplate>
+                            <DataTemplate>
+                                <Button Padding="0"
+                                        BorderThickness="0"
+                                        Background="Transparent"
+                                        HorizontalAlignment="Stretch"
+                                        HorizontalContentAlignment="Stretch"
+                                        AutomationProperties.Name="{Binding Item.Name}"
+                                        Margin="0,0,18,22"
+                                        Click="OnResultClick">
+                                    <Grid RowSpacing="{StaticResource SpaceMini}">
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition Height="282" />
+                                            <RowDefinition Height="44" />
+                                            <RowDefinition Height="Auto" />
+                                        </Grid.RowDefinitions>
+
+                                        <Border Grid.Row="0"
+                                                CornerRadius="{StaticResource RadiusCard}"
+                                                BorderThickness="1"
+                                                BorderBrush="{ThemeResource SubtleBorderBrush}"
+                                                Background="{ThemeResource PosterPlaceholderBrush}">
+                                            <Grid>
+                                                <FontIcon Glyph="&#xE8B9;" FontSize="30"
+                                                          Foreground="{ThemeResource TertiaryTextBrush}"
+                                                          HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                                <Image Source="{Binding Poster}" Stretch="UniformToFill" controls:PosterImage.AutoFit="True" />
+                                                <Border Visibility="{Binding Item.Remarks, Converter={StaticResource StringToVisibility}}"
+                                                        Background="#CC0B0D12"
+                                                        CornerRadius="{StaticResource RadiusControl}"
+                                                        Padding="8,3"
+                                                        HorizontalAlignment="Left" VerticalAlignment="Top"
+                                                        Margin="10">
+                                                    <TextBlock Text="{Binding Item.Remarks}"
+                                                               Style="{StaticResource MetaText}"
+                                                               FontWeight="SemiBold"
+                                                               Foreground="{ThemeResource PrimaryTextBrush}" />
+                                                </Border>
+                                                <Border Visibility="{Binding Rating, Converter={StaticResource StringToVisibility}}"
+                                                        Background="#CC0B0D12"
+                                                        CornerRadius="{StaticResource RadiusControl}"
+                                                        Padding="8,3"
+                                                        HorizontalAlignment="Right" VerticalAlignment="Top"
+                                                        Margin="10">
+                                                    <TextBlock Text="{Binding Rating}"
+                                                               Style="{StaticResource MetaText}"
+                                                               FontWeight="SemiBold"
+                                                               Foreground="{ThemeResource RatingBrush}" />
+                                                </Border>
+                                            </Grid>
+                                        </Border>
+
+                                        <TextBlock Grid.Row="1" Text="{Binding Item.Name}"
+                                                   Style="{StaticResource CardTitleText}" />
+                                        <StackPanel Grid.Row="2" Orientation="Horizontal"
+                                                    Spacing="{StaticResource SpaceMini}">
+                                            <TextBlock Text="{Binding Item.Year}" Style="{StaticResource MetaText}" />
+                                            <TextBlock Text="·" Style="{StaticResource MetaText}"
+                                                       Visibility="{Binding Item.Year, Converter={StaticResource StringToVisibility}}" />
+                                            <TextBlock Text="{Binding SearchSourceLabel}" Style="{StaticResource MetaText}"
+                                                       TextTrimming="CharacterEllipsis" />
+                                        </StackPanel>
+                                    </Grid>
+                                </Button>
+                            </DataTemplate>
+                        </GridView.ItemTemplate>
+                    </GridView>
+
+                    <StackPanel x:Name="LoadingState"
+                                Visibility="Collapsed"
+                                Spacing="{StaticResource SpaceSmall}"
+                                MaxWidth="{StaticResource TextParagraphMaxWidth}"
+                                HorizontalAlignment="Center" VerticalAlignment="Center">
+                        <ProgressRing Width="40" Height="40" IsActive="True"
+                                      Foreground="{ThemeResource AccentFillBrush}"
+                                      HorizontalAlignment="Center" />
+                        <TextBlock Text="正在搜索…" Style="{StaticResource SectionTitleText}"
+                                   HorizontalAlignment="Center" Margin="0,8,0,0" />
+                        <TextBlock Text="正在并发查询各站点，结果会逐个出现。"
+                                   Style="{StaticResource SecondaryText}"
+                                   HorizontalAlignment="Center" TextAlignment="Center" />
+                    </StackPanel>
+
+                    <StackPanel x:Name="EmptyState"
+                                Visibility="Collapsed"
+                                Spacing="{StaticResource SpaceSmall}"
+                                MaxWidth="{StaticResource TextParagraphMaxWidth}"
+                                HorizontalAlignment="Center" VerticalAlignment="Center">
+                        <FontIcon x:Name="EmptyIcon" Glyph="&#xE721;" FontSize="40"
+                                  Foreground="{ThemeResource SecondaryTextBrush}"
+                                  HorizontalAlignment="Center" />
+                        <TextBlock x:Name="EmptyTitle" Text="没有找到匹配的影片"
+                                   Style="{StaticResource SectionTitleText}"
+                                   HorizontalAlignment="Center" Margin="0,12,0,0" />
+                        <TextBlock x:Name="EmptyDescription"
+                                   Text="换个关键词试试，或清空筛选条件后重新搜索。"
+                                   Style="{StaticResource SecondaryText}"
+                                   HorizontalAlignment="Center" TextAlignment="Center" />
+                        <Button Content="重新搜索"
+                                Style="{StaticResource PrimaryButtonStyle}"
+                                Command="{Binding SubmitCommand}"
+                                AutomationProperties.Name="重新搜索"
+                                HorizontalAlignment="Center"
+                                Margin="0,8,0,0" />
+                    </StackPanel>
+                </Grid>
+            </Grid>
+        </Grid>
+    </Grid>
+</Page>
