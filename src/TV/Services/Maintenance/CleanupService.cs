@@ -38,7 +38,7 @@ public sealed class CleanupService(DatabaseService database)
         var image = await Task.Run(() => Measure(AppPaths.Images, path => Path.GetExtension(path) == ".img"), token);
         categories.Add(new CleanupCategory(Images, "海报与图片缓存", "可安全重建，不影响收藏与历史", image.Bytes, image.Files, true));
         var subtitles = Path.Combine(AppPaths.Root, "cache", "subtitles");
-        var subtitle = await Task.Run(() => Measure(subtitles, path => Path.GetExtension(path) == ".vtt"), token);
+        var subtitle = await Task.Run(() => Measure(subtitles, path => Path.GetExtension(path) is ".vtt" or ".tmp"), token);
         categories.Add(new CleanupCategory(Subtitles, "在线字幕缓存", "删除后再次使用时重新下载转换", subtitle.Bytes, subtitle.Files, true));
         var temporary = await Task.Run(() => Measure(Path.Combine(AppPaths.Root, "cache"), path =>
             !IsUnder(path, AppPaths.Images) && !IsUnder(path, subtitles) && (Path.GetFileName(path).StartsWith("cast-", StringComparison.OrdinalIgnoreCase) ||
@@ -99,7 +99,7 @@ public sealed class CleanupService(DatabaseService database)
         {
             progress?.Report("正在清理在线字幕缓存…");
             var folder = Path.Combine(AppPaths.Root, "cache", "subtitles");
-            await DeleteFilesAsync(Files(folder, path => Path.GetExtension(path) == ".vtt"));
+            await DeleteFilesAsync(Files(folder, path => Path.GetExtension(path) is ".vtt" or ".tmp"));
         }
         if (ids.Contains(AppTemporary))
         {

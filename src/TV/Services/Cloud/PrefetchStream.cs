@@ -12,8 +12,13 @@ public sealed class PrefetchStream : Stream
     private IReadOnlyDictionary<string, string> _headers;
     private readonly long _endExclusive;
     private readonly long _fileLength;
-    private readonly int _chunkSize;
+    private int _chunkSize;
+    private readonly int _preferredChunkSize;
     private int _threads;
+    private readonly int _maxThreads;
+    private readonly object _adaptSync = new();
+    private int _fastChunks;
+    private int _slowChunks;
     private readonly SemaphoreSlim _gate;
     private readonly CancellationTokenSource _lifetime;
     private readonly EntityTagHeaderValue? _entityTag;
@@ -35,7 +40,9 @@ public sealed class PrefetchStream : Stream
         _endExclusive = endExclusive;
         _fileLength = fileLength;
         _chunkSize = chunkSize;
+        _preferredChunkSize = chunkSize;
         _threads = Math.Clamp(threads, 1, 3);
+        _maxThreads = _threads;
         _gate = gate;
         _lifetime = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         _entityTag = entityTag;
@@ -74,9 +81,11 @@ public sealed class PrefetchStream : Stream
 
     private void ScheduleWindow()
     {
-        for (var i = 0; i < _threads - 1; i++)
+        var chunkSize = _chunkSize;
+        var threads = _threads;
+        for (var i = 0; i < threads - 1; i++)
         {
-            var distance = (long)i * _chunkSize;
+            var distance = (long)i * chunkSize;
             if (_disposed || distance >= _endExclusive - _nextPosition) break;
             var start = _nextPosition + distance;
             if (!_chunks.ContainsKey(start)) _chunks.TryAdd(start, FetchAsync(start, _lifetime.Token));
@@ -95,6 +104,7 @@ public sealed class PrefetchStream : Stream
                     using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
                     deadline.CancelAfter(TimeSpan.FromSeconds(18));
                     var token = deadline.Token;
+                    var started = System.Diagnostics.Stopwatch.StartNew();
                     using var request = new HttpRequestMessage(HttpMethod.Get, _url);
                     foreach (var (name, value) in _headers)
                         if (!name.Equals("Host", StringComparison.OrdinalIgnoreCase))
@@ -128,6 +138,7 @@ public sealed class PrefetchStream : Stream
                     await using var source = await response.Content.ReadAsStreamAsync(token).ConfigureAwait(false);
                     var bytes = GC.AllocateUninitializedArray<byte>(size);
                     await source.ReadExactlyAsync(bytes, token).ConfigureAwait(false);
+                    AdjustWindow(bytes.Length, started.Elapsed);
                     return bytes;
                 }
                 catch (Exception ex) when (attempt < 2 && !cancellationToken.IsCancellationRequested &&
@@ -139,6 +150,39 @@ public sealed class PrefetchStream : Stream
             throw new IOException("媒体分块读取失败。");
         }
         finally { _gate.Release(); }
+    }
+
+    private void AdjustWindow(int bytes, TimeSpan elapsed)
+    {
+        if (bytes < 64 * 1024) return;
+        lock (_adaptSync)
+        {
+            if (elapsed > TimeSpan.FromSeconds(5))
+            {
+                _fastChunks = 0;
+                _slowChunks++;
+                if (_threads > 1) _threads--;
+                if (_slowChunks >= 2)
+                {
+                    _chunkSize = Math.Max(1024 * 1024, _chunkSize / 2);
+                    _slowChunks = 0;
+                }
+            }
+            else if (elapsed < TimeSpan.FromMilliseconds(1200))
+            {
+                _slowChunks = 0;
+                if (++_fastChunks >= 4)
+                {
+                    _threads = Math.Min(_maxThreads, _threads + 1);
+                    _chunkSize = Math.Min(_preferredChunkSize, _chunkSize + 1024 * 1024);
+                    _fastChunks = 0;
+                }
+            }
+            else
+            {
+                _fastChunks = _slowChunks = 0;
+            }
+        }
     }
 
     protected override void Dispose(bool disposing)

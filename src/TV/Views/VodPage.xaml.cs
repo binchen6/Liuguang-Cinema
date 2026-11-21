@@ -32,20 +32,31 @@ public sealed partial class VodPage : Page
     }
 
     private ScrollViewer? _postersScroll;
+    private bool _browseLayoutReady;
     private void OnSearchClick(object sender, RoutedEventArgs e) => App.Window.OpenSearch();
     private void OnPostersLoaded(object sender, RoutedEventArgs e)
     {
+        _browseLayoutReady = false;
+        BrowseHeader.Visibility = GalleryHost.Visibility = Visibility.Visible;
+        BackToTop.Visibility = Visibility.Collapsed;
         _postersScroll = SearchPage.FindScrollViewer(Posters);
-        if (_postersScroll is not null) _postersScroll.ViewChanged += OnBrowseScroll;
+        if (_postersScroll is not null)
+        {
+            _postersScroll.ViewChanged += OnBrowseScroll;
+            _postersScroll.ChangeView(null, 0, null, true);
+        }
+        DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () => _browseLayoutReady = true);
     }
     private void OnPostersUnloaded(object sender, RoutedEventArgs e)
     {
+        _browseLayoutReady = false;
         if (_postersScroll is not null) _postersScroll.ViewChanged -= OnBrowseScroll;
         _postersScroll = null;
     }
     private void OnTopClick(object sender, RoutedEventArgs e) => _postersScroll?.ChangeView(null, 0, null);
     private void OnBrowseScroll(object? sender, ScrollViewerViewChangedEventArgs e)
     {
+        if (!_browseLayoutReady) return;
         var offset = _postersScroll?.VerticalOffset ?? 0;
         if (offset > 0 && offset < 40) return;
         BrowseHeader.Visibility = GalleryHost.Visibility = offset >= 40 ? Visibility.Collapsed : Visibility.Visible;

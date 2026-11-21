@@ -34,8 +34,8 @@
 安装包目前未购买 Authenticode 代码签名，Windows 可能显示 SmartScreen 提示。请核对发布页提供的 SHA-256：
 
 ```powershell
-Get-FileHash .\TV-Setup-1.3.1-x64.exe -Algorithm SHA256
-Get-Content .\TV-Setup-1.3.1-x64.exe.sha256
+Get-FileHash .\TV-Setup-1.4.0-x64.exe -Algorithm SHA256
+Get-Content .\TV-Setup-1.4.0-x64.exe.sha256
 ```
 
 ## 使用指南

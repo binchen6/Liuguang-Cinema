@@ -116,6 +116,7 @@ using (var http = new HttpClient())
         var progress = 0d;
         await downloadService.SaveAsync(new PlaybackRequest { Url = $"http://127.0.0.1:{port}/movie.mp4" }, mp4,
             new Progress<double>(value => progress = value), CancellationToken.None);
+        await Until(() => Task.FromResult(progress == 100), "MP4 completion progress callback");
         Require(new FileInfo(mp4).Length == 256 * 1024 && progress == 100, "batch download writes the complete MP4 and reports completion");
         var hls = Path.Combine(downloadRoot, "episode2.m3u8");
         await downloadService.SaveAsync(new PlaybackRequest { Url = $"http://127.0.0.1:{port}/master.m3u8" }, hls, new Progress<double>(), CancellationToken.None);

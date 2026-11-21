@@ -44,6 +44,8 @@ $env:TV_DATA_ROOT = Join-Path $PWD ('artifacts/tmp/dev-' + [guid]::NewGuid().ToS
 | `Services/Live`、`LiveViewModel.cs` | 读取 TXT、M3U、JSON，维护源、分组、频道线路和 EPG |
 | `Models/PlaybackParsing.cs`、`Services/Playback` | 线路和剧集拆分，解析直链、HLS、静态 DASH、WebView2、轨道和 HDR，调用 LibVLC |
 | `Services/Cloud`、`Services/Http`、`Services/Imaging` | 四网盘分享/个人文件、统一扫码协调、可刷新媒体代理、请求头与重定向范围、封面缓存 |
+| `Services/Library`、`Services/Maintenance` | 本地文件索引、文件夹监视、分类扫描与显式安全清理 |
+| `Services/Playback/OnlineMediaService.cs`、`Services/Vod/SourceRecoveryService.cs` | B 站节目/集数匹配与字幕转换、同源刷新和跨站恢复 |
 
 修业务逻辑时同时核对入口和返回链路，尤其是搜索取消、切换站点、从详情返回、选集后切换线路。页面改动遵循[设计契约](design-guide-1.2.md)，保留 UIA 名称。WinUI 布局使用 DIP，自动化截图常用物理像素。150% 缩放下两者比例为 1.5。
 
