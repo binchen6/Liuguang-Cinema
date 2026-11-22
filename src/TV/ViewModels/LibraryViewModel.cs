@@ -86,12 +86,19 @@ public sealed partial class LibraryViewModel : ObservableObject
         try
         {
             var database = _services.Database;
-            var history = await database.GetHistoryAsync();
-            var favorites = await database.GetFavoritesAsync();
-            var downloads = await database.GetDownloadsAsync();
-            await _services.LocalMedia.InitializeAsync();
-            _localFiles = await _services.LocalMedia.GetFilesAsync();
-            var folders = await _services.LocalMedia.GetFoldersAsync();
+            var historyTask = database.GetHistoryAsync();
+            var favoritesTask = database.GetFavoritesAsync();
+            var downloadsTask = database.GetDownloadsAsync();
+            var localInitTask = _services.LocalMedia.InitializeAsync();
+            await Task.WhenAll(historyTask, favoritesTask, downloadsTask, localInitTask);
+            var history = await historyTask;
+            var favorites = await favoritesTask;
+            var downloads = await downloadsTask;
+            var localFilesTask = _services.LocalMedia.GetFilesAsync();
+            var foldersTask = _services.LocalMedia.GetFoldersAsync();
+            await Task.WhenAll(localFilesTask, foldersTask);
+            _localFiles = await localFilesTask;
+            var folders = await foldersTask;
             LocalFolders.Clear();
             foreach (var folder in folders) LocalFolders.Add(folder);
             _history = history;
@@ -215,6 +222,7 @@ public sealed partial class LibraryViewModel : ObservableObject
         try
         {
             var files = await picker.PickMultipleFilesAsync();
+            if (files is null || files.Count == 0) return;
             var count = await _services.LocalMedia.ImportFilesAsync(files.Select(file => file.Path));
             _localFiles = await _services.LocalMedia.GetFilesAsync();
             SelectedTab = 3;

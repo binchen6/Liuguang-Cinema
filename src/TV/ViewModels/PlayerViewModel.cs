@@ -6,6 +6,7 @@ using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
 using TV.Models;
 using TV.Services;
+using TV.Services.AI;
 using TV.Services.Playback;
 using TV.Services.Vod.Native;
 
@@ -47,6 +48,12 @@ public sealed partial class PlayerViewModel : ObservableObject
     private string _timingKey = string.Empty;
     private PlaybackRequest? _resolvedMedia;
     private Uri? _selectedCloudSubtitleAddress;
+    private CancellationTokenSource? _aiSubtitleCts;
+    private string? _activeExternalSubtitlePath;
+    private List<SubtitleCue>? _activeExternalSubtitleCues;
+    private string? _lastGeneratedAiSubtitlePath;
+    private bool _externalSubtitleSpeedBaked;
+    private long _lastAppliedDynamicSpuDelay = long.MinValue;
 
     public PlayerViewModel(AppServices services, DispatcherQueue dispatcher)
     {
@@ -103,15 +110,27 @@ public sealed partial class PlayerViewModel : ObservableObject
     public event EventHandler? FullScreenRequested;
     public event EventHandler? CompactOverlayRequested;
     public event EventHandler<Uri?>? DanmakuChanged;
+    public event EventHandler? DanmakuCleared;
     public event EventHandler<PlayerSnapshot>? SnapshotUpdated;
     public event EventHandler<long>? SeekPerformed;
     public TV.Services.Playback.PlayerService Service => _services.Player;
     [ObservableProperty] private bool _loopCurrentEpisode;
     [ObservableProperty] private int _aspectModeIndex;
     [ObservableProperty] private long _subtitleDelayMs;
+    [ObservableProperty] private double _subtitleSpeed = 1.0;
     [ObservableProperty] private long _audioDelayMs;
     [ObservableProperty] private string _mediaInfoText = string.Empty;
     [ObservableProperty] private bool _showMediaInfo;
+    [ObservableProperty] private bool _isAiSubtitleBusy;
+    [ObservableProperty] private string _aiSubtitleStatus = string.Empty;
+    [ObservableProperty, NotifyPropertyChangedFor(nameof(HasLiveCaption))] private bool _isRealtimeSubtitleActive;
+    [ObservableProperty, NotifyPropertyChangedFor(nameof(HasLiveCaption))] private string _liveCaptionOriginal = string.Empty;
+    [ObservableProperty, NotifyPropertyChangedFor(nameof(HasLiveCaption))] private string _liveCaptionTranslated = string.Empty;
+    public bool HasLiveCaption => IsRealtimeSubtitleActive &&
+        (!string.IsNullOrWhiteSpace(LiveCaptionOriginal) || !string.IsNullOrWhiteSpace(LiveCaptionTranslated));
+    internal string? ActiveExternalSubtitlePath => _activeExternalSubtitlePath;
+    internal string? LastGeneratedAiSubtitlePath => _lastGeneratedAiSubtitlePath;
+    internal string? CurrentLocalFilePath => _resolvedMedia is { Url: { Length: > 0 } u } && Uri.TryCreate(u, UriKind.Absolute, out var uri) && uri.IsFile ? uri.LocalPath : null;
     public static readonly string[] AspectModeNames = ["默认比例", "16:9", "4:3", "21:9", "填充裁剪"];
     public string AspectModeName => AspectModeNames[Math.Clamp(AspectModeIndex, 0, AspectModeNames.Length - 1)];
     internal IReadOnlyList<CloudSubtitleTrack> CloudSubtitleTracks => _resolvedMedia?.CloudSubtitles ?? [];
@@ -182,10 +201,18 @@ public sealed partial class PlayerViewModel : ObservableObject
     private async Task LoadCoreAsync(PlaybackRequest request, CancellationToken token, long generation)
     {
         ResetCloudSubtitles();
+        CancelAiSubtitle();
+        _ = StopRealtimeSubtitleAsync();
+        _activeExternalSubtitlePath = null;
+        _activeExternalSubtitleCues = null;
+        _lastGeneratedAiSubtitlePath = null;
+        _externalSubtitleSpeedBaked = false;
+        _lastAppliedDynamicSpuDelay = long.MinValue;
+        SubtitleSpeed = 1.0;
         RequiredLoginProvider = null;
         QualityMessage = string.Empty;
         StopTimerAndSave();
-        DanmakuChanged?.Invoke(this, null);
+        DanmakuCleared?.Invoke(this, EventArgs.Empty);
         try
         {
             if (_request is not null)
@@ -278,6 +305,11 @@ public sealed partial class PlayerViewModel : ObservableObject
             await _viewReady.Task.WaitAsync(TimeSpan.FromSeconds(8), token);
             await _services.Player.PlayAsync(media, token);
             if (!IsCurrentLoad(generation, token)) return;
+            if (media.Subtitles.FirstOrDefault(u => u.IsFile && File.Exists(u.LocalPath)) is { } sidecarSub)
+            {
+                _activeExternalSubtitlePath = sidecarSub.LocalPath;
+                _activeExternalSubtitleCues = null;
+            }
             _resolvedMedia = media;
             SelectedQuality = DisplayQuality(media, SelectedQuality);
             DanmakuChanged?.Invoke(this, media.Danmaku);
@@ -330,8 +362,10 @@ public sealed partial class PlayerViewModel : ObservableObject
     {
         var (generation, cancellation) = BeginLoadOperation();
         ResetCloudSubtitles();
+        CancelAiSubtitle();
+        await StopRealtimeSubtitleAsync();
         StopTimerAndSave();
-        DanmakuChanged?.Invoke(this, null);
+        DanmakuCleared?.Invoke(this, EventArgs.Empty);
         await _loadGate.WaitAsync();
         try
         {
@@ -353,8 +387,10 @@ public sealed partial class PlayerViewModel : ObservableObject
         var (generation, _) = BeginLoadOperation();
         ResetVideoReady();
         ResetCloudSubtitles();
+        CancelAiSubtitle();
+        await StopRealtimeSubtitleAsync();
         _timer.Stop();
-        DanmakuChanged?.Invoke(this, null);
+        DanmakuCleared?.Invoke(this, EventArgs.Empty);
         await _loadGate.WaitAsync();
         try
         {
@@ -426,16 +462,89 @@ public sealed partial class PlayerViewModel : ObservableObject
         _services.Player.SetVideoGeometry(aspect, crop);
     }
 
-    public void AdjustSubtitleDelay(long deltaMs)
+    public void AdjustSubtitleDelay(long deltaMs) => SetSubtitleDelay(SubtitleDelayMs + deltaMs);
+
+    public void SetSubtitleDelay(long totalMs)
     {
-        SubtitleDelayMs = Math.Clamp(SubtitleDelayMs + deltaMs, -30_000, 30_000);
-        _services.Player.SetSubtitleDelayMs(SubtitleDelayMs);
+        SubtitleDelayMs = Math.Clamp(totalMs, -60_000, 60_000);
+        ApplyEffectiveSubtitleDelay(_services.Player.LastSnapshot.TimeMs);
     }
 
     public void ResetSubtitleDelay()
     {
         SubtitleDelayMs = 0;
-        _services.Player.SetSubtitleDelayMs(0);
+        ApplyEffectiveSubtitleDelay(_services.Player.LastSnapshot.TimeMs);
+    }
+
+    public async Task SetSubtitleSpeedAsync(double speed)
+    {
+        var clamped = Math.Clamp(Math.Round(speed, 3), 0.50, 1.50);
+        if (Math.Abs(clamped - SubtitleSpeed) < 0.0005) return;
+        SubtitleSpeed = clamped;
+        _lastAppliedDynamicSpuDelay = long.MinValue;
+
+        if (!string.IsNullOrWhiteSpace(_activeExternalSubtitlePath) && File.Exists(_activeExternalSubtitlePath))
+        {
+            try
+            {
+                if (Math.Abs(clamped - 1.0) <= 0.0005)
+                {
+                    _externalSubtitleSpeedBaked = false;
+                    await _services.Player.AddSubtitleAsync(new Uri(_activeExternalSubtitlePath));
+                    ApplyEffectiveSubtitleDelay(_services.Player.LastSnapshot.TimeMs);
+                    return;
+                }
+
+                _activeExternalSubtitleCues ??= SubtitleFileCodec.ParseFile(_activeExternalSubtitlePath);
+                if (_activeExternalSubtitleCues.Count > 0)
+                {
+                    var retimed = SubtitleFileCodec.RetimeCues(_activeExternalSubtitleCues, clamped, 0);
+                    var dir = Path.Combine(TV.Services.Persistence.AppPaths.Root, "cache", "subtitles");
+                    Directory.CreateDirectory(dir);
+                    var hash = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(
+                        System.Text.Encoding.UTF8.GetBytes($"{_activeExternalSubtitlePath}|{clamped:0.000}")))[..16].ToLowerInvariant();
+                    var dest = Path.Combine(dir, $"retimed-{hash}.srt");
+                    await File.WriteAllTextAsync(dest, SubtitleFileCodec.WriteSrt(retimed), new System.Text.UTF8Encoding(false));
+                    if (await _services.Player.AddSubtitleAsync(new Uri(dest)))
+                    {
+                        _externalSubtitleSpeedBaked = true;
+                        ApplyEffectiveSubtitleDelay(_services.Player.LastSnapshot.TimeMs);
+                        return;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Diagnostics.Log($"External subtitle speed retime fallback: {ex.GetType().Name}");
+            }
+        }
+
+        // Embedded subtitle track or fallback: drive smooth dynamic SPU delay compensation in OnTick
+        _externalSubtitleSpeedBaked = false;
+        ApplyEffectiveSubtitleDelay(_services.Player.LastSnapshot.TimeMs);
+    }
+
+    public async Task ResetSubtitleTimingAsync()
+    {
+        SubtitleDelayMs = 0;
+        await SetSubtitleSpeedAsync(1.0);
+        ApplyEffectiveSubtitleDelay(_services.Player.LastSnapshot.TimeMs);
+    }
+
+    private void ApplyEffectiveSubtitleDelay(long mediaTimeMs)
+    {
+        var effectiveMs = SubtitleDelayMs;
+        if (!_externalSubtitleSpeedBaked && Math.Abs(SubtitleSpeed - 1.0) > 0.0005 && mediaTimeMs > 0)
+        {
+            // speed > 1.0 makes subtitles appear earlier (negative delay); speed < 1.0 makes them later (positive delay)
+            var driftMs = (long)Math.Round(mediaTimeMs * (1.0 - SubtitleSpeed));
+            effectiveMs = Math.Clamp(SubtitleDelayMs + driftMs, -120_000, 120_000);
+        }
+        if (effectiveMs != _lastAppliedDynamicSpuDelay)
+        {
+            _lastAppliedDynamicSpuDelay = effectiveMs;
+            _services.Player.SetSubtitleDelayMs(effectiveMs);
+        }
     }
 
     public void AdjustAudioDelay(long deltaMs)
@@ -595,6 +704,17 @@ public sealed partial class PlayerViewModel : ObservableObject
         return _services.Player.HasHdrSurface && VideoDisplay.IsHdrActive(App.Window.AppWindow.Id);
     }
 
+    internal async Task<DanDanPlayEpisode> MatchDanDanPlayAsync(CancellationToken token)
+    {
+        if (_request is not { } request) throw new InvalidOperationException("当前没有可匹配的视频。");
+        var title = request.Item?.Name ?? request.Title;
+        var episode = SelectedEpisode?.Name ?? request.Subtitle;
+        var durationSec = (int)Math.Round(Math.Max(0, _services.Player.LastSnapshot.LengthMs) / 1000.0);
+        var match = await _services.DanDanPlay.MatchAsync(title, episode, request.EpisodeIndex, CurrentLocalFilePath, durationSec, token);
+        QualityMessage = $"弹弹play 已匹配：{match.DisplayName}";
+        return match;
+    }
+
     internal async Task<OnlineMediaMatch> MatchOnlineMediaAsync(CancellationToken token)
     {
         if (_request is not { } request) throw new InvalidOperationException("当前没有可匹配的视频。");
@@ -628,9 +748,215 @@ public sealed partial class PlayerViewModel : ObservableObject
     {
         if (_request is not { } request || !await _services.Player.AddSubtitleAsync(file)) return false;
         if (!request.Subtitles.Contains(file)) request.Subtitles.Add(file);
+        if (file.IsFile && File.Exists(file.LocalPath))
+        {
+            _activeExternalSubtitlePath = file.LocalPath;
+            _activeExternalSubtitleCues = null;
+            _externalSubtitleSpeedBaked = false;
+            SubtitleSpeed = 1.0;
+            ApplyEffectiveSubtitleDelay(_services.Player.LastSnapshot.TimeMs);
+        }
         CancelCloudSubtitleLoad();
         ClearCloudSubtitleSelection();
         return true;
+    }
+
+    [RelayCommand]
+    public void CancelAiSubtitle()
+    {
+        var cts = Interlocked.Exchange(ref _aiSubtitleCts, null);
+        if (cts is null) return;
+        cts.Cancel();
+        cts.Dispose();
+        IsAiSubtitleBusy = false;
+        AiSubtitleStatus = string.Empty;
+    }
+
+    public async Task<bool> GenerateAiSubtitleAsync(bool translateAfter)
+    {
+        if (_resolvedMedia is not { Url: { Length: > 0 } mediaUrl } || _request is null)
+        {
+            QualityMessage = "当前没有正在播放的视频，无法生成 AI 字幕。";
+            return false;
+        }
+        if (IsAiSubtitleBusy) return false;
+
+        var cts = CancellationTokenSource.CreateLinkedTokenSource(_loadCts.Token);
+        var prev = Interlocked.Exchange(ref _aiSubtitleCts, cts);
+        prev?.Cancel();
+        prev?.Dispose();
+
+        IsAiSubtitleBusy = true;
+        AiSubtitleStatus = "正在准备 AI 字幕生成任务…";
+        try
+        {
+            var progress = new Progress<AiSubtitleProgress>(p => _dispatcher.TryEnqueue(() => AiSubtitleStatus = p.Stage));
+            TimeSpan? videoDuration = DurationMs > 1000 ? TimeSpan.FromMilliseconds(DurationMs) : null;
+            var result = await _services.BailianSubtitle.GenerateSubtitleAsync(
+                mediaUrl, _resolvedMedia.Headers, Title, translateAfter, progress, cts.Token, videoDuration);
+            if (cts.IsCancellationRequested) return false;
+
+            _lastGeneratedAiSubtitlePath = result.FilePath;
+            if (!await AddSubtitleAsync(new Uri(result.FilePath)))
+                throw new InvalidOperationException("AI 字幕已生成，但播放器加载字幕轨失败。");
+
+            QualityMessage = result.IsTranslated
+                ? $"AI 双语/翻译字幕已生成并对齐时间轴（{result.CueCount} 条）"
+                : $"AI 字幕已生成并对齐原视频时间轴（{result.CueCount} 条 · {result.ModelUsed}）";
+            return true;
+        }
+        catch (OperationCanceledException) when (cts.IsCancellationRequested)
+        {
+            QualityMessage = "已取消 AI 字幕任务";
+            return false;
+        }
+        catch (Exception ex)
+        {
+            Diagnostics.Log($"AI subtitle generation failed: {ex.GetType().Name} {ex.Message}");
+            QualityMessage = "AI 字幕生成失败：" + ex.Message;
+            return false;
+        }
+        finally
+        {
+            if (ReferenceEquals(_aiSubtitleCts, cts))
+                Interlocked.CompareExchange(ref _aiSubtitleCts, null, cts);
+            cts.Dispose();
+            IsAiSubtitleBusy = false;
+            AiSubtitleStatus = string.Empty;
+        }
+    }
+
+    public async Task<bool> TranslateSubtitleAsync(string? sourceFilePath = null)
+    {
+        var targetPath = sourceFilePath ?? _activeExternalSubtitlePath ?? _lastGeneratedAiSubtitlePath;
+        if (string.IsNullOrWhiteSpace(targetPath) || !File.Exists(targetPath))
+        {
+            QualityMessage = "当前没有可翻译的外部字幕文件，请先加载本地字幕或使用 AI 生成字幕。";
+            return false;
+        }
+        if (IsAiSubtitleBusy) return false;
+
+        var cts = CancellationTokenSource.CreateLinkedTokenSource(_loadCts.Token);
+        var prev = Interlocked.Exchange(ref _aiSubtitleCts, cts);
+        prev?.Cancel();
+        prev?.Dispose();
+
+        IsAiSubtitleBusy = true;
+        AiSubtitleStatus = "正在准备 AI 字幕翻译任务…";
+        try
+        {
+            var progress = new Progress<AiSubtitleProgress>(p => _dispatcher.TryEnqueue(() => AiSubtitleStatus = p.Stage));
+            var result = await _services.BailianSubtitle.TranslateSubtitleFileAsync(targetPath, progress, cts.Token);
+            if (cts.IsCancellationRequested) return false;
+
+            _lastGeneratedAiSubtitlePath = result.FilePath;
+            if (!await AddSubtitleAsync(new Uri(result.FilePath)))
+                throw new InvalidOperationException("翻译字幕已生成，但播放器加载失败。");
+
+            QualityMessage = $"AI 字幕翻译完成并已加载（{result.CueCount} 条 · {result.ModelUsed}）";
+            return true;
+        }
+        catch (OperationCanceledException) when (cts.IsCancellationRequested)
+        {
+            QualityMessage = "已取消字幕翻译";
+            return false;
+        }
+        catch (Exception ex)
+        {
+            Diagnostics.Log($"AI subtitle translation failed: {ex.GetType().Name} {ex.Message}");
+            QualityMessage = "AI 字幕翻译失败：" + ex.Message;
+            return false;
+        }
+        finally
+        {
+            if (ReferenceEquals(_aiSubtitleCts, cts))
+                Interlocked.CompareExchange(ref _aiSubtitleCts, null, cts);
+            cts.Dispose();
+            IsAiSubtitleBusy = false;
+            AiSubtitleStatus = string.Empty;
+        }
+    }
+
+    public async Task ToggleRealtimeSubtitleAsync()
+    {
+        if (IsRealtimeSubtitleActive)
+        {
+            await StopRealtimeSubtitleAsync();
+            QualityMessage = "实时字幕已关闭";
+            return;
+        }
+        if (_request is null)
+        {
+            QualityMessage = "当前没有正在播放的视频。";
+            return;
+        }
+        try
+        {
+            _services.RealtimeSubtitle.CaptionUpdated -= OnLiveCaptionUpdated;
+            _services.RealtimeSubtitle.CaptionUpdated += OnLiveCaptionUpdated;
+            _services.RealtimeSubtitle.StatusChanged -= OnRealtimeStatusChanged;
+            _services.RealtimeSubtitle.StatusChanged += OnRealtimeStatusChanged;
+            LiveCaptionOriginal = string.Empty;
+            LiveCaptionTranslated = string.Empty;
+            await _services.RealtimeSubtitle.StartAsync(() => _services.Player.LastSnapshot.TimeMs, _loadCts.Token);
+            IsRealtimeSubtitleActive = true;
+        }
+        catch (Exception ex)
+        {
+            _services.RealtimeSubtitle.CaptionUpdated -= OnLiveCaptionUpdated;
+            _services.RealtimeSubtitle.StatusChanged -= OnRealtimeStatusChanged;
+            IsRealtimeSubtitleActive = false;
+            QualityMessage = "实时字幕启动失败：" + ex.Message;
+        }
+    }
+
+    public async Task StopRealtimeSubtitleAsync()
+    {
+        _services.RealtimeSubtitle.CaptionUpdated -= OnLiveCaptionUpdated;
+        _services.RealtimeSubtitle.StatusChanged -= OnRealtimeStatusChanged;
+        if (IsRealtimeSubtitleActive || _services.RealtimeSubtitle.IsRunning)
+            await _services.RealtimeSubtitle.StopAsync();
+        IsRealtimeSubtitleActive = false;
+        LiveCaptionOriginal = string.Empty;
+        LiveCaptionTranslated = string.Empty;
+    }
+
+    public async Task<bool> ExportSubtitleToAsync(string destinationPath)
+    {
+        if (!string.IsNullOrWhiteSpace(_lastGeneratedAiSubtitlePath) && File.Exists(_lastGeneratedAiSubtitlePath))
+        {
+            File.Copy(_lastGeneratedAiSubtitlePath, destinationPath, overwrite: true);
+            return true;
+        }
+        if (!string.IsNullOrWhiteSpace(_activeExternalSubtitlePath) && File.Exists(_activeExternalSubtitlePath))
+        {
+            File.Copy(_activeExternalSubtitlePath, destinationPath, overwrite: true);
+            return true;
+        }
+        var recorded = _services.RealtimeSubtitle.GetRecordedCues();
+        if (recorded.Count > 0)
+        {
+            var config = await _services.BailianSubtitle.GetConfigAsync();
+            var srt = SubtitleFileCodec.WriteSrt(recorded, bilingual: config.Bilingual);
+            await File.WriteAllTextAsync(destinationPath, srt, new System.Text.UTF8Encoding(false));
+            return true;
+        }
+        return false;
+    }
+
+    private void OnLiveCaptionUpdated(object? sender, LiveCaptionUpdate update)
+    {
+        _dispatcher.TryEnqueue(() =>
+        {
+            if (!IsRealtimeSubtitleActive) return;
+            LiveCaptionOriginal = update.OriginalText;
+            LiveCaptionTranslated = update.TranslatedText ?? string.Empty;
+        });
+    }
+
+    private void OnRealtimeStatusChanged(object? sender, string message)
+    {
+        _dispatcher.TryEnqueue(() => QualityMessage = message);
     }
 
     internal async Task SelectTrackAsync(bool subtitle, int id)
@@ -820,6 +1146,8 @@ public sealed partial class PlayerViewModel : ObservableObject
                 PositionText = Format(snapshot.TimeMs);
                 DurationText = Format(snapshot.LengthMs);
                 ApplyEpisodeTiming(snapshot.TimeMs, snapshot.LengthMs);
+                if (!_externalSubtitleSpeedBaked && Math.Abs(SubtitleSpeed - 1.0) > 0.0005)
+                    ApplyEffectiveSubtitleDelay(snapshot.TimeMs);
                 if (_hasPlayedMedia && !_manualPaused && !_isLocalFile) UpdateBuffering(snapshot);
             }
             else

@@ -38,10 +38,17 @@ public sealed class CleanupService(DatabaseService database)
         var image = await Task.Run(() => Measure(AppPaths.Images, path => Path.GetExtension(path) == ".img"), token);
         categories.Add(new CleanupCategory(Images, "海报与图片缓存", "可安全重建，不影响收藏与历史", image.Bytes, image.Files, true));
         var subtitles = Path.Combine(AppPaths.Root, "cache", "subtitles");
-        var subtitle = await Task.Run(() => Measure(subtitles, path => Path.GetExtension(path) is ".vtt" or ".tmp"), token);
-        categories.Add(new CleanupCategory(Subtitles, "在线字幕缓存", "删除后再次使用时重新下载转换", subtitle.Bytes, subtitle.Files, true));
+        var aiSubtitles = Path.Combine(AppPaths.Root, "cache", "ai-subtitles");
+        var subtitle = await Task.Run(() =>
+        {
+            var a = Measure(subtitles, path => Path.GetExtension(path) is ".vtt" or ".srt" or ".tmp");
+            var b = Measure(aiSubtitles, path => Path.GetExtension(path) is ".vtt" or ".srt" or ".ogg" or ".wav" or ".mp3" or ".tmp");
+            return (Bytes: a.Bytes + b.Bytes, Files: a.Files + b.Files);
+        }, token);
+        categories.Add(new CleanupCategory(Subtitles, "在线与 AI 字幕缓存", "包含在线字幕、AI 生成/翻译字幕及临时提取音轨，可随时重新生成", subtitle.Bytes, subtitle.Files, true));
         var temporary = await Task.Run(() => Measure(Path.Combine(AppPaths.Root, "cache"), path =>
-            !IsUnder(path, AppPaths.Images) && !IsUnder(path, subtitles) && (Path.GetFileName(path).StartsWith("cast-", StringComparison.OrdinalIgnoreCase) ||
+            !IsUnder(path, AppPaths.Images) && !IsUnder(path, subtitles) && !IsUnder(path, aiSubtitles) &&
+            (Path.GetFileName(path).StartsWith("cast-", StringComparison.OrdinalIgnoreCase) ||
             Path.GetExtension(path) is ".tmp" or ".partial")), token);
         categories.Add(new CleanupCategory(AppTemporary, "应用临时文件", "投屏接收残留和未完成的应用缓存", temporary.Bytes, temporary.Files, true));
         var directory = await DownloadDirectoryAsync(token);
@@ -97,16 +104,19 @@ public sealed class CleanupService(DatabaseService database)
         }
         if (ids.Contains(Subtitles))
         {
-            progress?.Report("正在清理在线字幕缓存…");
+            progress?.Report("正在清理在线与 AI 字幕缓存…");
             var folder = Path.Combine(AppPaths.Root, "cache", "subtitles");
-            await DeleteFilesAsync(Files(folder, path => Path.GetExtension(path) is ".vtt" or ".tmp"));
+            var aiFolder = Path.Combine(AppPaths.Root, "cache", "ai-subtitles");
+            await DeleteFilesAsync(Files(folder, path => Path.GetExtension(path) is ".vtt" or ".srt" or ".tmp"));
+            await DeleteFilesAsync(Files(aiFolder, path => Path.GetExtension(path) is ".vtt" or ".srt" or ".ogg" or ".wav" or ".mp3" or ".tmp"));
         }
         if (ids.Contains(AppTemporary))
         {
             progress?.Report("正在清理应用临时文件…");
             var images = AppPaths.Images;
             var subtitles = Path.Combine(AppPaths.Root, "cache", "subtitles");
-            await DeleteFilesAsync(Files(Path.Combine(AppPaths.Root, "cache"), path => !IsUnder(path, images) && !IsUnder(path, subtitles) &&
+            var aiSubtitles = Path.Combine(AppPaths.Root, "cache", "ai-subtitles");
+            await DeleteFilesAsync(Files(Path.Combine(AppPaths.Root, "cache"), path => !IsUnder(path, images) && !IsUnder(path, subtitles) && !IsUnder(path, aiSubtitles) &&
                 (Path.GetFileName(path).StartsWith("cast-", StringComparison.OrdinalIgnoreCase) || Path.GetExtension(path) is ".tmp" or ".partial")));
         }
         var directory = await DownloadDirectoryAsync(token);

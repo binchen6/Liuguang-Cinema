@@ -4,9 +4,11 @@ using CommunityToolkit.Mvvm.Input;
 using Microsoft.UI.Xaml;
 using TV.Models;
 using TV.Services;
+using TV.Services.AI;
 using TV.Services.Cloud;
 using TV.Services.Persistence;
 using TV.Services.Maintenance;
+using TV.Services.Playback;
 using TV.Views;
 
 namespace TV.ViewModels;
@@ -71,6 +73,25 @@ public sealed partial class SettingsViewModel : ObservableObject
     [ObservableProperty] private string _baiduCookie = string.Empty;
     public CloudLoginCoordinator CloudLogin => _services.CloudLogin;
 
+    // --- 阿里云百炼 AI 字幕与翻译 ---
+    [ObservableProperty] private string _bailianApiKeyInput = string.Empty;
+    [ObservableProperty] private string _bailianKeyStatus = "尚未配置 API Key";
+    [ObservableProperty] private int _bailianRegionIndex;
+    [ObservableProperty, NotifyPropertyChangedFor(nameof(AsrModelHint))] private int _asrModelIndex = 1;
+    [ObservableProperty, NotifyPropertyChangedFor(nameof(MtModelHint))] private int _mtModelIndex;
+    [ObservableProperty] private int _mtTargetLanguageIndex;
+    [ObservableProperty] private bool _aiBilingualSubtitles = true;
+    [ObservableProperty] private bool _aiRealtimeTranslate;
+    [ObservableProperty] private bool _isTestingAi;
+    public string AsrModelHint => AiSubtitleModels.AsrModels[Math.Clamp(AsrModelIndex, 0, AiSubtitleModels.AsrModels.Count - 1)].Description;
+    public string MtModelHint => AiSubtitleModels.MtModels[Math.Clamp(MtModelIndex, 0, AiSubtitleModels.MtModels.Count - 1)].Description;
+
+    // --- 弹弹play 开放弹幕库 ---
+    [ObservableProperty] private string _danDanPlayStatus = "正在检测…";
+    [ObservableProperty] private string _danDanPlayAppIdInput = string.Empty;
+    [ObservableProperty] private string _danDanPlayAppSecretInput = string.Empty;
+    [ObservableProperty] private bool _isTestingDanDanPlay;
+
     public async Task LoadAsync()
     {
         if (_hasLoaded) return;
@@ -108,9 +129,176 @@ public sealed partial class SettingsViewModel : ObservableObject
         QuarkCookie = string.Empty;
         UcCookie = string.Empty;
         BaiduCookie = string.Empty;
+        await LoadAiAndDanmakuSettingsAsync();
         _loaded = true;
         _hasLoaded = true;
     }
+
+    private async Task LoadAiAndDanmakuSettingsAsync()
+    {
+        var aiConfig = await _services.BailianSubtitle.GetConfigAsync();
+        BailianApiKeyInput = string.Empty;
+        BailianKeyStatus = aiConfig.HasApiKey
+            ? $"已加密保存（尾号 {(aiConfig.ApiKey.Length >= 4 ? aiConfig.ApiKey[^4..] : "****")}）"
+            : "尚未配置，点击右侧按钮前往阿里云百炼免费生成密钥";
+        BailianRegionIndex = string.Equals(aiConfig.Region, "intl", StringComparison.OrdinalIgnoreCase) ? 1 : 0;
+        AsrModelIndex = AiSubtitleModels.FindAsrIndex(aiConfig.AsrModel);
+        MtModelIndex = AiSubtitleModels.FindMtIndex(aiConfig.MtModel);
+        MtTargetLanguageIndex = AiSubtitleModels.FindTargetLanguageIndex(aiConfig.TargetLanguage);
+        AiBilingualSubtitles = aiConfig.Bilingual;
+        AiRealtimeTranslate = aiConfig.RealtimeTranslate;
+
+        DanDanPlayAppIdInput = await _services.Database.GetSettingAsync(DanDanPlayService.SettingAppId) ?? string.Empty;
+        DanDanPlayAppSecretInput = string.Empty;
+        await RefreshDanDanPlayStatusAsync();
+    }
+
+    private async Task RefreshDanDanPlayStatusAsync()
+    {
+        if (await _services.DanDanPlay.HasCustomCredentialsAsync())
+            DanDanPlayStatus = "已启用自定义弹弹play 开放平台凭证（DPAPI 加密保存）";
+        else if (_services.DanDanPlay.HasBuiltInCredentials)
+            DanDanPlayStatus = "已接入内置弹弹play 开放弹幕库（支持主备密钥自动切换）";
+        else
+            DanDanPlayStatus = "尚未配置凭证；请在下方填入自定义 AppId / AppSecret";
+    }
+
+    [RelayCommand]
+    private async Task OpenBailianConsoleAsync()
+    {
+        try
+        {
+            await Windows.System.Launcher.LaunchUriAsync(new Uri(AiSubtitleModels.BailianApiKeyConsoleUrl));
+            StatusMessage = "已在浏览器打开阿里云百炼 API Key 管理页，生成密钥后粘贴到下方保存即可使用。";
+        }
+        catch (Exception ex) { StatusMessage = "无法打开浏览器：" + ex.Message; }
+    }
+
+    [RelayCommand]
+    private async Task SaveBailianKeyAsync()
+    {
+        var key = BailianApiKeyInput.Trim();
+        if (string.IsNullOrWhiteSpace(key))
+        {
+            StatusMessage = "请先粘贴阿里云百炼 API Key（通常以 sk- 开头）。";
+            return;
+        }
+        try
+        {
+            await _services.BailianSubtitle.SaveApiKeyAsync(key);
+            BailianApiKeyInput = string.Empty;
+            BailianKeyStatus = $"已加密保存（尾号 {(key.Length >= 4 ? key[^4..] : "****")}）";
+            StatusMessage = "阿里云百炼 API Key 已使用当前用户 DPAPI 加密保存，输入框已清空。";
+        }
+        catch (Exception ex) { StatusMessage = "保存百炼 API Key 失败：" + ex.Message; }
+    }
+
+    [RelayCommand]
+    private async Task VerifyBailianKeyAsync()
+    {
+        if (IsTestingAi) return;
+        IsTestingAi = true;
+        StatusMessage = "正在验证阿里云百炼 API Key 连通性…";
+        try
+        {
+            var region = BailianRegionIndex == 1 ? "intl" : "cn";
+            var (ok, message) = await _services.BailianSubtitle.VerifyApiKeyAsync(
+                string.IsNullOrWhiteSpace(BailianApiKeyInput) ? null : BailianApiKeyInput, region);
+            StatusMessage = message;
+            if (ok && !string.IsNullOrWhiteSpace(BailianApiKeyInput))
+                await SaveBailianKeyAsync();
+        }
+        finally { IsTestingAi = false; }
+    }
+
+    [RelayCommand]
+    private async Task ClearBailianKeyAsync()
+    {
+        await _services.BailianSubtitle.ClearApiKeyAsync();
+        BailianApiKeyInput = string.Empty;
+        BailianKeyStatus = "尚未配置，点击右侧按钮前往阿里云百炼免费生成密钥";
+        StatusMessage = "已清除本机保存的阿里云百炼 API Key。";
+    }
+
+    [RelayCommand]
+    private async Task OpenDanDanPlayDocsAsync()
+    {
+        try { await Windows.System.Launcher.LaunchUriAsync(new Uri(DanDanPlayService.OpenPlatformUrl)); }
+        catch (Exception ex) { StatusMessage = "无法打开浏览器：" + ex.Message; }
+    }
+
+    [RelayCommand]
+    private async Task SaveDanDanPlayAsync()
+    {
+        var appId = DanDanPlayAppIdInput.Trim();
+        var appSecret = DanDanPlayAppSecretInput.Trim();
+        if (string.IsNullOrWhiteSpace(appId) || string.IsNullOrWhiteSpace(appSecret))
+        {
+            StatusMessage = "请同时填写弹弹play 的 AppId 与 AppSecret。";
+            return;
+        }
+        try
+        {
+            await _services.DanDanPlay.SaveCustomCredentialsAsync(appId, appSecret);
+            DanDanPlayAppSecretInput = string.Empty;
+            await RefreshDanDanPlayStatusAsync();
+            StatusMessage = "自定义弹弹play 凭证已加密保存。";
+        }
+        catch (Exception ex) { StatusMessage = "保存弹弹play 凭证失败：" + ex.Message; }
+    }
+
+    [RelayCommand]
+    private async Task VerifyDanDanPlayAsync()
+    {
+        if (IsTestingDanDanPlay) return;
+        IsTestingDanDanPlay = true;
+        StatusMessage = "正在验证弹弹play 开放弹幕库连接…";
+        try
+        {
+            var id = string.IsNullOrWhiteSpace(DanDanPlayAppIdInput) ? null : DanDanPlayAppIdInput.Trim();
+            var secret = string.IsNullOrWhiteSpace(DanDanPlayAppSecretInput) ? null : DanDanPlayAppSecretInput.Trim();
+            var (ok, msg) = await _services.DanDanPlay.VerifyCredentialsAsync(id, secret);
+            StatusMessage = ok ? msg : "弹弹play 验证失败：" + msg;
+        }
+        finally { IsTestingDanDanPlay = false; }
+    }
+
+    [RelayCommand]
+    private async Task ClearDanDanPlayAsync()
+    {
+        await _services.DanDanPlay.ClearCustomCredentialsAsync();
+        DanDanPlayAppIdInput = string.Empty;
+        DanDanPlayAppSecretInput = string.Empty;
+        await RefreshDanDanPlayStatusAsync();
+        StatusMessage = "已清除自定义弹弹play 凭证。";
+    }
+
+    partial void OnBailianRegionIndexChanged(int value) =>
+        Save(AiSubtitleModels.SettingRegion, value == 1 ? "intl" : "cn");
+
+    partial void OnAsrModelIndexChanged(int value)
+    {
+        var model = AiSubtitleModels.AsrModels[Math.Clamp(value, 0, AiSubtitleModels.AsrModels.Count - 1)];
+        Save(AiSubtitleModels.SettingAsrModel, model.Id);
+    }
+
+    partial void OnMtModelIndexChanged(int value)
+    {
+        var model = AiSubtitleModels.MtModels[Math.Clamp(value, 0, AiSubtitleModels.MtModels.Count - 1)];
+        Save(AiSubtitleModels.SettingMtModel, model.Id);
+    }
+
+    partial void OnMtTargetLanguageIndexChanged(int value)
+    {
+        var lang = AiSubtitleModels.TargetLanguages[Math.Clamp(value, 0, AiSubtitleModels.TargetLanguages.Count - 1)];
+        Save(AiSubtitleModels.SettingTargetLanguage, lang.ApiName);
+    }
+
+    partial void OnAiBilingualSubtitlesChanged(bool value) =>
+        Save(AiSubtitleModels.SettingBilingual, value);
+
+    partial void OnAiRealtimeTranslateChanged(bool value) =>
+        Save(AiSubtitleModels.SettingRealtimeTranslate, value);
 
     [RelayCommand]
     private async Task ReloadAsync()

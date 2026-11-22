@@ -1,5 +1,7 @@
 using System.Collections.Concurrent;
 using System.Security.Cryptography;
+using System.Text.RegularExpressions;
+using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml.Media.Imaging;
 using SkiaSharp;
 using Windows.Storage.Streams;
@@ -8,7 +10,7 @@ using TV.Services.Persistence;
 
 namespace TV.Services.Imaging;
 
-public sealed class ImageCacheService
+public sealed partial class ImageCacheService
 {
     private sealed class Entry(BitmapImage image, LinkedListNode<string> node, long pixels)
     {
@@ -17,20 +19,31 @@ public sealed class ImageCacheService
         public long Pixels { get; } = pixels;
     }
 
+    private const int MaxMemoryItems = 140;
+    private const long MaxMemoryPixels = 36_000_000;
+
     private readonly SourceHttpClient _http;
+    private readonly DispatcherQueue? _dispatcher;
     private readonly ConcurrentDictionary<string, Task<BitmapImage?>> _pending = new();
     private readonly Dictionary<string, Entry> _memory = new(StringComparer.OrdinalIgnoreCase);
     private readonly LinkedList<string> _lru = new();
     private readonly Lock _memoryLock = new();
     private long _memoryPixels;
     private int _downloads;
+    private volatile bool _dirEnsured;
 
-    public ImageCacheService(SourceHttpClient http) => _http = http;
+    public ImageCacheService(SourceHttpClient http, DispatcherQueue? dispatcher = null)
+    {
+        _http = http;
+        _dispatcher = dispatcher;
+    }
 
     public Task<BitmapImage?> GetImageAsync(string? url, CancellationToken cancellationToken = default)
     {
         url = Unwrap(url);
-        if (string.IsNullOrWhiteSpace(url) || !Uri.TryCreate(url, UriKind.Absolute, out _)) return Task.FromResult<BitmapImage?>(null);
+        if (string.IsNullOrWhiteSpace(url) || !Uri.TryCreate(url, UriKind.Absolute, out _))
+            return Task.FromResult<BitmapImage?>(null);
+
         lock (_memoryLock)
         {
             if (_memory.TryGetValue(url, out var entry))
@@ -40,42 +53,40 @@ public sealed class ImageCacheService
                 return Task.FromResult<BitmapImage?>(entry.Image);
             }
         }
-        return _pending.GetOrAdd(url, key => GetCoreAsync(key, CancellationToken.None)).WaitAsync(cancellationToken);
+
+        var dispatcher = _dispatcher ?? DispatcherQueue.GetForCurrentThread();
+        return _pending.GetOrAdd(url, key => GetCoreAsync(key, dispatcher)).WaitAsync(cancellationToken);
     }
 
-    private async Task<BitmapImage?> GetCoreAsync(string url, CancellationToken cancellationToken)
+    private async Task<BitmapImage?> GetCoreAsync(string url, DispatcherQueue? dispatcher)
     {
         try
         {
-            AppPaths.EnsureCreated();
-            var path = Path.Combine(AppPaths.Images, Convert.ToHexString(SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(url))) + ".img");
-            byte[] bytes;
-            if (File.Exists(path) && File.GetLastWriteTimeUtc(path) > DateTime.UtcNow.AddDays(-14))
+            // Perform ALL disk I/O, HTTP downloads, and Skia decoding strictly off the UI thread.
+            var bytes = await LoadOrFetchBytesAsync(url).ConfigureAwait(false);
+            if (bytes is null || bytes.Length == 0) return null;
+
+            BitmapImage? image;
+            if (dispatcher is not null && !dispatcher.HasThreadAccess)
             {
-                bytes = await File.ReadAllBytesAsync(path, cancellationToken).ConfigureAwait(true);
+                var tcs = new TaskCompletionSource<BitmapImage?>(TaskCreationOptions.RunContinuationsAsynchronously);
+                if (!dispatcher.TryEnqueue(async () =>
+                {
+                    try { tcs.TrySetResult(await DecodeOnUiThreadAsync(bytes)); }
+                    catch (Exception ex) { tcs.TrySetException(ex); }
+                }))
+                {
+                    return null;
+                }
+                image = await tcs.Task.ConfigureAwait(false);
             }
             else
             {
-                var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-                {
-                    ["User-Agent"] = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/132.0.0.0 Safari/537.36"
-                };
-                if (url.Contains("douban", StringComparison.OrdinalIgnoreCase)) headers["Referer"] = "https://movie.douban.com/";
-                else if (url.Contains("baidu.com", StringComparison.OrdinalIgnoreCase) || url.Contains("bdstatic.com", StringComparison.OrdinalIgnoreCase)) headers["Referer"] = "https://www.baidu.com/";
-                else if (url.Contains("qpic.cn", StringComparison.OrdinalIgnoreCase)) headers["Referer"] = "https://v.qq.com/";
-                var payload = await _http.GetBytesAsync(url, headers, 10 * 1024 * 1024, cancellationToken).ConfigureAwait(true);
-                if (!LooksLikeImage(payload.Content)) throw new InvalidDataException("图片地址返回了非图片内容。");
-                bytes = await Task.Run(() => NormalizeImage(payload.Content), cancellationToken).ConfigureAwait(true);
-                var temp = path + ".tmp";
-                await File.WriteAllBytesAsync(temp, bytes, cancellationToken).ConfigureAwait(true);
-                File.Move(temp, path, true);
-                if (++_downloads % 40 == 0) _ = Task.Run(CleanupDisk);
+                image = await DecodeOnUiThreadAsync(bytes).ConfigureAwait(false);
             }
-            using var stream = new InMemoryRandomAccessStream();
-            using (var writer = new DataWriter(stream)) { writer.WriteBytes(bytes); await writer.StoreAsync(); writer.DetachStream(); }
-            stream.Seek(0);
-            var image = new BitmapImage { DecodePixelWidth = 480, DecodePixelType = DecodePixelType.Physical };
-            await image.SetSourceAsync(stream);
+
+            if (image is null) return null;
+
             lock (_memoryLock)
             {
                 if (_memory.TryGetValue(url, out var existing)) return existing.Image;
@@ -83,7 +94,7 @@ public sealed class ImageCacheService
                 var pixels = Math.Max(1L, (long)image.PixelWidth * image.PixelHeight);
                 _memory[url] = new Entry(image, node, pixels);
                 _memoryPixels += pixels;
-                while (_memory.Count > 64 || _memoryPixels > 24_000_000)
+                while (_memory.Count > MaxMemoryItems || _memoryPixels > MaxMemoryPixels)
                 {
                     var last = _lru.Last!;
                     _lru.RemoveLast();
@@ -95,10 +106,67 @@ public sealed class ImageCacheService
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            Diagnostics.Log($"图片加载失败 {url}: {ex}");
+            Diagnostics.Log($"图片加载失败 {url}: {ex.GetType().Name} {ex.Message}");
             return null;
         }
-        finally { _pending.TryRemove(url, out _); }
+        finally
+        {
+            _pending.TryRemove(url, out _);
+        }
+    }
+
+    private async Task<byte[]?> LoadOrFetchBytesAsync(string url)
+    {
+        if (!_dirEnsured)
+        {
+            AppPaths.EnsureCreated();
+            _dirEnsured = true;
+        }
+        var path = Path.Combine(AppPaths.Images, Convert.ToHexString(SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(url))) + ".img");
+        if (File.Exists(path) && File.GetLastWriteTimeUtc(path) > DateTime.UtcNow.AddDays(-14))
+        {
+            return await File.ReadAllBytesAsync(path).ConfigureAwait(false);
+        }
+
+        var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["User-Agent"] = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/132.0.0.0 Safari/537.36"
+        };
+        if (url.Contains("douban", StringComparison.OrdinalIgnoreCase)) headers["Referer"] = "https://movie.douban.com/";
+        else if (url.Contains("baidu.com", StringComparison.OrdinalIgnoreCase) || url.Contains("bdstatic.com", StringComparison.OrdinalIgnoreCase)) headers["Referer"] = "https://www.baidu.com/";
+        else if (url.Contains("qpic.cn", StringComparison.OrdinalIgnoreCase)) headers["Referer"] = "https://v.qq.com/";
+
+        var payload = await _http.GetBytesAsync(url, headers, 10 * 1024 * 1024).ConfigureAwait(false);
+        if (!LooksLikeImage(payload.Content)) throw new InvalidDataException("图片地址返回了非图片内容。");
+
+        var bytes = NormalizeImage(payload.Content);
+        var temp = $"{path}.{Guid.NewGuid():N}.tmp";
+        try
+        {
+            await File.WriteAllBytesAsync(temp, bytes).ConfigureAwait(false);
+            File.Move(temp, path, true);
+        }
+        finally
+        {
+            try { if (File.Exists(temp)) File.Delete(temp); } catch { }
+        }
+        if (Interlocked.Increment(ref _downloads) % 40 == 0) _ = Task.Run(CleanupDisk);
+        return bytes;
+    }
+
+    private static async Task<BitmapImage> DecodeOnUiThreadAsync(byte[] bytes)
+    {
+        using var stream = new InMemoryRandomAccessStream();
+        using (var writer = new DataWriter(stream))
+        {
+            writer.WriteBytes(bytes);
+            await writer.StoreAsync();
+            writer.DetachStream();
+        }
+        stream.Seek(0);
+        var image = new BitmapImage { DecodePixelWidth = 480, DecodePixelType = DecodePixelType.Physical };
+        await image.SetSourceAsync(stream);
+        return image;
     }
 
     public async Task ClearAsync()
@@ -162,7 +230,7 @@ public sealed class ImageCacheService
         if (uri.Host.Equals("www.wogg.net", StringComparison.OrdinalIgnoreCase) && uri.AbsolutePath.Equals("/db.php", StringComparison.OrdinalIgnoreCase))
             nested = System.Web.HttpUtility.ParseQueryString(uri.Query)["url"];
         else if (uri.Host.Contains("baidu.com", StringComparison.OrdinalIgnoreCase))
-            nested = System.Text.RegularExpressions.Regex.Match(url, @"[?&]src=([^&]+)").Groups[1].Value;
+            nested = BaiduSrcPattern().Match(url).Groups[1].Value;
         if (!Uri.TryCreate(nested, UriKind.Absolute, out _)) return url;
         return nested;
     }
@@ -171,4 +239,7 @@ public sealed class ImageCacheService
         ((bytes[0] == 0xFF && bytes[1] == 0xD8) || (bytes[0] == 0x89 && bytes[1] == 0x50)
         || (bytes[0] == 0x47 && bytes[1] == 0x49) || (bytes[0] == 0x52 && bytes[1] == 0x49 && bytes[8] == 0x57)
         || (bytes[4] == 0x66 && bytes[5] == 0x74 && bytes[6] == 0x79 && bytes[7] == 0x70));
+
+    [GeneratedRegex(@"[?&]src=([^&]+)", RegexOptions.CultureInvariant)]
+    private static partial Regex BaiduSrcPattern();
 }

@@ -127,9 +127,21 @@ foreach ($architecture in "win-x86", "win-arm64") {
     $path = Join-Path $publish "libvlc/$architecture"
     Remove-PublishDirectory $path
 }
-foreach ($name in "access_output", "mux", "stream_out", "services_discovery", "lua", "visualization", "logger", "meta_engine", "stream_extractor") {
+foreach ($name in "services_discovery", "lua", "visualization", "logger", "meta_engine", "stream_extractor") {
     $path = Join-Path $vlc "plugins/$name"
     Remove-PublishDirectory $path
+}
+# Keep only the 6 minimal LibVLC plugins (~380 KB) required for fast headless AI subtitle audio extraction
+$keepVlcPlugins = @{
+    "stream_out"    = @("libstream_out_transcode_plugin.dll", "libstream_out_standard_plugin.dll")
+    "mux"           = @("libmux_ogg_plugin.dll", "libmux_wav_plugin.dll", "libmux_dummy_plugin.dll")
+    "access_output" = @("libaccess_output_file_plugin.dll")
+}
+foreach ($folder in $keepVlcPlugins.Keys) {
+    $dir = Join-Path $vlc "plugins/$folder"
+    if (Test-Path -LiteralPath $dir) {
+        Get-ChildItem -LiteralPath $dir -File | Where-Object { $_.Name -notin $keepVlcPlugins[$folder] } | Remove-Item -Force
+    }
 }
 $lua = Join-Path $vlc "lua"
 Remove-PublishDirectory $lua

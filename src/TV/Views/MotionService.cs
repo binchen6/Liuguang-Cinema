@@ -361,7 +361,12 @@ public static class MotionService
                 {
                     if (state.Token == token)
                         element.Visibility = Visibility.Collapsed;
+                    batch.Dispose();
                 };
+            }
+            else
+            {
+                batch.Completed += (_, _) => batch.Dispose();
             }
         }
     }

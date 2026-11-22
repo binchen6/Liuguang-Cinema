@@ -14,6 +14,7 @@ using TV.ViewModels;
 using TV.Models;
 using TV.Controls;
 using TV.Services;
+using TV.Services.AI;
 using TV.Services.Playback;
 using LibVLCSharp.Shared;
 
@@ -37,11 +38,14 @@ public sealed partial class PlayerPage : Page
     private Uri? _danmakuAddress;
     private Uri? _localDanmakuOverride;
     private Flyout? _danmakuFlyout;
+    private Flyout? _subtitleFlyout;
     private ContentDialog? _cloudLoginDialog;
     private BilibiliLoginDialog? _bilibiliLoginDialog;
     private ContentDialog? _sourceDialog;
     private ContentDialog? _onlineSubtitleDialog;
+    private ContentDialog? _danmakuSearchDialog;
     private Flyout? _timingFlyout;
+    private long? _manualDanDanPlayEpisodeId;
     private int _volumeBeforeMute = 85;
 
     [System.Runtime.InteropServices.DllImport("user32.dll")] private static extern nint SetCursor(nint cursor);
@@ -85,6 +89,8 @@ public sealed partial class PlayerPage : Page
         ViewModel.PropertyChanged += OnViewModelPropertyChanged;
         ViewModel.DanmakuChanged -= OnDanmakuChanged;
         ViewModel.DanmakuChanged += OnDanmakuChanged;
+        ViewModel.DanmakuCleared -= OnDanmakuCleared;
+        ViewModel.DanmakuCleared += OnDanmakuCleared;
         ViewModel.SnapshotUpdated -= OnSnapshotUpdated;
         ViewModel.SnapshotUpdated += OnSnapshotUpdated;
         ViewModel.SeekPerformed -= OnSeekPerformed;
@@ -146,6 +152,8 @@ public sealed partial class PlayerPage : Page
         }
         PlaylistFlyout.Hide();
         _danmakuFlyout?.Hide();
+        _subtitleFlyout?.Hide();
+        _timingFlyout?.Hide();
         _hideTimer.Stop();
         _osdTimer.Stop();
         if (_danmakuSaveTimer.IsRunning)
@@ -156,10 +164,12 @@ public sealed partial class PlayerPage : Page
         CancelDanmakuLoad();
         _danmakuAddress = null;
         _localDanmakuOverride = null;
+        _manualDanDanPlayEpisodeId = null;
         _rawComments = [];
         DanmakuLayer.ReleasePool();
         ViewModel.PropertyChanged -= OnViewModelPropertyChanged;
         ViewModel.DanmakuChanged -= OnDanmakuChanged;
+        ViewModel.DanmakuCleared -= OnDanmakuCleared;
         ViewModel.SnapshotUpdated -= OnSnapshotUpdated;
         ViewModel.SeekPerformed -= OnSeekPerformed;
         ViewModel.SourceRecoveryOffered -= OnSourceRecoveryOffered;
@@ -167,6 +177,8 @@ public sealed partial class PlayerPage : Page
         _sourceDialog = null;
         _onlineSubtitleDialog?.Hide();
         _onlineSubtitleDialog = null;
+        _danmakuSearchDialog?.Hide();
+        _danmakuSearchDialog = null;
         ShowArrowCursor();
         VideoView.Initialized -= OnVideoViewInitialized;
         VideoView.MediaPlayer = null;
@@ -265,6 +277,8 @@ public sealed partial class PlayerPage : Page
     {
         if (e.PropertyName == nameof(PlayerViewModel.RequiredLoginProvider) && ViewModel.RequiredLoginProvider is not null && IsLoaded)
             _ = ShowCloudLoginAsync();
+        if (e.PropertyName is nameof(PlayerViewModel.IsRealtimeSubtitleActive) or nameof(PlayerViewModel.SubtitleDelayMs) or nameof(PlayerViewModel.SubtitleSpeed))
+            UpdateSubtitleIndicator();
         if (e.PropertyName is nameof(PlayerViewModel.IsPlaying) or nameof(PlayerViewModel.IsBuffering)
             or nameof(PlayerViewModel.HasMedia) or nameof(PlayerViewModel.ShowStatusPanel))
         {
@@ -348,6 +362,385 @@ public sealed partial class PlayerPage : Page
 
         LoopEpisodeItem.IsChecked = ViewModel.LoopCurrentEpisode;
         MediaInfoToggleItem.IsChecked = ViewModel.ShowMediaInfo;
+        RealtimeSubtitleToggleItem.IsChecked = ViewModel.IsRealtimeSubtitleActive;
+    }
+
+    private void UpdateSubtitleIndicator()
+    {
+        if (SubtitleActiveIndicator is null) return;
+        var active = ViewModel.IsRealtimeSubtitleActive || ViewModel.SubtitleDelayMs != 0 || Math.Abs(ViewModel.SubtitleSpeed - 1.0) > 0.001;
+        SubtitleActiveIndicator.Visibility = active ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    private void OnSubtitleSettingsClick(object sender, RoutedEventArgs e)
+    {
+        PlaybackOptionsFlyout.Hide();
+        _ = OpenSubtitleSettingsAsync(sender as FrameworkElement ?? SubtitleSettingsButton);
+    }
+
+    private async void OnAiGenerateSubtitleClick(object sender, RoutedEventArgs e)
+    {
+        PlaybackOptionsFlyout.Hide();
+        if (!await EnsureBailianConfiguredAsync()) return;
+        ShowOsd("开始 AI 字幕生成…");
+        await ViewModel.GenerateAiSubtitleAsync(translateAfter: false);
+    }
+
+    private async void OnAiGenerateAndTranslateClick(object sender, RoutedEventArgs e)
+    {
+        PlaybackOptionsFlyout.Hide();
+        if (!await EnsureBailianConfiguredAsync()) return;
+        ShowOsd("开始 AI 生成并翻译字幕…");
+        await ViewModel.GenerateAiSubtitleAsync(translateAfter: true);
+    }
+
+    private async void OnAiTranslateSubtitleClick(object sender, RoutedEventArgs e)
+    {
+        PlaybackOptionsFlyout.Hide();
+        if (!await EnsureBailianConfiguredAsync()) return;
+        string? filePath = ViewModel.ActiveExternalSubtitlePath ?? ViewModel.LastGeneratedAiSubtitlePath;
+        if (string.IsNullOrWhiteSpace(filePath) || !File.Exists(filePath))
+        {
+            var picker = new Microsoft.Windows.Storage.Pickers.FileOpenPicker(App.Window.AppWindow.Id);
+            foreach (var ext in new[] { ".srt", ".vtt", ".ass", ".ssa" }) picker.FileTypeFilter.Add(ext);
+            var picked = await picker.PickSingleFileAsync();
+            if (picked is null) return;
+            filePath = picked.Path;
+        }
+        ShowOsd("开始 AI 字幕翻译…");
+        await ViewModel.TranslateSubtitleAsync(filePath);
+    }
+
+    private async void OnRealtimeSubtitleToggleClick(object sender, RoutedEventArgs e)
+    {
+        PlaybackOptionsFlyout.Hide();
+        if (!ViewModel.IsRealtimeSubtitleActive && !await EnsureBailianConfiguredAsync()) return;
+        await ViewModel.ToggleRealtimeSubtitleAsync();
+        ShowOsd(ViewModel.IsRealtimeSubtitleActive ? "实时字幕已开启" : "实时字幕已关闭");
+    }
+
+    private async Task<bool> EnsureBailianConfiguredAsync()
+    {
+        var config = await App.Services.BailianSubtitle.GetConfigAsync();
+        if (config.HasApiKey) return true;
+        if (XamlRoot is null) return false;
+        _hideTimer.Stop();
+        var dialog = new ContentDialog
+        {
+            XamlRoot = XamlRoot,
+            Title = "需要配置阿里云百炼 API Key",
+            Content = "AI 自动生成字幕、字幕翻译和实时字幕依赖阿里云百炼平台密钥。\n点击下方按钮可前往设置页面一键跳转百炼平台生成并填入密钥。",
+            PrimaryButtonText = "前往设置配置",
+            SecondaryButtonText = "直接打开百炼平台",
+            CloseButtonText = "稍后",
+            DefaultButton = ContentDialogButton.Primary
+        };
+        try
+        {
+            var result = await dialog.ShowAsync();
+            if (result == ContentDialogResult.Primary)
+            {
+                if (!App.PlayerOnly) App.Window.OpenAiSettings();
+                else ViewModel.QualityMessage = "直达播放模式请打开主应用“设置 → 弹幕与 AI”配置阿里云百炼 API Key。";
+            }
+            else if (result == ContentDialogResult.Secondary)
+            {
+                await Windows.System.Launcher.LaunchUriAsync(new Uri(AiSubtitleModels.BailianApiKeyConsoleUrl));
+            }
+        }
+        finally { if (IsLoaded) ShowControls(); }
+        return false;
+    }
+
+    private async Task OpenSubtitleSettingsAsync(FrameworkElement target)
+    {
+        if (_subtitleFlyout is not null)
+        {
+            _subtitleFlyout.Hide();
+            return;
+        }
+        _hideTimer.Stop();
+        try
+        {
+            var aiConfig = await App.Services.BailianSubtitle.GetConfigAsync();
+            if (!IsLoaded) return;
+
+            var root = new StackPanel { Width = 356, Spacing = 12 };
+
+            // --- 1. 字幕时间轴微调（前移 / 后移 / 字幕速度）---
+            root.Children.Add(new TextBlock { Text = "字幕时间轴调节", FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, FontSize = 15 });
+
+            var delayLabel = new TextBlock { Text = FormatDelayLabel(ViewModel.SubtitleDelayMs) };
+            var delayBox = new NumberBox
+            {
+                Header = "字幕偏移（秒，负数前移 / 正数后移）",
+                Minimum = -60, Maximum = 60, SmallChange = 0.1, LargeChange = 1.0,
+                Value = Math.Round(ViewModel.SubtitleDelayMs / 1000.0, 2),
+                SpinButtonPlacementMode = NumberBoxSpinButtonPlacementMode.Inline
+            };
+
+            Button MakeShiftBtn(string text, long deltaMs)
+            {
+                var btn = new Button { Content = text, Padding = new Thickness(8, 4, 8, 4), MinWidth = 0, MinHeight = 32 };
+                btn.Click += (_, _) =>
+                {
+                    ViewModel.AdjustSubtitleDelay(deltaMs);
+                    delayBox.Value = Math.Round(ViewModel.SubtitleDelayMs / 1000.0, 2);
+                    delayLabel.Text = FormatDelayLabel(ViewModel.SubtitleDelayMs);
+                    ShowOsd($"字幕{(ViewModel.SubtitleDelayMs < 0 ? "前移" : "后移")} {Math.Abs(ViewModel.SubtitleDelayMs) / 1000.0:0.#}s");
+                };
+                return btn;
+            }
+
+            var shiftRow = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                Spacing = 4,
+                Children =
+                {
+                    MakeShiftBtn("-2s", -2000),
+                    MakeShiftBtn("-0.5s", -500),
+                    MakeShiftBtn("-0.1s", -100),
+                    MakeShiftBtn("+0.1s", 100),
+                    MakeShiftBtn("+0.5s", 500),
+                    MakeShiftBtn("+2s", 2000)
+                }
+            };
+
+            delayBox.ValueChanged += (_, args) =>
+            {
+                if (!double.IsFinite(args.NewValue)) return;
+                var ms = (long)Math.Round(args.NewValue * 1000.0);
+                if (ms == ViewModel.SubtitleDelayMs) return;
+                ViewModel.SetSubtitleDelay(ms);
+                delayLabel.Text = FormatDelayLabel(ViewModel.SubtitleDelayMs);
+            };
+
+            // 字幕速度 (0.80x ~ 1.25x)
+            var speedLabel = new TextBlock { Text = $"字幕速度：{ViewModel.SubtitleSpeed:0.00}x（>1 加快前移，<1 放慢后移）" };
+            var speedSlider = new Slider
+            {
+                Minimum = 80, Maximum = 125, StepFrequency = 1,
+                Value = Math.Round(ViewModel.SubtitleSpeed * 100)
+            };
+
+            Button MakeSpeedPreset(string text, double spd)
+            {
+                var btn = new Button { Content = text, Padding = new Thickness(8, 4, 8, 4), MinWidth = 0, MinHeight = 32 };
+                btn.Click += async (_, _) =>
+                {
+                    speedSlider.Value = Math.Round(spd * 100);
+                    await ViewModel.SetSubtitleSpeedAsync(spd);
+                    speedLabel.Text = $"字幕速度：{ViewModel.SubtitleSpeed:0.00}x";
+                    ShowOsd($"字幕速度 {ViewModel.SubtitleSpeed:0.00}x");
+                };
+                return btn;
+            }
+
+            var speedPresets = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                Spacing = 4,
+                Children =
+                {
+                    MakeSpeedPreset("0.95x", 0.95),
+                    MakeSpeedPreset("0.96x", 0.96),
+                    MakeSpeedPreset("1.00x", 1.00),
+                    MakeSpeedPreset("1.04x", 1.04),
+                    MakeSpeedPreset("1.05x", 1.05)
+                }
+            };
+
+            speedSlider.ValueChanged += async (_, args) =>
+            {
+                var spd = Math.Round(args.NewValue) / 100.0;
+                speedLabel.Text = $"字幕速度：{spd:0.00}x";
+                await ViewModel.SetSubtitleSpeedAsync(spd);
+            };
+
+            var resetTimingBtn = new Button { Content = "重置偏移与速度", HorizontalAlignment = HorizontalAlignment.Left };
+            resetTimingBtn.Click += async (_, _) =>
+            {
+                await ViewModel.ResetSubtitleTimingAsync();
+                delayBox.Value = 0;
+                speedSlider.Value = 100;
+                delayLabel.Text = FormatDelayLabel(0);
+                speedLabel.Text = "字幕速度：1.00x";
+                ShowOsd("字幕时间轴已重置");
+            };
+
+            root.Children.Add(delayLabel);
+            root.Children.Add(shiftRow);
+            root.Children.Add(delayBox);
+            root.Children.Add(speedLabel);
+            root.Children.Add(speedSlider);
+            root.Children.Add(speedPresets);
+            root.Children.Add(resetTimingBtn);
+            root.Children.Add(new Border { Height = 1, Background = Application.Current.Resources["DividerBrush"] as Brush });
+
+            // --- 2. AI 字幕与翻译（阿里云百炼）---
+            root.Children.Add(new TextBlock { Text = "AI 智能字幕与翻译（阿里云百炼）", FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, FontSize = 15 });
+            var langName = AiSubtitleModels.TargetLanguages.FirstOrDefault(l => l.ApiName == aiConfig.TargetLanguage)?.DisplayName ?? aiConfig.TargetLanguage;
+            var aiSummary = new TextBlock
+            {
+                Text = aiConfig.HasApiKey
+                    ? $"生成模型：{aiConfig.AsrModel} · 翻译模型：{aiConfig.MtModel}（目标：{langName}）"
+                    : "尚未配置阿里云百炼 API Key，点击下方按钮前往配置。",
+                TextWrapping = TextWrapping.Wrap,
+                Opacity = 0.8,
+                FontSize = 13
+            };
+            root.Children.Add(aiSummary);
+
+            var genBtn = new Button
+            {
+                Content = "AI 生成字幕（自动对齐时间轴）",
+                Style = Application.Current.Resources["PrimaryButtonStyle"] as Style,
+                HorizontalAlignment = HorizontalAlignment.Stretch,
+                IsEnabled = !ViewModel.IsAiSubtitleBusy
+            };
+            var genTransBtn = new Button
+            {
+                Content = $"AI 生成并翻译为{langName}",
+                HorizontalAlignment = HorizontalAlignment.Stretch,
+                IsEnabled = !ViewModel.IsAiSubtitleBusy
+            };
+            var translateBtn = new Button
+            {
+                Content = ViewModel.ActiveExternalSubtitlePath is not null ? $"AI 翻译当前字幕 → {langName}" : $"选择本地字幕 AI 翻译 → {langName}",
+                HorizontalAlignment = HorizontalAlignment.Stretch,
+                IsEnabled = !ViewModel.IsAiSubtitleBusy
+            };
+            var realtimeBtn = new Button
+            {
+                Content = ViewModel.IsRealtimeSubtitleActive ? "关闭实时字幕 (Qwen3-ASR)" : "开启实时字幕 (Qwen3-ASR)",
+                HorizontalAlignment = HorizontalAlignment.Stretch
+            };
+
+            var fileRow = new Grid { ColumnSpacing = 8 };
+            fileRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            fileRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            var loadLocalBtn = new Button { Content = "加载本地字幕", HorizontalAlignment = HorizontalAlignment.Stretch };
+            var matchOnlineBtn = new Button { Content = "匹配在线字幕", HorizontalAlignment = HorizontalAlignment.Stretch };
+            Grid.SetColumn(loadLocalBtn, 0);
+            Grid.SetColumn(matchOnlineBtn, 1);
+            fileRow.Children.Add(loadLocalBtn);
+            fileRow.Children.Add(matchOnlineBtn);
+
+            var utilRow = new Grid { ColumnSpacing = 8 };
+            utilRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            utilRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            var exportBtn = new Button { Content = "导出字幕 (.srt)", HorizontalAlignment = HorizontalAlignment.Stretch };
+            var openSettingsBtn = new Button { Content = aiConfig.HasApiKey ? "AI 模型设置" : "配置百炼密钥", HorizontalAlignment = HorizontalAlignment.Stretch };
+            Grid.SetColumn(exportBtn, 0);
+            Grid.SetColumn(openSettingsBtn, 1);
+            utilRow.Children.Add(exportBtn);
+            utilRow.Children.Add(openSettingsBtn);
+
+            root.Children.Add(genBtn);
+            root.Children.Add(genTransBtn);
+            root.Children.Add(translateBtn);
+            root.Children.Add(realtimeBtn);
+            root.Children.Add(fileRow);
+            root.Children.Add(utilRow);
+
+            var flyout = new Flyout
+            {
+                Placement = FlyoutPlacementMode.TopEdgeAlignedRight,
+                Content = new ScrollViewer { MaxHeight = Math.Max(220, ActualHeight - 116), Padding = new Thickness(0, 0, 8, 0), Content = root }
+            };
+            flyout.Closed += (_, _) => { _subtitleFlyout = null; if (IsLoaded) ShowControls(); };
+
+            genBtn.Click += async (_, _) =>
+            {
+                flyout.Hide();
+                if (!await EnsureBailianConfiguredAsync()) return;
+                ShowOsd("开始 AI 字幕生成…");
+                await ViewModel.GenerateAiSubtitleAsync(translateAfter: false);
+            };
+            genTransBtn.Click += async (_, _) =>
+            {
+                flyout.Hide();
+                if (!await EnsureBailianConfiguredAsync()) return;
+                ShowOsd("开始 AI 生成并翻译字幕…");
+                await ViewModel.GenerateAiSubtitleAsync(translateAfter: true);
+            };
+            translateBtn.Click += async (_, _) =>
+            {
+                flyout.Hide();
+                OnAiTranslateSubtitleClick(translateBtn, new RoutedEventArgs());
+            };
+            realtimeBtn.Click += async (_, _) =>
+            {
+                flyout.Hide();
+                if (!ViewModel.IsRealtimeSubtitleActive && !await EnsureBailianConfiguredAsync()) return;
+                await ViewModel.ToggleRealtimeSubtitleAsync();
+                ShowOsd(ViewModel.IsRealtimeSubtitleActive ? "实时字幕已开启" : "实时字幕已关闭");
+            };
+            loadLocalBtn.Click += (_, _) =>
+            {
+                flyout.Hide();
+                OnLoadSubtitleClick(loadLocalBtn, new RoutedEventArgs());
+            };
+            matchOnlineBtn.Click += (_, _) =>
+            {
+                flyout.Hide();
+                OnMatchSubtitleClick(matchOnlineBtn, new RoutedEventArgs());
+            };
+            exportBtn.Click += async (_, _) =>
+            {
+                flyout.Hide();
+                await ExportSubtitleInteractiveAsync();
+            };
+            openSettingsBtn.Click += (_, _) =>
+            {
+                flyout.Hide();
+                if (!App.PlayerOnly) App.Window.OpenAiSettings();
+                else _ = Windows.System.Launcher.LaunchUriAsync(new Uri(AiSubtitleModels.BailianApiKeyConsoleUrl));
+            };
+
+            _subtitleFlyout = flyout;
+            DispatcherQueue.TryEnqueue(() =>
+            {
+                if (IsLoaded && _subtitleFlyout == flyout)
+                    flyout.ShowAt(target);
+            });
+        }
+        catch (Exception ex) { ViewModel.QualityMessage = "字幕面板打开失败：" + ex.Message; }
+    }
+
+    private async Task ExportSubtitleInteractiveAsync()
+    {
+        try
+        {
+            var safeTitle = string.Concat(ViewModel.Title.Select(ch => Path.GetInvalidFileNameChars().Contains(ch) ? '_' : ch));
+            if (safeTitle.Length > 60) safeTitle = safeTitle[..60];
+            var picker = new Microsoft.Windows.Storage.Pickers.FileSavePicker(App.Window.AppWindow.Id)
+            {
+                SuggestedFileName = string.IsNullOrWhiteSpace(safeTitle) ? "ai-subtitle" : safeTitle,
+                SuggestedStartLocation = Microsoft.Windows.Storage.Pickers.PickerLocationId.VideosLibrary
+            };
+            picker.FileTypeChoices.Add("SRT 字幕文件", [".srt"]);
+            var dest = await picker.PickSaveFileAsync();
+            if (dest is null) return;
+            if (await ViewModel.ExportSubtitleToAsync(dest.Path))
+            {
+                ShowOsd("字幕已导出");
+                ViewModel.QualityMessage = $"字幕已导出至：{dest.Path}";
+            }
+            else
+            {
+                ViewModel.QualityMessage = "当前没有可导出的 AI 或外部字幕文件。";
+            }
+        }
+        catch (Exception ex) { ViewModel.QualityMessage = "字幕导出失败：" + ex.Message; }
+    }
+
+    private static string FormatDelayLabel(long delayMs)
+    {
+        if (delayMs == 0) return "当前偏移：0.0s（与原视频同步）";
+        var dir = delayMs < 0 ? "前移" : "后移";
+        return $"当前偏移：{dir} {Math.Abs(delayMs) / 1000.0:0.0}s（{delayMs / 1000.0:+0.0;-0.0;0.0}s）";
     }
 
     private void OnLoopEpisodeClick(object sender, RoutedEventArgs e)
@@ -527,8 +920,8 @@ public sealed partial class PlayerPage : Page
             // Source & matching
             var source = new AnchoredChoice
             {
-                Header = "弹幕来源", Options = "来源自带 / 本地文件|哔哩哔哩在线匹配",
-                SelectedIndex = _danmaku.Source == "bilibili" ? 1 : 0,
+                Header = "弹幕来源", Options = "来源自带 / 本地文件|弹弹play 开放弹幕库|哔哩哔哩在线匹配",
+                SelectedIndex = _danmaku.Source switch { "dandanplay" => 1, "bilibili" => 2, _ => 0 },
                 HorizontalAlignment = HorizontalAlignment.Stretch
             };
             var autoMatch = new ToggleSwitch { Header = "换集后自动匹配对应集数", IsOn = _danmaku.AutoMatch };
@@ -555,7 +948,7 @@ public sealed partial class PlayerPage : Page
                     TimeOffsetSeconds = double.IsFinite(timeOffset.Value) ? Math.Clamp(timeOffset.Value, -15, 15) : 0,
                     BasicFilter = filter.IsOn,
                     BlockedWords = words.Text ?? string.Empty,
-                    Source = source.SelectedIndex == 1 ? "bilibili" : "origin",
+                    Source = source.SelectedIndex switch { 1 => "dandanplay", 2 => "bilibili", _ => "origin" },
                     AutoMatch = autoMatch.IsOn
                 };
                 opacityHeader.Text = $"不透明度：{(int)Math.Round(_danmaku.Opacity * 100)}%";
@@ -601,9 +994,11 @@ public sealed partial class PlayerPage : Page
             };
 
             var loadLocal = new Button { Content = "加载本地弹幕 (.xml / .json)", HorizontalAlignment = HorizontalAlignment.Stretch };
-            var matchNow = new Button { Content = "立即匹配哔哩哔哩弹幕", HorizontalAlignment = HorizontalAlignment.Stretch };
+            var matchDanDan = new Button { Content = "立即匹配弹弹play 弹幕", Style = Application.Current.Resources["PrimaryButtonStyle"] as Style, HorizontalAlignment = HorizontalAlignment.Stretch };
+            var searchDanDan = new Button { Content = "手动搜索弹弹play 剧集…", HorizontalAlignment = HorizontalAlignment.Stretch };
+            var matchBili = new Button { Content = "匹配哔哩哔哩弹幕", HorizontalAlignment = HorizontalAlignment.Stretch };
             var resetDefaults = new Button { Content = "恢复默认样式" };
-            var save = new Button { Content = "应用并关闭", Style = Application.Current.Resources["PrimaryButtonStyle"] as Style };
+            var save = new Button { Content = "应用并关闭", Style = Application.Current.Resources["SecondaryButtonStyle"] as Style };
             var footerRow = new Grid { ColumnSpacing = 8 };
             footerRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             footerRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
@@ -613,7 +1008,7 @@ public sealed partial class PlayerPage : Page
             footerRow.Children.Add(resetDefaults);
             footerRow.Children.Add(save);
 
-            var options = new StackPanel { Width = 336, Spacing = 10, Children = { enabled, advanced, loadLocal, matchNow, footerRow } };
+            var options = new StackPanel { Width = 336, Spacing = 10, Children = { enabled, advanced, matchDanDan, searchDanDan, matchBili, loadLocal, footerRow } };
             var flyout = new Flyout
             {
                 Placement = FlyoutPlacementMode.TopEdgeAlignedRight,
@@ -632,6 +1027,7 @@ public sealed partial class PlayerPage : Page
                     var file = await picker.PickSingleFileAsync();
                     if (file is null) return;
                     _localDanmakuOverride = new Uri(file.Path);
+                    _manualDanDanPlayEpisodeId = null;
                     _danmaku = _danmaku with { Enabled = true, Source = "origin" };
                     await PersistDanmakuPreferencesAsync();
                     UpdateDanmakuToggle();
@@ -641,18 +1037,40 @@ public sealed partial class PlayerPage : Page
                 catch (Exception ex) { ViewModel.QualityMessage = "本地弹幕加载失败：" + ex.Message; }
             };
 
-            matchNow.Click += async (_, _) =>
+            matchDanDan.Click += async (_, _) =>
             {
                 flyout.Hide();
                 try
                 {
                     _localDanmakuOverride = null;
+                    _manualDanDanPlayEpisodeId = null;
+                    _danmaku = _danmaku with { Enabled = true, Source = "dandanplay" };
+                    await PersistDanmakuPreferencesAsync();
+                    UpdateDanmakuToggle();
+                    await ReloadDanmakuAsync(true);
+                }
+                catch (Exception ex) { ViewModel.QualityMessage = "弹弹play 匹配失败：" + ex.Message; }
+            };
+
+            searchDanDan.Click += async (_, _) =>
+            {
+                flyout.Hide();
+                await OpenDanDanPlaySearchDialogAsync();
+            };
+
+            matchBili.Click += async (_, _) =>
+            {
+                flyout.Hide();
+                try
+                {
+                    _localDanmakuOverride = null;
+                    _manualDanDanPlayEpisodeId = null;
                     _danmaku = _danmaku with { Enabled = true, Source = "bilibili" };
                     await PersistDanmakuPreferencesAsync();
                     UpdateDanmakuToggle();
                     await ReloadDanmakuAsync(true);
                 }
-                catch (Exception ex) { ViewModel.QualityMessage = "在线匹配失败：" + ex.Message; }
+                catch (Exception ex) { ViewModel.QualityMessage = "B 站在线匹配失败：" + ex.Message; }
             };
 
             resetDefaults.Click += (_, _) =>
@@ -721,11 +1139,106 @@ public sealed partial class PlayerPage : Page
         DanmakuLayer.SetPreferences(_danmaku);
     }
 
+    private void OnDanmakuCleared(object? sender, EventArgs e)
+    {
+        CancelDanmakuLoad();
+        _danmakuAddress = null;
+        _localDanmakuOverride = null;
+        _manualDanDanPlayEpisodeId = null;
+        _rawComments = [];
+        DanmakuLayer.Clear();
+    }
+
     private void OnDanmakuChanged(object? sender, Uri? uri)
     {
         _danmakuAddress = uri;
         _localDanmakuOverride = null;
+        _manualDanDanPlayEpisodeId = null;
         _ = ReloadDanmakuAsync(false);
+    }
+
+    private async Task OpenDanDanPlaySearchDialogAsync()
+    {
+        if (_danmakuSearchDialog is not null || XamlRoot is null) return;
+        _hideTimer.Stop();
+        var queryBox = new TextBox
+        {
+            Header = "搜索番剧 / 影视名称",
+            Text = MediaMatching.Title(ViewModel.Title),
+            PlaceholderText = "输入作品名称…"
+        };
+        var searchBtn = new Button { Content = "搜索", Style = Application.Current.Resources["SecondaryButtonStyle"] as Style, VerticalAlignment = VerticalAlignment.Bottom };
+        var searchRow = new Grid { ColumnSpacing = 8 };
+        searchRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        searchRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        Grid.SetColumn(queryBox, 0);
+        Grid.SetColumn(searchBtn, 1);
+        searchRow.Children.Add(queryBox);
+        searchRow.Children.Add(searchBtn);
+
+        var statusText = new TextBlock { Text = "输入名称后点击搜索，在下方选择对应分集加载弹幕。", TextWrapping = TextWrapping.Wrap, Opacity = 0.8 };
+        var resultList = new ListView
+        {
+            Height = 280,
+            SelectionMode = ListViewSelectionMode.Single,
+            DisplayMemberPath = nameof(DanDanPlayEpisode.DisplayName)
+        };
+
+        async Task DoSearchAsync()
+        {
+            var q = queryBox.Text.Trim();
+            if (q.Length == 0) return;
+            searchBtn.IsEnabled = false;
+            statusText.Text = "正在搜索弹弹play 开放弹幕库…";
+            try
+            {
+                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+                var groups = await App.Services.DanDanPlay.SearchEpisodesAsync(q, null, cts.Token);
+                var flat = groups.SelectMany(g => g.Episodes).Take(120).ToArray();
+                resultList.ItemsSource = flat;
+                if (flat.Length > 0) resultList.SelectedIndex = 0;
+                statusText.Text = flat.Length > 0 ? $"找到 {flat.Length} 个分集，选中后点击确定加载弹幕。" : "未找到匹配分集，请尝试缩短关键词。";
+            }
+            catch (Exception ex) { statusText.Text = "搜索失败：" + ex.Message; }
+            finally { searchBtn.IsEnabled = true; }
+        }
+
+        searchBtn.Click += async (_, _) => await DoSearchAsync();
+        queryBox.KeyDown += async (_, args) =>
+        {
+            if (args.Key == VirtualKey.Enter) { args.Handled = true; await DoSearchAsync(); }
+        };
+
+        var panel = new StackPanel { Width = 440, Spacing = 10, Children = { searchRow, statusText, resultList } };
+        var dialog = new ContentDialog
+        {
+            XamlRoot = XamlRoot,
+            Title = "搜索弹弹play 弹幕剧集",
+            Content = panel,
+            PrimaryButtonText = "加载所选弹幕",
+            CloseButtonText = "取消",
+            DefaultButton = ContentDialogButton.Primary
+        };
+        _danmakuSearchDialog = dialog;
+        _ = DoSearchAsync();
+        try
+        {
+            if (await dialog.ShowAsync() == ContentDialogResult.Primary && resultList.SelectedItem is DanDanPlayEpisode picked)
+            {
+                _localDanmakuOverride = null;
+                _manualDanDanPlayEpisodeId = picked.EpisodeId;
+                _danmaku = _danmaku with { Enabled = true, Source = "dandanplay" };
+                await PersistDanmakuPreferencesAsync();
+                UpdateDanmakuToggle();
+                ViewModel.QualityMessage = $"弹弹play 已切换：{picked.DisplayName}";
+                await ReloadDanmakuAsync(true);
+            }
+        }
+        finally
+        {
+            _danmakuSearchDialog = null;
+            if (IsLoaded) ShowControls();
+        }
     }
 
     private async Task ReloadDanmakuAsync(bool forceMatch)
@@ -740,24 +1253,53 @@ public sealed partial class PlayerPage : Page
             await ReadDanmakuPreferencesAsync();
             UpdateDanmakuToggle();
             if (!_danmaku.Enabled || token.IsCancellationRequested) return;
-            var uri = _localDanmakuOverride ?? _danmakuAddress;
-            var online = _localDanmakuOverride is null && _danmaku.Source == "bilibili";
-            if (online && (forceMatch || _danmaku.AutoMatch && (!ViewModel.IsBilibiliPlayback || uri is null)))
+
+            IReadOnlyList<DanmakuEntry> comments;
+            if (_localDanmakuOverride is { } localUri)
             {
-                var match = await ViewModel.MatchOnlineMediaAsync(token);
-                uri = match.Danmaku;
+                comments = await App.Services.Danmaku.LoadAsync(localUri, token);
             }
-            else if (online && !_danmaku.AutoMatch && !forceMatch && !ViewModel.IsBilibiliPlayback)
+            else if (_danmaku.Source == "dandanplay")
             {
-                ViewModel.QualityMessage = "在线弹幕自动匹配已关闭，可在弹幕设置中手动匹配。";
-                return;
+                if (!forceMatch && !_danmaku.AutoMatch && !_manualDanDanPlayEpisodeId.HasValue)
+                {
+                    ViewModel.QualityMessage = "在线弹幕自动匹配已关闭，可在弹幕设置中手动匹配。";
+                    return;
+                }
+                long epId;
+                if (_manualDanDanPlayEpisodeId is { } manualId)
+                {
+                    epId = manualId;
+                }
+                else
+                {
+                    var match = await ViewModel.MatchDanDanPlayAsync(token);
+                    epId = match.EpisodeId;
+                }
+                comments = await App.Services.DanDanPlay.GetCommentsAsync(epId, withRelated: true, chConvert: 1, token);
             }
-            if (uri is null)
+            else
             {
-                ViewModel.QualityMessage = "当前来源没有弹幕，可在弹幕设置中加载本地文件或切换哔哩哔哩匹配。";
-                return;
+                var uri = _danmakuAddress;
+                var onlineBili = _danmaku.Source == "bilibili";
+                if (onlineBili && (forceMatch || _danmaku.AutoMatch && (!ViewModel.IsBilibiliPlayback || uri is null)))
+                {
+                    var match = await ViewModel.MatchOnlineMediaAsync(token);
+                    uri = match.Danmaku;
+                }
+                else if (onlineBili && !_danmaku.AutoMatch && !forceMatch && !ViewModel.IsBilibiliPlayback)
+                {
+                    ViewModel.QualityMessage = "在线弹幕自动匹配已关闭，可在弹幕设置中手动匹配。";
+                    return;
+                }
+                if (uri is null)
+                {
+                    ViewModel.QualityMessage = "当前来源没有弹幕，可在弹幕设置中加载本地文件或切换弹弹play / 哔哩哔哩匹配。";
+                    return;
+                }
+                comments = await App.Services.Danmaku.LoadAsync(uri, token);
             }
-            var comments = await App.Services.Danmaku.LoadAsync(uri, token);
+
             if (token.IsCancellationRequested) return;
             _rawComments = comments as DanmakuEntry[] ?? comments.ToArray();
             ApplyFilteredComments();
@@ -765,7 +1307,7 @@ public sealed partial class PlayerPage : Page
             DanmakuLayer.SyncPlayback(snap.TimeMs / 1000d,
                 snap.CapturedAtTimestamp != 0 ? snap.CapturedAtTimestamp : Stopwatch.GetTimestamp(),
                 snap.Rate, snap.IsPlaying, ViewModel.IsBuffering);
-            Diagnostics.Log($"Danmaku loaded: {DanmakuLayer.LoadedCount}/{_rawComments.Length} entries");
+            Diagnostics.Log($"Danmaku loaded: {DanmakuLayer.LoadedCount}/{_rawComments.Length} entries (source={_danmaku.Source})");
             if (DanmakuLayer.LoadedCount == 0) ViewModel.QualityMessage = "当前匹配节目没有可显示的弹幕。";
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested) { }
@@ -880,8 +1422,9 @@ public sealed partial class PlayerPage : Page
 
     private bool AnyFlyoutOpen() => PlaylistFlyout.IsOpen || PlaybackOptionsFlyout.IsOpen || RateFlyout.IsOpen ||
         QualityFlyout.IsOpen || VolumeFlyout.IsOpen ||
-        _danmakuFlyout is { IsOpen: true } || _timingFlyout is { IsOpen: true } || _sourceDialog is not null ||
-        _onlineSubtitleDialog is not null || _bilibiliLoginDialog is not null || _cloudLoginDialog is not null;
+        _danmakuFlyout is { IsOpen: true } || _subtitleFlyout is { IsOpen: true } || _timingFlyout is { IsOpen: true } ||
+        _sourceDialog is not null || _onlineSubtitleDialog is not null || _danmakuSearchDialog is not null ||
+        _bilibiliLoginDialog is not null || _cloudLoginDialog is not null;
 
     private void OnHideTimer(DispatcherQueueTimer sender, object args)
     {
@@ -1158,6 +1701,16 @@ public sealed partial class PlayerPage : Page
                 ViewModel.SeekBy(15);
                 ShowOsd("前进 15 秒");
                 ShowControls();
+                e.Handled = true;
+                break;
+            case VirtualKey.Z:
+                ViewModel.AdjustSubtitleDelay(-500);
+                ShowOsd($"字幕前移（当前 {ViewModel.SubtitleDelayMs / 1000.0:+0.#;-0.#;0}s）");
+                e.Handled = true;
+                break;
+            case VirtualKey.X:
+                ViewModel.AdjustSubtitleDelay(500);
+                ShowOsd($"字幕后移（当前 {ViewModel.SubtitleDelayMs / 1000.0:+0.#;-0.#;0}s）");
                 e.Handled = true;
                 break;
             case (VirtualKey)190: // '.' frame step

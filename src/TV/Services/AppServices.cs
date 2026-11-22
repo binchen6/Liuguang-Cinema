@@ -1,3 +1,4 @@
+using TV.Services.AI;
 using TV.Services.Cloud;
 using TV.Services.Configuration;
 using TV.Services.Http;
@@ -23,7 +24,10 @@ public sealed class AppServices : IDisposable
     private readonly Lazy<BilibiliAccountService> _bilibiliAccount;
     private readonly Lazy<BilibiliVodProvider> _bilibili;
     private readonly Lazy<DanmakuService> _danmaku;
+    private readonly Lazy<DanDanPlayService> _danDanPlay;
     private readonly Lazy<OnlineMediaService> _onlineMedia;
+    private readonly Lazy<BailianSubtitleService> _bailianSubtitle;
+    private readonly Lazy<RealtimeSubtitleService> _realtimeSubtitle;
 
     public AppServices(bool playerOnly = false)
     {
@@ -35,6 +39,9 @@ public sealed class AppServices : IDisposable
         _http = new Lazy<SourceHttpClient>(() => new SourceHttpClient(_dns.Value, _siteSessions.Value));
         _bilibiliAccount = new Lazy<BilibiliAccountService>(() => new BilibiliAccountService(Database, _dns.Value));
         _danmaku = new Lazy<DanmakuService>(() => new DanmakuService(_http.Value));
+        _danDanPlay = new Lazy<DanDanPlayService>(() => new DanDanPlayService(_http.Value, Database));
+        _bailianSubtitle = new Lazy<BailianSubtitleService>(() => new BailianSubtitleService(Database, _dns.Value));
+        _realtimeSubtitle = new Lazy<RealtimeSubtitleService>(() => new RealtimeSubtitleService(_bailianSubtitle.Value));
         _player = new Lazy<PlayerService>(() => new PlayerService());
         if (playerOnly)
         {
@@ -58,7 +65,7 @@ public sealed class AppServices : IDisposable
         Live = new LiveService(http);
         Epg = new EpgService(http);
         Douban = new DoubanService(http, Database);
-        Images = new ImageCacheService(http);
+        Images = new ImageCacheService(http, Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread());
         Resolver = new PlayUrlResolver(http);
         Sniffer = new SniffService(Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread());
         Playback = new PlaybackResolver(this);
@@ -92,6 +99,9 @@ public sealed class AppServices : IDisposable
     public SourceRecoveryService SourceRecovery { get; } = null!;
     public VideoDownloadService Downloads { get; } = null!;
     public DanmakuService Danmaku => _danmaku.Value;
+    public DanDanPlayService DanDanPlay => _danDanPlay.Value;
+    public BailianSubtitleService BailianSubtitle => _bailianSubtitle.Value;
+    public RealtimeSubtitleService RealtimeSubtitle => _realtimeSubtitle.Value;
     public BilibiliVodProvider Bilibili => _bilibili.Value;
     public OnlineMediaService OnlineMedia => _onlineMedia.Value;
     public LocalMediaService LocalMedia { get; } = null!;
@@ -101,6 +111,8 @@ public sealed class AppServices : IDisposable
 
     public void Dispose()
     {
+        if (_realtimeSubtitle.IsValueCreated) _realtimeSubtitle.Value.Dispose();
+        if (_bailianSubtitle.IsValueCreated) _bailianSubtitle.Value.Dispose();
         if (_player.IsValueCreated) _player.Value.Dispose();
         if (!PlayerOnly)
         {

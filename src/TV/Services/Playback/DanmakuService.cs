@@ -20,7 +20,7 @@ public sealed record DanmakuPreferences(
     int Color = 0,
     bool BasicFilter = true,
     string BlockedWords = "",
-    string Source = "origin",
+    string Source = "dandanplay",
     bool AutoMatch = true,
     double Opacity = 0.85,
     double Speed = 1.0,
@@ -44,8 +44,15 @@ public sealed record DanmakuPreferences(
         Density = Math.Clamp(Density, 0, 3),
         TimeOffsetSeconds = double.IsFinite(TimeOffsetSeconds) ? Math.Clamp(TimeOffsetSeconds, -15.0, 15.0) : 0.0,
         BlockedWords = BlockedWords ?? string.Empty,
-        Source = string.Equals(Source, "bilibili", StringComparison.OrdinalIgnoreCase) ? "bilibili" : "origin"
+        Source = NormalizeSource(Source)
     };
+
+    public static string NormalizeSource(string? source)
+    {
+        if (string.Equals(source, "dandanplay", StringComparison.OrdinalIgnoreCase)) return "dandanplay";
+        if (string.Equals(source, "bilibili", StringComparison.OrdinalIgnoreCase)) return "bilibili";
+        return "origin";
+    }
 }
 
 public sealed class DanmakuService(SourceHttpClient http)
@@ -60,7 +67,12 @@ public sealed class DanmakuService(SourceHttpClient http)
             bytes = await File.ReadAllBytesAsync(file.FullName, token).ConfigureAwait(false);
         }
         else bytes = (await http.GetBytesAsync(uri.AbsoluteUri, maxBytes: 8 * 1024 * 1024, cancellationToken: token).ConfigureAwait(false)).Content;
-        var content = System.Text.Encoding.UTF8.GetString(bytes).TrimStart('\uFEFF', '\r', '\n', ' ');
+        return ParseContent(System.Text.Encoding.UTF8.GetString(bytes));
+    }
+
+    public static DanmakuEntry[] ParseContent(string raw)
+    {
+        var content = raw.TrimStart('\uFEFF', '\r', '\n', ' ');
         var comments = new List<DanmakuEntry>();
         if (content.StartsWith('<'))
         {
@@ -88,7 +100,8 @@ public sealed class DanmakuService(SourceHttpClient http)
             {
                 if (item.ValueKind == JsonValueKind.Object)
                 {
-                    var fields = Read(item, "p").Split(',');
+                    var pAttr = Read(item, "p");
+                    var fields = pAttr.Length > 0 ? pAttr.Split(',') : [];
                     var time = Read(item, "time");
                     var text = Read(item, "text");
                     if (text.Length == 0) text = Read(item, "m");
@@ -96,8 +109,12 @@ public sealed class DanmakuService(SourceHttpClient http)
                     var mode = Read(item, "mode");
                     if (mode.Length == 0) mode = Read(item, "type");
                     if (mode.Length == 0) mode = fields.ElementAtOrDefault(1) ?? string.Empty;
-                    Add(comments, time.Length > 0 ? time : fields[0], text,
-                        fields.ElementAtOrDefault(3) ?? fields.ElementAtOrDefault(2) ?? Read(item, "color"), mode);
+                    // DanDanPlay JSON p format has 4 fields: "time,mode,color,userId" (color at index 2).
+                    // Bilibili-like p format has 5-8 fields: "time,mode,size,color,..." (color at index 3).
+                    var color = Read(item, "color");
+                    if (color.Length == 0)
+                        color = fields.Length >= 5 ? fields[3] : fields.ElementAtOrDefault(2) ?? string.Empty;
+                    Add(comments, time.Length > 0 ? time : fields.ElementAtOrDefault(0), text, color, mode);
                 }
                 else if (item.ValueKind == JsonValueKind.Array && item.GetArrayLength() >= 5)
                     Add(comments, item[0].ToString(), item[4].ToString(), item[2].ToString(), item[1].ToString());

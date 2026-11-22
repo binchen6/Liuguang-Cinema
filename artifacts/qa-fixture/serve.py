@@ -1,9 +1,21 @@
-import functools, http.server, json, pathlib, sqlite3, subprocess, sys, urllib.parse
+import functools, http.server, json, os, pathlib, shutil, sqlite3, subprocess, sys, urllib.parse
 root = pathlib.Path(__file__).parent
 profile = root / 'profile'
 profile.joinpath('config').mkdir(parents=True, exist_ok=True)
 base = 'http://127.0.0.1:18789'
-ffmpeg = pathlib.Path(r'C:\Users\binchen\AppData\Local\Programs\Python\Python311\Lib\site-packages\imageio_ffmpeg\binaries\ffmpeg-win-x86_64-v7.1.exe')
+
+def _find_ffmpeg():
+    env = os.environ.get('FFMPEG_PATH')
+    if env and pathlib.Path(env).exists(): return pathlib.Path(env)
+    which = shutil.which('ffmpeg')
+    if which: return pathlib.Path(which)
+    try:
+        import imageio_ffmpeg
+        return pathlib.Path(imageio_ffmpeg.get_ffmpeg_exe())
+    except Exception:
+        return pathlib.Path('ffmpeg')
+
+ffmpeg = _find_ffmpeg()
 item = {"vod_id":"local-film","vod_name":"流光验收影片","vod_year":"2026","type_name":"电影","vod_content":"本地播放链路验收样本。","vod_play_from":"验收线路","vod_play_url":"正片$fixture"}
 site = {"name":"验收片源","key":"fixture","type":4,"api":base + '/api'}
 

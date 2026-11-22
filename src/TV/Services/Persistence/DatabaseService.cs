@@ -21,10 +21,12 @@ public sealed class DatabaseService
             if (_initialized) return;
             AppPaths.EnsureCreated();
             await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
-            var command = connection.CreateCommand();
+            await using var command = connection.CreateCommand();
             command.CommandText = """
                 PRAGMA journal_mode=WAL;
                 PRAGMA synchronous=NORMAL;
+                PRAGMA cache_size=-8000;
+                PRAGMA temp_store=MEMORY;
                 CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
                 CREATE TABLE IF NOT EXISTS history (
                     id TEXT PRIMARY KEY, title TEXT NOT NULL, picture TEXT NOT NULL, kind TEXT NOT NULL,
@@ -45,7 +47,7 @@ public sealed class DatabaseService
                 CREATE INDEX IF NOT EXISTS idx_local_files_folder ON local_files(folder);
                 """;
             await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
-            var read = connection.CreateCommand();
+            await using var read = connection.CreateCommand();
             read.CommandText = "SELECT key,value FROM settings";
             await using var reader = await read.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
             while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false)) _settings[reader.GetString(0)] = reader.GetString(1);
@@ -67,7 +69,7 @@ public sealed class DatabaseService
         try
         {
             await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
-            var command = connection.CreateCommand();
+            await using var command = connection.CreateCommand();
             command.CommandText = "INSERT INTO settings(key,value) VALUES($key,$value) ON CONFLICT(key) DO UPDATE SET value=excluded.value";
             command.Parameters.AddWithValue("$key", key);
             command.Parameters.AddWithValue("$value", value);
@@ -81,22 +83,38 @@ public sealed class DatabaseService
     {
         await InitializeAsync(cancellationToken).ConfigureAwait(false);
         await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
-        var command = connection.CreateCommand();
-        command.CommandText = "SELECT * FROM history ORDER BY updated DESC LIMIT 200";
+        await using var command = connection.CreateCommand();
+        command.CommandText = "SELECT id,title,picture,kind,subtitle,position,duration,updated,request FROM history ORDER BY updated DESC LIMIT 200";
         var result = new List<HistoryEntry>();
         await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
         while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
-        {
-            result.Add(new HistoryEntry
-            {
-                Id = reader.GetString(0), Title = reader.GetString(1), Picture = reader.GetString(2),
-                Kind = reader.GetString(3), Subtitle = reader.GetString(4), PositionMs = reader.GetInt64(5),
-                DurationMs = reader.GetInt64(6), UpdatedAt = DateTimeOffset.FromUnixTimeMilliseconds(reader.GetInt64(7)),
-                RequestJson = reader.GetString(8)
-            });
-        }
+            result.Add(ReadHistoryEntry(reader));
         return result;
     }
+
+    public async Task<HistoryEntry?> GetHistoryEntryAsync(string id, CancellationToken cancellationToken = default)
+    {
+        await InitializeAsync(cancellationToken).ConfigureAwait(false);
+        await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using var command = connection.CreateCommand();
+        command.CommandText = "SELECT id,title,picture,kind,subtitle,position,duration,updated,request FROM history WHERE id=$id LIMIT 1";
+        command.Parameters.AddWithValue("$id", id);
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        return await reader.ReadAsync(cancellationToken).ConfigureAwait(false) ? ReadHistoryEntry(reader) : null;
+    }
+
+    private static HistoryEntry ReadHistoryEntry(SqliteDataReader reader) => new()
+    {
+        Id = reader.GetString(0),
+        Title = reader.GetString(1),
+        Picture = reader.GetString(2),
+        Kind = reader.GetString(3),
+        Subtitle = reader.GetString(4),
+        PositionMs = reader.GetInt64(5),
+        DurationMs = reader.GetInt64(6),
+        UpdatedAt = DateTimeOffset.FromUnixTimeMilliseconds(reader.GetInt64(7)),
+        RequestJson = reader.GetString(8)
+    };
 
     public async Task SaveHistoryAsync(PlaybackRequest request, long positionMs, long durationMs, CancellationToken cancellationToken = default)
     {
@@ -105,7 +123,7 @@ public sealed class DatabaseService
         try
         {
             await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
-            var command = connection.CreateCommand();
+            await using var command = connection.CreateCommand();
             command.CommandText = """
                 INSERT INTO history(id,title,picture,kind,subtitle,position,duration,updated,request)
                 VALUES($id,$title,$picture,$kind,$subtitle,$position,$duration,$updated,$request)
@@ -198,7 +216,7 @@ public sealed class DatabaseService
                 delete.Parameters.AddWithValue("$folder", folder);
                 await delete.ExecuteNonQueryAsync(token).ConfigureAwait(false);
             }
-            foreach (var file in files)
+            if (files.Count > 0)
             {
                 await using var command = connection.CreateCommand();
                 command.Transaction = transaction;
@@ -206,13 +224,25 @@ public sealed class DatabaseService
                     INSERT INTO local_files(path,title,folder,size,modified,added) VALUES($path,$title,$folder,$size,$modified,$added)
                     ON CONFLICT(path) DO UPDATE SET title=excluded.title,folder=excluded.folder,size=excluded.size,modified=excluded.modified,added=excluded.added;
                     """;
-                command.Parameters.AddWithValue("$path", file.Path);
-                command.Parameters.AddWithValue("$title", file.Title);
-                command.Parameters.AddWithValue("$folder", file.Folder);
-                command.Parameters.AddWithValue("$size", file.Size);
-                command.Parameters.AddWithValue("$modified", file.ModifiedAt.ToUnixTimeMilliseconds());
-                command.Parameters.AddWithValue("$added", DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
-                await command.ExecuteNonQueryAsync(token).ConfigureAwait(false);
+                var pPath = command.Parameters.Add("$path", SqliteType.Text);
+                var pTitle = command.Parameters.Add("$title", SqliteType.Text);
+                var pFolder = command.Parameters.Add("$folder", SqliteType.Text);
+                var pSize = command.Parameters.Add("$size", SqliteType.Integer);
+                var pModified = command.Parameters.Add("$modified", SqliteType.Integer);
+                var pAdded = command.Parameters.Add("$added", SqliteType.Integer);
+                command.Prepare();
+
+                var addedNow = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+                foreach (var file in files)
+                {
+                    pPath.Value = file.Path;
+                    pTitle.Value = file.Title;
+                    pFolder.Value = file.Folder;
+                    pSize.Value = file.Size;
+                    pModified.Value = file.ModifiedAt.ToUnixTimeMilliseconds();
+                    pAdded.Value = addedNow;
+                    await command.ExecuteNonQueryAsync(token).ConfigureAwait(false);
+                }
             }
             transaction.Commit();
         }
@@ -242,7 +272,7 @@ public sealed class DatabaseService
         try
         {
             await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
-            var command = connection.CreateCommand();
+            await using var command = connection.CreateCommand();
             command.CommandText = "DELETE FROM history WHERE id=$id";
             command.Parameters.AddWithValue("$id", id);
             await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
@@ -254,8 +284,8 @@ public sealed class DatabaseService
     {
         await InitializeAsync(cancellationToken).ConfigureAwait(false);
         await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
-        var command = connection.CreateCommand();
-        command.CommandText = "SELECT * FROM favorites ORDER BY added DESC LIMIT 200";
+        await using var command = connection.CreateCommand();
+        command.CommandText = "SELECT id,title,picture,kind,subtitle,added,data FROM favorites ORDER BY added DESC LIMIT 200";
         var result = new List<FavoriteEntry>();
         await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
         while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
@@ -274,7 +304,7 @@ public sealed class DatabaseService
     {
         await InitializeAsync(cancellationToken).ConfigureAwait(false);
         await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
-        var command = connection.CreateCommand();
+        await using var command = connection.CreateCommand();
         command.CommandText = "SELECT EXISTS(SELECT 1 FROM favorites WHERE id=$id)";
         command.Parameters.AddWithValue("$id", id);
         var value = await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
@@ -288,7 +318,7 @@ public sealed class DatabaseService
         try
         {
             await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
-            var command = connection.CreateCommand();
+            await using var command = connection.CreateCommand();
             command.CommandText = favorite
                 ? "INSERT INTO favorites VALUES($id,$title,$picture,$kind,$subtitle,$added,$data) ON CONFLICT(id) DO UPDATE SET title=excluded.title,picture=excluded.picture,kind=excluded.kind,subtitle=excluded.subtitle,data=excluded.data"
                 : "DELETE FROM favorites WHERE id=$id";
@@ -308,7 +338,7 @@ public sealed class DatabaseService
     {
         await InitializeAsync(cancellationToken).ConfigureAwait(false);
         await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
-        var command = connection.CreateCommand();
+        await using var command = connection.CreateCommand();
         command.CommandText = "SELECT json,expires FROM metadata WHERE key=$key";
         command.Parameters.AddWithValue("$key", key);
         await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
@@ -323,7 +353,7 @@ public sealed class DatabaseService
         try
         {
             await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
-            var command = connection.CreateCommand();
+            await using var command = connection.CreateCommand();
             command.CommandText = "INSERT INTO metadata(key,json,expires) VALUES($key,$json,$expires) ON CONFLICT(key) DO UPDATE SET json=excluded.json,expires=excluded.expires";
             command.Parameters.AddWithValue("$key", key);
             command.Parameters.AddWithValue("$json", json);
@@ -341,7 +371,7 @@ public sealed class DatabaseService
         try
         {
             await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
-            var command = connection.CreateCommand();
+            await using var command = connection.CreateCommand();
             command.CommandText = $"DELETE FROM {table}";
             await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
         }
@@ -353,7 +383,7 @@ public sealed class DatabaseService
         if (table is not ("history" or "favorites" or "metadata" or "downloads")) throw new ArgumentOutOfRangeException(nameof(table));
         await InitializeAsync(cancellationToken).ConfigureAwait(false);
         await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
-        var command = connection.CreateCommand();
+        await using var command = connection.CreateCommand();
         command.CommandText = $"SELECT COUNT(*) FROM {table}";
         return Convert.ToInt32(await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false), System.Globalization.CultureInfo.InvariantCulture);
     }

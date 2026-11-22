@@ -73,10 +73,24 @@ public sealed class DnsResolverService : IDisposable
     private Task<IPAddress[]> ResolveAsync(string host, int provider, CancellationToken token)
     {
         var key = $"{provider}:{host}";
-        if (_cache.TryGetValue(key, out var cached) && cached.ExpiresAt > DateTimeOffset.UtcNow) return cached.Task.Value;
-        var entry = new Entry(new Lazy<Task<IPAddress[]>>(() => ResolveCoreAsync(host, provider), LazyThreadSafetyMode.ExecutionAndPublication), DateTimeOffset.UtcNow.AddMinutes(10));
-        _cache[key] = entry;
-        return entry.Task.Value.WaitAsync(token);
+        var now = DateTimeOffset.UtcNow;
+        if (_cache.TryGetValue(key, out var cached) && cached.ExpiresAt > now)
+            return cached.Task.Value.WaitAsync(token);
+
+        if (_cache.Count >= 256)
+        {
+            foreach (var pair in _cache)
+                if (pair.Value.ExpiresAt <= now) _cache.TryRemove(pair.Key, out _);
+            if (_cache.Count >= 256)
+                foreach (var pair in _cache.OrderBy(p => p.Value.ExpiresAt).Take(_cache.Count - 200))
+                    _cache.TryRemove(pair.Key, out _);
+        }
+
+        var fresh = new Entry(new Lazy<Task<IPAddress[]>>(() => ResolveCoreAsync(host, provider), LazyThreadSafetyMode.ExecutionAndPublication), now.AddMinutes(10));
+        var active = cached is not null
+            ? (_cache.TryUpdate(key, fresh, cached) ? fresh : _cache.GetOrAdd(key, fresh))
+            : _cache.GetOrAdd(key, fresh);
+        return active.Task.Value.WaitAsync(token);
     }
 
     private async Task<IPAddress[]> ResolveCoreAsync(string host, int provider)

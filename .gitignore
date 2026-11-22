@@ -18,3 +18,6 @@ session_history/
 *.user
 *.suo
 *.log
+*.Local.props
+*.local.props
+src/TV/Secrets.Local.props

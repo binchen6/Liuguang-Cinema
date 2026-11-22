@@ -22,6 +22,8 @@
 - 公开配置收录可参考 [gaotianliuyun/gao](https://github.com/gaotianliuyun/gao) 和 [cyao2q/files](https://github.com/cyao2q/files)。它们是第三方收录仓库，不是饭太硬或流光影院官方仓库。
 - 阿里、夸克、UC、百度网盘使用各自公开或官方账号/文件接口；账号凭据由用户在本地提供，服务条款由各服务方定义。
 - 哔哩哔哩账号、画质、节目匹配、弹幕和字幕使用 B 站接口。在线内容的可用性、权限与地域限制由原服务决定。
+- 弹弹play 开放弹幕网络（[doc.dandanplay.com/open](https://doc.dandanplay.com/open/)）用于在线弹幕匹配与拉取，遵循弹弹play 开放平台调用规范与鉴权协议。
+- 阿里云百炼 / DashScope API（`paraformer-v2`、`qwen3-asr-flash-filetrans`、`qwen3-asr-flash-realtime`、`qwen-mt-flash`、`qwen-mt-plus`）用于可选的 AI 字幕生成、翻译与实时字幕，由用户自行申请 API Key 并按阿里云百炼条款与计费规则使用。
 - 豆瓣用于公开元数据与推荐补充。封面、节目信息和站点内容权利归原权利人。
 - Apple 公开流媒体样片仅用于开发验收，不随应用分发。
 

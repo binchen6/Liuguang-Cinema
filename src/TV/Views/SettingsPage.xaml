@@ -125,6 +125,16 @@
                             </StackPanel>
                         </Expander.Header>
                     </Expander>
+                    <!-- 弹幕与 AI -->
+                    <Expander x:Name="AiSection" Style="{StaticResource SettingsNavSectionStyle}"
+                              AutomationProperties.Name="弹幕与 AI" ToolTipService.ToolTip="AI 字幕、翻译与弹弹play 弹幕">
+                        <Expander.Header>
+                            <StackPanel Orientation="Horizontal" Spacing="{StaticResource SpaceSmall}">
+                                <FontIcon Glyph="&#xED1E;" FontSize="18" Foreground="{ThemeResource SecondaryTextBrush}" />
+                                <TextBlock Text="弹幕与 AI" Style="{StaticResource BodyText}" VerticalAlignment="Center" />
+                            </StackPanel>
+                        </Expander.Header>
+                    </Expander>
                     <!-- 网盘 -->
                     <Expander x:Name="CloudSection" Style="{StaticResource SettingsNavSectionStyle}"
                               AutomationProperties.Name="网盘" ToolTipService.ToolTip="网盘">
@@ -358,6 +368,172 @@
                                         <TextBlock Text="默认画质" Style="{StaticResource LabelText}" Width="{StaticResource SettingsFormLabelWidth}" VerticalAlignment="Center" />
                                         <controls:AnchoredChoice Grid.Column="1" Header="默认画质" Options="自动|原画|1080p|720p|420p" SelectedIndex="{Binding DefaultQualityIndex, Mode=TwoWay}" HorizontalAlignment="Left" />
                                     </Grid>
+                                </StackPanel>
+                            </Border>
+                        </StackPanel>
+
+                        <!-- ============ 弹幕与 AI ============ -->
+                        <StackPanel x:Name="AiPane" Spacing="16" Visibility="Collapsed">
+                            <StackPanel Spacing="4">
+                                <TextBlock Text="AI 字幕与弹幕" Style="{StaticResource SectionTitleText}" />
+                                <TextBlock Text="配置阿里云百炼 AI 自动生成/翻译字幕，以及弹弹play 开放弹幕库；所有密钥均使用本机 DPAPI 加密保存。" Style="{StaticResource SecondaryText}" TextWrapping="Wrap" />
+                            </StackPanel>
+
+                            <!-- 阿里云百炼 API Key -->
+                            <Border Style="{StaticResource SettingsCardStyle}">
+                                <StackPanel Spacing="12">
+                                    <Grid ColumnSpacing="12">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel Spacing="2" VerticalAlignment="Center">
+                                            <TextBlock Text="阿里云百炼 API Key" Style="{StaticResource LabelText}" />
+                                            <TextBlock Text="{Binding BailianKeyStatus}" Style="{StaticResource MetaText}" TextWrapping="Wrap" />
+                                        </StackPanel>
+                                        <Button Grid.Column="1" Content="前往百炼生成密钥" Command="{Binding OpenBailianConsoleCommand}"
+                                                Style="{StaticResource PrimaryButtonStyle}" VerticalAlignment="Center"
+                                                AutomationProperties.Name="前往阿里云百炼生成 API Key" />
+                                    </Grid>
+                                    <Border Height="1" Background="{ThemeResource DividerBrush}" />
+                                    <Grid MinHeight="{StaticResource SettingsRowMinHeight}" ColumnSpacing="{StaticResource SpaceLarge}">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="*" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Text="API Key" Style="{StaticResource LabelText}" Width="{StaticResource SettingsFormLabelWidth}" VerticalAlignment="Center" />
+                                        <PasswordBox Grid.Column="1" MinWidth="240" MaxWidth="380" HorizontalAlignment="Left"
+                                                     PlaceholderText="粘贴阿里云百炼密钥 (sk-...)"
+                                                     Password="{Binding BailianApiKeyInput, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                     AutomationProperties.Name="阿里云百炼 API Key" />
+                                    </Grid>
+                                    <Grid MinHeight="{StaticResource SettingsRowMinHeight}" ColumnSpacing="{StaticResource SpaceLarge}">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="*" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Text="百炼服务区域" Style="{StaticResource LabelText}" Width="{StaticResource SettingsFormLabelWidth}" VerticalAlignment="Center" />
+                                        <controls:AnchoredChoice Grid.Column="1" Header="服务区域" MinWidth="200"
+                                                                 Options="中国内地（北京）|国际节点（新加坡）"
+                                                                 SelectedIndex="{Binding BailianRegionIndex, Mode=TwoWay}" HorizontalAlignment="Left" />
+                                    </Grid>
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <Button Content="加密保存" Command="{Binding SaveBailianKeyCommand}" Style="{StaticResource SecondaryButtonStyle}" />
+                                        <Button Content="验证连通性" Command="{Binding VerifyBailianKeyCommand}" Style="{StaticResource SecondaryButtonStyle}" />
+                                        <Button Content="清除密钥" Command="{Binding ClearBailianKeyCommand}" Style="{StaticResource GhostButtonStyle}" />
+                                        <ProgressRing Width="20" Height="20" IsActive="{Binding IsTestingAi}"
+                                                      Visibility="{Binding IsTestingAi, Converter={StaticResource BoolToVisibility}}" />
+                                    </StackPanel>
+                                </StackPanel>
+                            </Border>
+
+                            <!-- AI 模型与字幕偏好 -->
+                            <Border Style="{StaticResource SettingsCardStyle}">
+                                <StackPanel Spacing="10">
+                                    <TextBlock Text="AI 字幕与翻译模型" Style="{StaticResource LabelText}" />
+                                    <Grid MinHeight="{StaticResource SettingsRowMinHeight}" ColumnSpacing="{StaticResource SpaceLarge}">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="*" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Text="字幕生成模型" Style="{StaticResource LabelText}" Width="{StaticResource SettingsFormLabelWidth}" VerticalAlignment="Center" />
+                                        <StackPanel Grid.Column="1" Spacing="4">
+                                            <controls:AnchoredChoice Header="语音转字幕模型" MinWidth="280"
+                                                                     Options="paraformer-v2（便宜）|qwen3-asr-flash-filetrans（准确 · 支持实时字幕）"
+                                                                     SelectedIndex="{Binding AsrModelIndex, Mode=TwoWay}" HorizontalAlignment="Left" />
+                                            <TextBlock Text="{Binding AsrModelHint}" Style="{StaticResource MetaText}" TextWrapping="Wrap" />
+                                        </StackPanel>
+                                    </Grid>
+                                    <Border Height="1" Background="{ThemeResource DividerBrush}" />
+                                    <Grid MinHeight="{StaticResource SettingsRowMinHeight}" ColumnSpacing="{StaticResource SpaceLarge}">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="*" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Text="字幕翻译模型" Style="{StaticResource LabelText}" Width="{StaticResource SettingsFormLabelWidth}" VerticalAlignment="Center" />
+                                        <StackPanel Grid.Column="1" Spacing="4">
+                                            <controls:AnchoredChoice Header="翻译模型" MinWidth="280"
+                                                                     Options="qwen-mt-flash（便宜）|qwen-mt-plus（高质量）"
+                                                                     SelectedIndex="{Binding MtModelIndex, Mode=TwoWay}" HorizontalAlignment="Left" />
+                                            <TextBlock Text="{Binding MtModelHint}" Style="{StaticResource MetaText}" TextWrapping="Wrap" />
+                                        </StackPanel>
+                                    </Grid>
+                                    <Border Height="1" Background="{ThemeResource DividerBrush}" />
+                                    <Grid MinHeight="{StaticResource SettingsRowMinHeight}" ColumnSpacing="{StaticResource SpaceLarge}">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="*" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Text="目标翻译语言" Style="{StaticResource LabelText}" Width="{StaticResource SettingsFormLabelWidth}" VerticalAlignment="Center" />
+                                        <controls:AnchoredChoice Grid.Column="1" Header="目标语言" MinWidth="200"
+                                                                 Options="简体中文|繁體中文|English|日本語|한국어|Français|Deutsch|Español"
+                                                                 SelectedIndex="{Binding MtTargetLanguageIndex, Mode=TwoWay}" HorizontalAlignment="Left" />
+                                    </Grid>
+                                    <Border Height="1" Background="{ThemeResource DividerBrush}" />
+                                    <Grid MinHeight="{StaticResource SettingsRowMinHeight}" ColumnSpacing="{StaticResource SpaceLarge}">
+                                        <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                        <StackPanel VerticalAlignment="Center" Spacing="2">
+                                            <TextBlock Text="双语对照字幕" Style="{StaticResource LabelText}" />
+                                            <TextBlock Text="翻译字幕时同时保留译文与原文（译文在上，原文在下）" Style="{StaticResource MetaText}" />
+                                        </StackPanel>
+                                        <ToggleSwitch Grid.Column="1" IsOn="{Binding AiBilingualSubtitles, Mode=TwoWay}" OnContent="" OffContent="" MinWidth="0" HorizontalAlignment="Right" VerticalAlignment="Center" />
+                                    </Grid>
+                                    <Border Height="1" Background="{ThemeResource DividerBrush}" />
+                                    <Grid MinHeight="{StaticResource SettingsRowMinHeight}" ColumnSpacing="{StaticResource SpaceLarge}">
+                                        <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                        <StackPanel VerticalAlignment="Center" Spacing="2">
+                                            <TextBlock Text="实时字幕同步翻译" Style="{StaticResource LabelText}" />
+                                            <TextBlock Text="在播放器中开启实时字幕时，自动使用选定翻译模型实时翻译语音内容" Style="{StaticResource MetaText}" />
+                                        </StackPanel>
+                                        <ToggleSwitch Grid.Column="1" IsOn="{Binding AiRealtimeTranslate, Mode=TwoWay}" OnContent="" OffContent="" MinWidth="0" HorizontalAlignment="Right" VerticalAlignment="Center" />
+                                    </Grid>
+                                </StackPanel>
+                            </Border>
+
+                            <!-- 弹弹play 开放弹幕库 -->
+                            <Border Style="{StaticResource SettingsCardStyle}">
+                                <StackPanel Spacing="12">
+                                    <Grid ColumnSpacing="12">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel Spacing="2" VerticalAlignment="Center">
+                                            <TextBlock Text="弹弹play 开放弹幕网络" Style="{StaticResource LabelText}" />
+                                            <TextBlock Text="{Binding DanDanPlayStatus}" Style="{StaticResource MetaText}" TextWrapping="Wrap" />
+                                        </StackPanel>
+                                        <Button Grid.Column="1" Content="弹弹play 开放平台" Command="{Binding OpenDanDanPlayDocsCommand}"
+                                                Style="{StaticResource GhostButtonStyle}" VerticalAlignment="Center" />
+                                    </Grid>
+                                    <Border Height="1" Background="{ThemeResource DividerBrush}" />
+                                    <TextBlock Text="可选：填写自定义弹弹play AppId 与 AppSecret 覆盖默认配置；开源自构建时也可在此填入个人密钥。" Style="{StaticResource MetaText}" TextWrapping="Wrap" />
+                                    <Grid MinHeight="{StaticResource SettingsRowMinHeight}" ColumnSpacing="{StaticResource SpaceLarge}">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="*" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Text="AppId" Style="{StaticResource LabelText}" Width="{StaticResource SettingsFormLabelWidth}" VerticalAlignment="Center" />
+                                        <TextBox Grid.Column="1" MinWidth="240" MaxWidth="360" HorizontalAlignment="Left"
+                                                 PlaceholderText="留空使用内置凭证"
+                                                 Text="{Binding DanDanPlayAppIdInput, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                                    </Grid>
+                                    <Grid MinHeight="{StaticResource SettingsRowMinHeight}" ColumnSpacing="{StaticResource SpaceLarge}">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="*" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Text="AppSecret" Style="{StaticResource LabelText}" Width="{StaticResource SettingsFormLabelWidth}" VerticalAlignment="Center" />
+                                        <PasswordBox Grid.Column="1" MinWidth="240" MaxWidth="360" HorizontalAlignment="Left"
+                                                     PlaceholderText="留空使用内置凭证"
+                                                     Password="{Binding DanDanPlayAppSecretInput, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                                    </Grid>
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <Button Content="保存自定义凭证" Command="{Binding SaveDanDanPlayCommand}" Style="{StaticResource SecondaryButtonStyle}" />
+                                        <Button Content="测试连接" Command="{Binding VerifyDanDanPlayCommand}" Style="{StaticResource SecondaryButtonStyle}" />
+                                        <Button Content="恢复默认" Command="{Binding ClearDanDanPlayCommand}" Style="{StaticResource GhostButtonStyle}" />
+                                        <ProgressRing Width="20" Height="20" IsActive="{Binding IsTestingDanDanPlay}"
+                                                      Visibility="{Binding IsTestingDanDanPlay, Converter={StaticResource BoolToVisibility}}" />
+                                    </StackPanel>
                                 </StackPanel>
                             </Border>
                         </StackPanel>

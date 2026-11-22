@@ -75,6 +75,8 @@ public sealed partial class LiveViewModel : ObservableObject
     private readonly AppServices _services;
     private readonly Action<PlaybackRequest> _play;
     private readonly List<LiveChannel> _allChannels = [];
+    private List<LiveChannelItem> _allGrouped = [];
+    private Dictionary<string, List<LiveChannelItem>> _groupedByCategory = new(StringComparer.Ordinal);
     private int _epgVersion;
     private CancellationTokenSource? _load;
     private bool _changingSources;
@@ -152,9 +154,10 @@ public sealed partial class LiveViewModel : ObservableObject
             token.ThrowIfCancellationRequested();
             _allChannels.Clear();
             _allChannels.AddRange(channels);
+            BuildGroupedCache(channels);
             Groups.Clear();
             Groups.Add("全部频道");
-            foreach (var group in channels.Select(channel => channel.Group).Distinct(StringComparer.Ordinal)) Groups.Add(group);
+            foreach (var group in _groupedByCategory.Keys) Groups.Add(group);
             SelectedGroup = Groups.FirstOrDefault();
             ApplyFilter();
             HasError = false;
@@ -188,25 +191,45 @@ public sealed partial class LiveViewModel : ObservableObject
         if (!_changingSources) _ = ReloadAsync();
     }
 
+    private void BuildGroupedCache(IReadOnlyList<LiveChannel> channels)
+    {
+        static List<LiveChannelItem> GroupItems(IEnumerable<LiveChannel> source)
+        {
+            var result = new List<LiveChannelItem>();
+            foreach (var grouped in source.GroupBy(ChannelName, StringComparer.CurrentCultureIgnoreCase))
+            {
+                var lines = grouped
+                    .GroupBy(channel => channel.Url, StringComparer.Ordinal)
+                    .Select(line => line.First())
+                    .Select((channel, index) => new LiveChannelLine(channel, index))
+                    .ToList();
+                if (lines.Count == 0) continue;
+                var first = grouped.First();
+                result.Add(new LiveChannelItem(grouped.Key, first.Group, first.Logo, lines));
+            }
+            return result;
+        }
+
+        _allGrouped = GroupItems(channels);
+        _groupedByCategory = new Dictionary<string, List<LiveChannelItem>>(StringComparer.Ordinal);
+        foreach (var cat in channels.GroupBy(c => c.Group, StringComparer.Ordinal))
+            _groupedByCategory[cat.Key] = GroupItems(cat);
+    }
+
     [RelayCommand]
     private void ApplyFilter()
     {
         var selectedName = SelectedItem?.Name;
         Channels.Clear();
         var keyword = SearchText.Trim();
-        var matches = _allChannels.Where(channel =>
-            (SelectedGroup is null or "全部频道" || channel.Group == SelectedGroup)
-            && (keyword.Length == 0 || channel.Name.Contains(keyword, StringComparison.CurrentCultureIgnoreCase)));
-        foreach (var grouped in matches.GroupBy(ChannelName, StringComparer.CurrentCultureIgnoreCase))
+        IReadOnlyList<LiveChannelItem> pool = SelectedGroup is null or "全部频道"
+            ? _allGrouped
+            : (_groupedByCategory.TryGetValue(SelectedGroup, out var catList) ? catList : []);
+
+        foreach (var item in pool)
         {
-            var lines = grouped
-                .GroupBy(channel => channel.Url, StringComparer.Ordinal)
-                .Select(line => line.First())
-                .Select((channel, index) => new LiveChannelLine(channel, index))
-                .ToList();
-            if (lines.Count == 0) continue;
-            var first = grouped.First();
-            Channels.Add(new LiveChannelItem(grouped.Key, first.Group, first.Logo, lines));
+            if (keyword.Length == 0 || item.Name.Contains(keyword, StringComparison.CurrentCultureIgnoreCase))
+                Channels.Add(item);
         }
         SelectedItem = selectedName is null
             ? null

@@ -1,16 +1,31 @@
 import functools
 import http.server
 import json
+import os
 from pathlib import Path
 import re
+import shutil
 import subprocess
 import sys
 import threading
 import urllib.parse
 
+def _find_ffmpeg() -> Path:
+    env = os.environ.get("FFMPEG_PATH")
+    if env and Path(env).exists():
+        return Path(env)
+    which = shutil.which("ffmpeg")
+    if which:
+        return Path(which)
+    try:
+        import imageio_ffmpeg
+        return Path(imageio_ffmpeg.get_ffmpeg_exe())
+    except Exception:
+        return Path("ffmpeg")
+
 ROOT = Path(__file__).resolve().parent
 ASSETS = ROOT / "rendition-fixture"
-FFMPEG = Path(r"C:\Users\binchen\AppData\Local\Programs\Python\Python311\Lib\site-packages\imageio_ffmpeg\binaries\ffmpeg-win-x86_64-v7.1.exe")
+FFMPEG = _find_ffmpeg()
 PAYLOAD = bytes(range(251)) * 42001
 RANGES = []
 EVENTS = []

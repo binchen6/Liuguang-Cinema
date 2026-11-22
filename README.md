@@ -15,7 +15,8 @@
 | 播放器 | LibVLC 硬解、HLS/DASH、画质与倍速、音轨、字幕、弹幕、全屏、画中画、逐集片头片尾 |
 | 弱网处理 | 后台原生状态读取、缓冲提示、自动暂停预缓存后续播、有限重试与可关闭的自动画质调整 |
 | 网盘 | 阿里、夸克、UC、百度的登录配置、分享文件与个人云盘浏览；本地安全媒体代理、Range 预读和地址刷新 |
-| 弹幕与字幕 | 来源自带文件、本地字幕、B 站官方节目/集数匹配、在线弹幕与可用字幕轨；屏蔽词、字号和颜色设置 |
+| 弹幕与字幕 | 弹弹play 开放弹幕库（16 MB 哈希/片名智能匹配 + 手动搜索）、B 站在线匹配、本地弹幕/字幕；完整弹幕与字幕时间轴设置（速度、前移、后移） |
+| AI 字幕与翻译 | 接入阿里云百炼 API：自动提取音轨并生成对齐时间轴的字幕（`paraformer-v2` / `qwen3-asr-flash-filetrans`）、字幕翻译（`qwen-mt-flash` / `qwen-mt-plus`）与实时字幕（`qwen3-asr-flash-realtime`） |
 | 下载 | 单集另存、多选批量下载、默认下载目录、HLS 分片离线保存、完成项进入媒体库 |
 | 本地媒体 | 多文件导入、文件夹递归索引与自动更新、同名侧车字幕/弹幕、Windows“打开方式”直达播放 |
 | 投屏接收 | DLNA / UPnP 发现、手机扫码、浏览器选择视频、电脑确认后播放 |
@@ -34,8 +35,8 @@
 安装包目前未购买 Authenticode 代码签名，Windows 可能显示 SmartScreen 提示。请核对发布页提供的 SHA-256：
 
 ```powershell
-Get-FileHash .\TV-Setup-1.5.0-x64.exe -Algorithm SHA256
-Get-Content .\TV-Setup-1.5.0-x64.exe.sha256
+Get-FileHash .\TV-Setup-1.7.0-x64.exe -Algorithm SHA256
+Get-Content .\TV-Setup-1.7.0-x64.exe.sha256
 ```
 
 ## 使用指南
@@ -55,8 +56,11 @@ Get-Content .\TV-Setup-1.5.0-x64.exe.sha256
 - `Space`：播放/暂停
 - `←` / `→`：后退/前进 5 秒
 - `↑` / `↓`：音量
-- `M`：静音；`F`：全屏；`P`：选集
+- `M`：静音；`F`：全屏；`P`：选集；`D`：弹幕开关
+- `Z` / `X`：字幕前移 / 后移 0.5 秒；`A`：切换画面比例；`I`：媒体信息 HUD
 - `Esc`：关闭当前层级或返回
+
+点击播放器底部「字幕」按钮可调整字幕偏移（前移/后移）、字幕速度（`0.80x`–`1.25x`），并直接发起阿里云百炼 AI 字幕生成、双语翻译或开启实时字幕。前往「设置 → 弹幕与 AI」可一键跳转阿里云百炼控制台生成 API Key 并选择识别与翻译模型。
 
 “跳过”菜单可设置片头结束和片尾开始时间，也可把当前播放位置设为边界。设置按站点、影片、线路和集数分别保存。手动原画不会被弱网算法自动降档。
 
@@ -156,8 +160,9 @@ artifacts/installers/TV-Setup-<version>-x64.exe.sha256
 src/TV/                  C# / WinUI 主程序
   Controls/              可复用控件与无障碍行为
   Models/                媒体、配置、网盘与播放模型
+  Services/AI/           阿里云百炼 AI 字幕生成、翻译、音轨提取与实时字幕
   Services/Vod/          CMS、原生站点和换源服务
-  Services/Playback/     解析、HLS/DASH、下载、弹幕与字幕
+  Services/Playback/     解析、HLS/DASH、下载、弹弹play/B站弹幕与字幕
   Services/Cloud/        网盘登录、文件接口与本地安全代理
   Services/Library/      本地媒体索引与目录监视
   Services/Maintenance/  分类扫描和安全清理
@@ -170,7 +175,7 @@ installer/               Inno Setup 安装器与输出完整性检查
 artifacts/qa-fixture/    隔离测试夹具与回归脚本
 ```
 
-更多技术说明见[开发指南](docs/development.md)、[站点适配矩阵](docs/site-matrix.csv)、[验收边界](docs/site-verification.md)和[设计契约](docs/design-guide.md)。当前版本说明见[1.5.0 发行说明](docs/releases/release-1.5.0.md)，历史文档索引见[docs/README](docs/README.md)。
+更多技术说明见[开发指南](docs/development.md)、[站点适配矩阵](docs/site-matrix.csv)、[验收边界](docs/site-verification.md)和[设计契约](docs/design-guide.md)。当前版本说明见[1.7.0 发行说明](docs/releases/release-1.7.0.md)，历史文档索引见[docs/README](docs/README.md)。
 
 ## 验证与贡献
 

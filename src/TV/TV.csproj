@@ -20,6 +20,17 @@
     <PublishSingleFile>false</PublishSingleFile>
     <SelfContained>true</SelfContained>
   </PropertyGroup>
+  <Import Project="Secrets.Local.props" Condition="Exists('Secrets.Local.props')" />
+  <PropertyGroup>
+    <DanDanPlayAppId Condition="'$(DanDanPlayAppId)' == ''">$(DANDANPLAY_APP_ID)</DanDanPlayAppId>
+    <DanDanPlayAppSecret1 Condition="'$(DanDanPlayAppSecret1)' == ''">$(DANDANPLAY_APP_SECRET_1)</DanDanPlayAppSecret1>
+    <DanDanPlayAppSecret2 Condition="'$(DanDanPlayAppSecret2)' == ''">$(DANDANPLAY_APP_SECRET_2)</DanDanPlayAppSecret2>
+  </PropertyGroup>
+  <ItemGroup>
+    <AssemblyMetadata Include="DanDanPlayAppId" Value="$(DanDanPlayAppId)" />
+    <AssemblyMetadata Include="DanDanPlayAppSecret1" Value="$(DanDanPlayAppSecret1)" />
+    <AssemblyMetadata Include="DanDanPlayAppSecret2" Value="$(DanDanPlayAppSecret2)" />
+  </ItemGroup>
   <ItemGroup>
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
     <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.8.*" />

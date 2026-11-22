@@ -12,7 +12,7 @@ using TV.Services.Playback;
 
 namespace TV.Services.Cloud;
 
-public sealed class CloudMediaProxy : IDisposable
+public sealed partial class CloudMediaProxy : IDisposable
 {
     private sealed class Session
     {
@@ -47,6 +47,7 @@ public sealed class CloudMediaProxy : IDisposable
 
     private const long MaxHlsSegmentCacheBytes = 24 * 1024 * 1024;
     private const int MaxSinglePrefetchedSegmentBytes = 8 * 1024 * 1024;
+    private const int MaxProxySessions = 4096;
 
     private readonly TcpListener _listener = new(IPAddress.Loopback, 0);
     private readonly ConcurrentDictionary<string, Session> _sessions = new();
@@ -85,15 +86,20 @@ public sealed class CloudMediaProxy : IDisposable
         Func<CancellationToken, Task<CloudPlayResult>>? refresh = null)
     {
         var now = DateTimeOffset.UtcNow;
-        foreach (var pair in _sessions.Where(pair => pair.Value.ExpiresAt < now)) ReleaseSession(pair.Key);
-        if (_sessions.Count >= 96)
-            foreach (var pair in _sessions.OrderBy(pair => pair.Value.ExpiresAt).Take(_sessions.Count - 95)) ReleaseSession(pair.Key);
-        var id = Guid.NewGuid().ToString("N");
-        _sessions[id] = new Session(result, provider, Math.Clamp(threads, 1, 6), Math.Clamp(chunkSize, 1, 8) * 1024 * 1024, now.AddHours(4), manifest, refresh);
         var ticks = Environment.TickCount64;
         var nextSweep = Interlocked.Read(ref _nextSweepAt);
-        if (ticks >= nextSweep && Interlocked.CompareExchange(ref _nextSweepAt, ticks + 60_000, nextSweep) == nextSweep)
-            foreach (var pair in _sessions.Where(pair => pair.Value.ExpiresAt < DateTimeOffset.UtcNow)) ReleaseSession(pair.Key);
+        if (ticks >= nextSweep && Interlocked.CompareExchange(ref _nextSweepAt, ticks + 30_000, nextSweep) == nextSweep)
+        {
+            foreach (var pair in _sessions)
+                if (pair.Value.ExpiresAt < now) ReleaseSession(pair.Key);
+        }
+        if (_sessions.Count >= MaxProxySessions)
+        {
+            foreach (var pair in _sessions.OrderBy(pair => pair.Value.ExpiresAt).Take(_sessions.Count - (MaxProxySessions - 64)))
+                ReleaseSession(pair.Key);
+        }
+        var id = Guid.NewGuid().ToString("N");
+        _sessions[id] = new Session(result, provider, Math.Clamp(threads, 1, 6), Math.Clamp(chunkSize, 1, 8) * 1024 * 1024, now.AddHours(4), manifest, refresh);
         var extension = DashManifest.IsPlaylist(result.Url, result.ContentType) ? ".mpd" :
             manifest is not null || HlsManifest.IsPlaylist(result.Url, result.ContentType)
                 ? ".m3u8" : result.FileExtension ?? Path.GetExtension(new Uri(result.Url).AbsolutePath);
@@ -615,7 +621,7 @@ public sealed class CloudMediaProxy : IDisposable
             if (line.Length == 0) continue;
             if (!line.StartsWith('#')) lines[i] = Resolve(line, hasWrappedSegments, trackSegment: enableLookahead);
             else if (line.Contains("URI=", StringComparison.OrdinalIgnoreCase))
-                lines[i] = Regex.Replace(lines[i], "URI=\\\"([^\\\"]+)\\\"", match => "URI=\"" + Resolve(match.Groups[1].Value) + "\"", RegexOptions.IgnoreCase);
+                lines[i] = HlsUriAttrPattern().Replace(lines[i], match => "URI=\"" + Resolve(match.Groups[1].Value) + "\"");
         }
 
         // Link each cloud HLS segment to its next 2 segments for stall-free background lookahead prefetching
@@ -689,6 +695,9 @@ public sealed class CloudMediaProxy : IDisposable
     }
 
     private static string Sanitize(string value) => value.Replace("\r", string.Empty).Replace("\n", string.Empty);
+
+    [GeneratedRegex("URI=\\\"([^\\\"]+)\\\"", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    private static partial Regex HlsUriAttrPattern();
 
     public void Dispose()
     {

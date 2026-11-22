@@ -108,7 +108,9 @@ public sealed partial class SearchViewModel(AppServices services, Action<VodCard
                 Status = "暂无可搜索站点";
                 return;
             }
-            foreach (var group in _groups) Scopes.First(choice => choice.Site == group.Site).Group = group;
+            var scopeBySite = Scopes.Where(c => c.Site is not null).ToDictionary(c => c.Site!);
+            foreach (var group in _groups)
+                if (scopeBySite.TryGetValue(group.Site, out var scope)) scope.Group = group;
             UpdateProgress();
             await Task.WhenAll(_groups.Select(group => SearchSiteAsync(group, run, token)));
         }
@@ -129,8 +131,8 @@ public sealed partial class SearchViewModel(AppServices services, Action<VodCard
         var run = _run;
         _run = null;
         if (run is null) return;
-        run.Cancellation.Cancel();
-        run.Cancellation.Dispose();
+        try { run.Cancellation.Cancel(); }
+        catch (ObjectDisposedException) { }
         foreach (var group in _groups.Where(group => group.IsPending))
         {
             group.State = SiteSearchState.Paused;

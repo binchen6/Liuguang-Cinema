@@ -80,6 +80,36 @@
                        Foreground="{ThemeResource PrimaryTextBrush}" />
         </Border>
 
+        <!-- AI 字幕生成 / 翻译进度浮条 -->
+        <Border x:Name="AiSubtitleBanner" HorizontalAlignment="Center" VerticalAlignment="Top" Margin="0,116,0,0"
+                Padding="14,8" CornerRadius="{StaticResource RadiusPill}"
+                Background="#DC12141A" BorderBrush="{ThemeResource AccentBrush}" BorderThickness="1"
+                Visibility="{Binding IsAiSubtitleBusy, Converter={StaticResource BoolToVisibility}}">
+            <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+                <ProgressRing Width="18" Height="18" IsActive="{Binding IsAiSubtitleBusy}" Foreground="{ThemeResource AccentBrush}" />
+                <TextBlock Text="{Binding AiSubtitleStatus}" Style="{StaticResource MetaText}"
+                           Foreground="{ThemeResource PrimaryTextBrush}" VerticalAlignment="Center" MaxWidth="420" TextTrimming="CharacterEllipsis" />
+                <Button Content="取消" Command="{Binding CancelAiSubtitleCommand}"
+                        Style="{StaticResource GhostButtonStyle}" MinHeight="28" Height="28" Padding="10,0" />
+            </StackPanel>
+        </Border>
+
+        <!-- 实时 AI 字幕浮层 (qwen3-asr-flash-realtime) -->
+        <Border x:Name="LiveSubtitleOverlay" HorizontalAlignment="Center" VerticalAlignment="Bottom"
+                Margin="48,0,48,128" MaxWidth="920" Padding="18,10" CornerRadius="{StaticResource RadiusControl}"
+                Background="#CC080A10" BorderBrush="#26FFFFFF" BorderThickness="1"
+                IsHitTestVisible="False"
+                Visibility="{Binding HasLiveCaption, Converter={StaticResource BoolToVisibility}}">
+            <StackPanel Spacing="4" HorizontalAlignment="Center">
+                <TextBlock Text="{Binding LiveCaptionTranslated}" FontSize="22" FontWeight="SemiBold"
+                           Foreground="#FFF8E1" TextAlignment="Center" TextWrapping="Wrap"
+                           Visibility="{Binding LiveCaptionTranslated, Converter={StaticResource StringToVisibility}}" />
+                <TextBlock Text="{Binding LiveCaptionOriginal}" FontSize="19" FontWeight="SemiBold"
+                           Foreground="#FFFFFF" TextAlignment="Center" TextWrapping="Wrap"
+                           Visibility="{Binding LiveCaptionOriginal, Converter={StaticResource StringToVisibility}}" />
+            </StackPanel>
+        </Border>
+
         <!-- 媒体信息 HUD (快捷键 I) -->
         <Border x:Name="MediaInfoHud" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="24,72,0,0"
                 Padding="14,10" CornerRadius="{StaticResource RadiusControl}"
@@ -188,8 +218,14 @@
                                             Opening="OnPlaybackOptionsOpening" Closed="OnMenuFlyoutClosed">
                                     <MenuFlyoutSubItem x:Name="AudioTracks" Text="音轨" />
                                     <MenuFlyoutSubItem x:Name="SubtitleTracks" Text="字幕" />
+                                    <MenuFlyoutItem Text="字幕设置与时间轴" Click="OnSubtitleSettingsClick" />
                                     <MenuFlyoutItem Text="加载本地字幕" Click="OnLoadSubtitleClick" />
                                     <MenuFlyoutItem Text="匹配在线字幕" Click="OnMatchSubtitleClick" />
+                                    <MenuFlyoutSeparator />
+                                    <MenuFlyoutItem Text="AI 自动生成字幕" Click="OnAiGenerateSubtitleClick" />
+                                    <MenuFlyoutItem Text="AI 生成并翻译字幕" Click="OnAiGenerateAndTranslateClick" />
+                                    <MenuFlyoutItem Text="AI 翻译字幕" Click="OnAiTranslateSubtitleClick" />
+                                    <ToggleMenuFlyoutItem x:Name="RealtimeSubtitleToggleItem" Text="实时字幕 (Qwen3-ASR)" Click="OnRealtimeSubtitleToggleClick" />
                                     <MenuFlyoutSeparator />
                                     <MenuFlyoutSubItem x:Name="AspectRatioMenu" Text="画面比例" />
                                     <MenuFlyoutSubItem x:Name="SyncDelayMenu" Text="字幕与音频同步" />
@@ -340,6 +376,19 @@
                                     </MenuFlyout>
                                 </DropDownButton.Flyout>
                             </DropDownButton>
+                            <Button x:Name="SubtitleSettingsButton" Style="{StaticResource PlayerIconButtonStyle}"
+                                    Click="OnSubtitleSettingsClick"
+                                    ToolTipService.ToolTip="字幕设置 / AI 字幕"
+                                    AutomationProperties.Name="字幕设置">
+                                <Grid>
+                                    <FontIcon Glyph="&#xED1E;" FontSize="{StaticResource FontSizeSection}" />
+                                    <Border x:Name="SubtitleActiveIndicator" Width="14" Height="2"
+                                            CornerRadius="{StaticResource RadiusTag}"
+                                            Background="{ThemeResource AccentFillBrush}"
+                                            VerticalAlignment="Bottom" HorizontalAlignment="Center"
+                                            Margin="0,0,0,5" Visibility="Collapsed" />
+                                </Grid>
+                            </Button>
                             <Button x:Name="DanmakuToggleButton" Style="{StaticResource PlayerIconButtonStyle}"
                                     Click="OnDanmakuToggleClick" RightTapped="OnDanmakuRightTapped"
                                     ToolTipService.ToolTip="显示弹幕 (D · 右键设置)"

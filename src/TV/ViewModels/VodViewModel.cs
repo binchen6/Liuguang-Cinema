@@ -56,8 +56,8 @@ public sealed partial class VodViewModel : ObservableObject
     [ObservableProperty, NotifyPropertyChangedFor(nameof(HasCredits)), NotifyPropertyChangedFor(nameof(CanExpandIntro)),
         NotifyPropertyChangedFor(nameof(DetailMetadata))]
     private VodItem? _detail;
-    public IReadOnlyList<string> DetailMetadata => Detail is null ? [] : new[] { Detail.Rating, Detail.Year, Detail.TypeName,
-        Detail.Area, Detail.Remarks, Detail.SiteName }.Where(value => !string.IsNullOrWhiteSpace(value)).ToArray();
+    public IReadOnlyList<string> DetailMetadata => Detail is null ? [] : new string?[] { Detail.Rating, Detail.Year, Detail.TypeName,
+        Detail.Area, Detail.Remarks, Detail.SiteName }.Where(value => !string.IsNullOrWhiteSpace(value)).Select(value => value!).ToArray();
     public bool HasCredits => !string.IsNullOrWhiteSpace(Detail?.Director) || !string.IsNullOrWhiteSpace(Detail?.Actor);
     [ObservableProperty] private PlaybackLine? _selectedLine;
     [ObservableProperty] private Episode? _currentEpisode;
@@ -435,8 +435,12 @@ public sealed partial class VodViewModel : ObservableObject
                 response.Filters.TryGetProperty(category.Id, out _))
                 UpdateCategoryFilters(category, response.Filters);
             if (!append) _browseCards.Clear();
-            _browseCards.AddRange(response.List.Select(item => new VodCardViewModel(item, _services)));
-            ApplyBrowseFilters();
+            var newCards = response.List.Select(item => new VodCardViewModel(item, _services)).ToList();
+            _browseCards.AddRange(newCards);
+            if (append && SortIndex == 0)
+                AppendBrowseCards(newCards);
+            else
+                ApplyBrowseFilters();
             _page = page;
             _pageCount = Math.Max(1, response.PageCount);
             HasMore = response.PageCount > page || (response.PageCount == 0 && response.List.Count > 0);
@@ -515,8 +519,7 @@ public sealed partial class VodViewModel : ObservableObject
     private async Task RestoreHistoryAsync(VodItem detail, CancellationToken token)
     {
         CurrentEpisode = Episodes.FirstOrDefault();
-        var history = await _services.Database.GetHistoryAsync(token);
-        var entry = history.FirstOrDefault(item => item.Id == DatabaseKey(detail));
+        var entry = await _services.Database.GetHistoryEntryAsync(DatabaseKey(detail), token);
         if (entry is null || entry.IsCompleted) return;
         PlaybackRequest? saved;
         try { saved = JsonSerializer.Deserialize<PlaybackRequest>(entry.RequestJson, JsonUtil.Options); }
@@ -582,6 +585,22 @@ public sealed partial class VodViewModel : ObservableObject
     partial void OnTypeFilterChanged(string value) => ApplyBrowseFilters();
     partial void OnYearFilterChanged(string value) => ApplyBrowseFilters();
     partial void OnSortIndexChanged(int value) => ApplyBrowseFilters();
+
+    private void AppendBrowseCards(IEnumerable<VodCardViewModel> newCards)
+    {
+        if (HasCategoryFilters)
+        {
+            foreach (var card in newCards) Items.Add(card);
+            return;
+        }
+        var year = YearFilter.Trim();
+        foreach (var card in newCards)
+        {
+            if (Services.Vod.SearchScoring.MatchesType(card.Item, TypeFilter) &&
+                (year.Length == 0 || card.Item.Year.Contains(year, StringComparison.Ordinal)))
+                Items.Add(card);
+        }
+    }
 
     private void ApplyBrowseFilters()
     {
@@ -704,9 +723,10 @@ public sealed partial class VodViewModel : ObservableObject
         IsDownloading = true;
         DownloadProgress = 0;
         DownloadStatus = "正在解析下载地址…";
+        PlaybackRequest? media = null;
         try
         {
-            var media = await _services.Playback.ResolveForDownloadAsync(request, token);
+            media = await _services.Playback.ResolveForDownloadAsync(request, token);
             var extension = await _services.Downloads.GetExtensionAsync(media, token);
             var title = episode.Name;
             if (Path.GetExtension(title).Equals(extension, StringComparison.OrdinalIgnoreCase))
@@ -729,7 +749,11 @@ public sealed partial class VodViewModel : ObservableObject
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested) { DownloadStatus = "下载已取消"; }
         catch (Exception ex) { DownloadStatus = "下载失败：" + ex.Message; }
-        finally { IsDownloading = false; }
+        finally
+        {
+            if (media is not null) _services.Cloud.ReleaseMedia(media.Url);
+            IsDownloading = false;
+        }
     }
 
     [RelayCommand(IncludeCancelCommand = true)]
@@ -754,9 +778,10 @@ public sealed partial class VodViewModel : ObservableObject
             {
                 var (episode, request) = requests[index];
                 DownloadStatus = $"正在解析 {index + 1}/{requests.Count}：{episode.Name}";
+                PlaybackRequest? media = null;
                 try
                 {
-                    var media = await _services.Playback.ResolveForDownloadAsync(request, token);
+                    media = await _services.Playback.ResolveForDownloadAsync(request, token);
                     var extension = await _services.Downloads.GetExtensionAsync(media, token);
                     var filename = DownloadFileName(request, episode, extension);
                     var destination = AvailableDownloadPath(Path.Combine(directory, filename + extension));
@@ -768,6 +793,10 @@ public sealed partial class VodViewModel : ObservableObject
                 }
                 catch (OperationCanceledException) when (token.IsCancellationRequested) { throw; }
                 catch (Exception ex) { failed.Add($"{episode.Name}：{ex.Message}"); }
+                finally
+                {
+                    if (media is not null) _services.Cloud.ReleaseMedia(media.Url);
+                }
             }
             DownloadProgress = (double)completed / requests.Count * 100;
             DownloadStatus = $"已完成 {completed}/{requests.Count} 集，保存到 {directory}" +

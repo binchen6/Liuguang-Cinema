@@ -42,16 +42,26 @@ $env:TV_DATA_ROOT = Join-Path $PWD 'artifacts/tmp/dev-profile'
 | --- | --- |
 | `src/TV/MainWindow.xaml(.cs)` | 窗口、导航、返回栈、播放页进出和退出顺序 |
 | `Views`、`ViewModels` | 页面布局、绑定、异步状态和命令 |
-| `Services/Playback` | 地址解析、HLS/DASH、LibVLC、字幕弹幕和下载 |
+| `Services/AI` | 阿里云百炼 AI 字幕生成（`paraformer-v2` / `qwen3-asr-flash-filetrans`）、翻译（`qwen-mt-flash` / `qwen-mt-plus`）、字级时间戳对齐、LibVLC 无头音轨提取与 WASAPI 实时字幕 |
+| `Services/Playback` | 地址解析、HLS/DASH、LibVLC、弹弹play/B 站弹幕、字幕与下载 |
 | `Services/Cloud` | 四网盘、登录协调、个人目录与本地媒体代理 |
 | `Services/Vod`、`Services/Spider` | CMS、原生站点与 Java CatVod IPC |
 | `Services/Live` | 直播列表、频道聚合与 EPG |
 | `Services/Library` | 本地文件索引、侧车资源和目录监视 |
 | `Services/Persistence` | SQLite、DPAPI 与应用路径 |
-| `Services/Imaging` | 有界图片解码、磁盘缓存和内存 LRU |
+| `Services/Imaging` | 有界图片解码（后台线程全异步）、磁盘缓存和内存 LRU |
 | `Services/Maintenance` | 分类扫描与显式安全清理 |
 | `engine/catvod` | Java 17 CatVod JSON IPC 引擎 |
 | `artifacts/qa-fixture` | 隔离夹具、协议与桌面回归源码 |
+
+## 密钥与开源安全配置
+
+- **开源仓库严禁提交任何明文 API Key、AppSecret、Cookie、Token 或本机绝对路径**。
+- **弹弹play 开放弹幕库凭证**：
+  - 开发者可复制 `src/TV/Secrets.Local.props.example` 为 `src/TV/Secrets.Local.props`（已加入 `.gitignore`），或通过环境变量 `DANDANPLAY_APP_ID`、`DANDANPLAY_APP_SECRET_1`、`DANDANPLAY_APP_SECRET_2` 在构建时注入（支持 `b64:` 前缀编码）；
+  - 用户也可直接在应用「设置 → 弹幕与 AI」填入自定义 AppId 与 AppSecret（经 Windows DPAPI 加密保存于 `tv.db`）。
+- **阿里云百炼 API Key**：不在源码或安装包中内置，由用户在「设置 → 弹幕与 AI」点击跳转百炼控制台自助生成后填入，应用仅使用当前 Windows 用户的 DPAPI（`SecretStore`）加密保存在本地数据库。
+- **日志脱敏**：`Diagnostics.Log` 自动对 `sk-*`、`Bearer *`、`X-Signature`、`AppSecret`、`Cookie`、`token` 等敏感片段做掩码处理。
 
 ## 实现约定
 

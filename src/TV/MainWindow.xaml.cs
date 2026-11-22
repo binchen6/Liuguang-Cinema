@@ -233,11 +233,14 @@ public sealed partial class MainWindow : Window
 
     private bool _syncingNav;
     private static readonly string[] PrimaryTags = { "vod", "live", "library", "cast" };
+    private static readonly SolidColorBrush TransparentBrush = new(Windows.UI.Color.FromArgb(0, 0, 0, 0));
+    private static readonly Windows.UI.ViewManagement.AccessibilitySettings Accessibility = new();
+    private double _cachedWidePaneWidth;
 
     private void SyncNavSelection(string tag)
     {
         if (App.PlayerOnly) return;
-        SettingsButton.Background = tag == "settings" ? (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["SelectionBrush"] : new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(0, 0, 0, 0));
+        SettingsButton.Background = tag == "settings" ? (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["SelectionBrush"] : TransparentBrush;
         if (tag == "settings")
         {
             _syncingNav = true;
@@ -340,24 +343,27 @@ public sealed partial class MainWindow : Window
         }
         else
         {
-            var labels = new FrameworkElement[] { BrandText, NavLabelVod, NavLabelLive, NavLabelLibrary, NavLabelCast, NavLabelSettings };
-            var available = new Windows.Foundation.Size(double.PositiveInfinity, double.PositiveInfinity);
-            foreach (var label in labels)
+            if (_cachedWidePaneWidth <= 0)
             {
-                label.Visibility = Visibility.Visible;
-                label.Measure(available);
+                var labels = new FrameworkElement[] { BrandText, NavLabelVod, NavLabelLive, NavLabelLibrary, NavLabelCast, NavLabelSettings };
+                var available = new Windows.Foundation.Size(double.PositiveInfinity, double.PositiveInfinity);
+                var maxText = 0d;
+                foreach (var label in labels)
+                {
+                    label.Visibility = Visibility.Visible;
+                    label.Measure(available);
+                    if (label.DesiredSize.Width > maxText) maxText = label.DesiredSize.Width;
+                }
+                var brandWidth = BrandText.DesiredSize.Width + 56;
+                var navigationWidth = maxText + 92;
+                _cachedWidePaneWidth = Math.Clamp(Math.Max(brandWidth, navigationWidth), 196, 320);
             }
-            var textWidth = labels.Max(label => label.DesiredSize.Width);
-            var brandWidth = BrandText.DesiredSize.Width + 56;
-            var navigationWidth = textWidth + 92;
-            PaneColumn.Width = new GridLength(Math.Clamp(Math.Max(brandWidth, navigationWidth), 196, 320));
+            PaneColumn.Width = new GridLength(_cachedWidePaneWidth);
         }
         var labelVisibility = narrow ? Visibility.Collapsed : Visibility.Visible;
-        foreach (var label in new FrameworkElement[] { BrandText, NavLabelVod, NavLabelLive, NavLabelLibrary, NavLabelCast, NavLabelSettings })
-            label.Visibility = labelVisibility;
+        BrandText.Visibility = NavLabelVod.Visibility = NavLabelLive.Visibility = NavLabelLibrary.Visibility = NavLabelCast.Visibility = NavLabelSettings.Visibility = labelVisibility;
         var alignment = narrow ? HorizontalAlignment.Center : HorizontalAlignment.Left;
-        foreach (var content in new FrameworkElement[] { NavContentVod, NavContentLive, NavContentLibrary, NavContentCast, NavContentSettings })
-            content.HorizontalAlignment = alignment;
+        NavContentVod.HorizontalAlignment = NavContentLive.HorizontalAlignment = NavContentLibrary.HorizontalAlignment = NavContentCast.HorizontalAlignment = NavContentSettings.HorizontalAlignment = alignment;
         SettingsButton.HorizontalContentAlignment = narrow ? HorizontalAlignment.Center : HorizontalAlignment.Left;
         SettingsButton.Padding = narrow ? new Thickness(0) : new Thickness(17, 0, 14, 0);
         BrandBlock.Margin = narrow ? new Thickness(0, 0, 0, 0) : new Thickness(20, 0, 0, 0);
@@ -394,6 +400,27 @@ public sealed partial class MainWindow : Window
         else Navigate("search");
     }
 
+    internal void OpenAiSettings()
+    {
+        if (App.PlayerOnly) return;
+        if (_currentTag == "settings" && ContentFrame.Content is SettingsPage current)
+        {
+            current.SelectAiSection();
+            return;
+        }
+        _ = NavigateToAiSettingsAsync();
+    }
+
+    private async Task NavigateToAiSettingsAsync()
+    {
+        if (_leavingPlayer || _closing) return;
+        await NavigateAsync("settings", false);
+        DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Normal, () =>
+        {
+            if (ContentFrame.Content is SettingsPage page) page.SelectAiSection();
+        });
+    }
+
     internal bool IsPlayerFullScreen => _fullScreen;
 
     private void UpdateBackButton()
@@ -416,7 +443,7 @@ public sealed partial class MainWindow : Window
         if (!AppWindowTitleBar.IsCustomizationSupported()) return;
         Windows.UI.Color? foreground = null;
         Windows.UI.Color? inactiveForeground = null;
-        if (!new Windows.UI.ViewManagement.AccessibilitySettings().HighContrast)
+        if (!Accessibility.HighContrast)
         {
             // 与 Styles/Tokens.xaml 的 PrimaryTextBrush / SecondaryTextBrush 保持一致。
             if (ShellRoot.ActualTheme == ElementTheme.Light)
@@ -446,16 +473,13 @@ public sealed partial class MainWindow : Window
             _titleInputQueued = false;
             if (_closing || AppTitleBar.XamlRoot is not { } root) return;
             var rects = new List<RectInt32>();
-            if (AppTitleBar.Visibility == Visibility.Visible)
+            if (AppTitleBar.Visibility == Visibility.Visible && BackButton.Visibility == Visibility.Visible && BackButton.IsHitTestVisible)
             {
                 var scale = root.RasterizationScale;
-                foreach (var button in new Control[] { BackButton }.Where(button => button.Visibility == Visibility.Visible && button.IsHitTestVisible))
-                {
-                    var bounds = button.TransformToVisual(null).TransformBounds(
-                        new Windows.Foundation.Rect(0, 0, button.ActualWidth, button.ActualHeight));
-                    rects.Add(new RectInt32((int)Math.Round(bounds.X * scale), (int)Math.Round(bounds.Y * scale),
-                        (int)Math.Round(bounds.Width * scale), (int)Math.Round(bounds.Height * scale)));
-                }
+                var bounds = BackButton.TransformToVisual(null).TransformBounds(
+                    new Windows.Foundation.Rect(0, 0, BackButton.ActualWidth, BackButton.ActualHeight));
+                rects.Add(new RectInt32((int)Math.Round(bounds.X * scale), (int)Math.Round(bounds.Y * scale),
+                    (int)Math.Round(bounds.Width * scale), (int)Math.Round(bounds.Height * scale)));
             }
             var regions = rects.ToArray();
             if (_titleInputRegions is not null && _titleInputRegions.SequenceEqual(regions)) return;

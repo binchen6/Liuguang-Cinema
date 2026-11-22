@@ -43,6 +43,7 @@ public sealed partial class SettingsPage : Page
     {
         _sections.Add((SourceSection, SourcePane));
         _sections.Add((PlaybackSection, PlaybackPane));
+        _sections.Add((AiSection, AiPane));
         _sections.Add((CloudSection, CloudPane));
         _sections.Add((NetworkSection, NetworkPane));
         _sections.Add((AppearanceSection, AppearancePane));
@@ -53,6 +54,12 @@ public sealed partial class SettingsPage : Page
             section.Expanding += (sender, _) => ActivateSection((Expander)sender);
             section.Collapsed += (sender, _) => OnSectionCollapsed((Expander)sender);
         }
+    }
+
+    public void SelectAiSection()
+    {
+        AiSection.IsExpanded = true;
+        ActivateSection(AiSection);
     }
 
     private void ActivateSection(Expander section)

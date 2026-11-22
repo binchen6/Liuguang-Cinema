@@ -56,8 +56,10 @@ public sealed class DanmakuOverlay : Canvas
     private static readonly Size InfiniteSize = new(double.PositiveInfinity, double.PositiveInfinity);
 
     private readonly List<DanmakuNode> _active = [];
+    private readonly DanmakuNode?[] _lastInScrollLane = new DanmakuNode?[24];
     private readonly Stack<DanmakuNode> _pool = new();
     private readonly Dictionary<uint, SolidColorBrush> _brushes = [];
+    private readonly RectangleGeometry _clipGeometry = new();
 
     private DanmakuEntry[] _comments = [];
     private DanmakuPreferences _prefs = new();
@@ -218,7 +220,8 @@ public sealed class DanmakuOverlay : Canvas
     private void OnOverlaySizeChanged(object sender, SizeChangedEventArgs e)
     {
         if (e.NewSize.Width <= 0 || e.NewSize.Height <= 0) return;
-        Clip = new RectangleGeometry { Rect = new Rect(0, 0, e.NewSize.Width, e.NewSize.Height) };
+        _clipGeometry.Rect = new Rect(0, 0, e.NewSize.Width, e.NewSize.Height);
+        if (!ReferenceEquals(Clip, _clipGeometry)) Clip = _clipGeometry;
         foreach (var node in _active)
         {
             if (node.Mode != DanmakuMode.Scroll)
@@ -313,6 +316,7 @@ public sealed class DanmakuOverlay : Canvas
                 node.SpeedPx = speed;
                 node.Transform.X = width;
                 node.Transform.Y = topMargin + lane * laneHeight;
+                if (lane < _lastInScrollLane.Length) _lastInScrollLane[lane] = node;
             }
             else
             {
@@ -340,18 +344,10 @@ public sealed class DanmakuOverlay : Canvas
 
     private int FindScrollLane(int laneCount, double canvasWidth, double newSpeed, double gapPx, double effectiveNow)
     {
-        for (var lane = 0; lane < laneCount; lane++)
+        var count = Math.Min(laneCount, _lastInScrollLane.Length);
+        for (var lane = 0; lane < count; lane++)
         {
-            DanmakuNode? latest = null;
-            for (var i = 0; i < _active.Count; i++)
-            {
-                var candidate = _active[i];
-                if (candidate.Mode == DanmakuMode.Scroll && candidate.Lane == lane)
-                {
-                    if (latest is null || candidate.StartSec > latest.StartSec) latest = candidate;
-                }
-            }
-
+            var latest = _lastInScrollLane[lane];
             if (latest is null) return lane;
 
             var prevElapsed = effectiveNow - latest.StartSec;
@@ -444,6 +440,11 @@ public sealed class DanmakuOverlay : Canvas
     private void RecycleNode(int activeIndex)
     {
         var node = _active[activeIndex];
+        if (node.Mode == DanmakuMode.Scroll && node.Lane >= 0 && node.Lane < _lastInScrollLane.Length &&
+            ReferenceEquals(_lastInScrollLane[node.Lane], node))
+        {
+            _lastInScrollLane[node.Lane] = null;
+        }
         _active.RemoveAt(activeIndex);
         Children.Remove(node.Root);
         ReturnToPool(node);
@@ -468,6 +469,7 @@ public sealed class DanmakuOverlay : Canvas
             ReturnToPool(node);
         }
         _active.Clear();
+        Array.Clear(_lastInScrollLane);
     }
 
     private void ResetCursor(double mediaSec)
