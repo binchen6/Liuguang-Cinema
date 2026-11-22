@@ -11,8 +11,15 @@ public sealed class DanmakuService(SourceHttpClient http)
 {
     public async Task<IReadOnlyList<DanmakuEntry>> LoadAsync(Uri uri, CancellationToken token)
     {
-        var payload = await http.GetBytesAsync(uri.AbsoluteUri, maxBytes: 4 * 1024 * 1024, cancellationToken: token).ConfigureAwait(false);
-        var content = System.Text.Encoding.UTF8.GetString(payload.Content).TrimStart('\uFEFF', '\r', '\n', ' ');
+        byte[] bytes;
+        if (uri.IsFile)
+        {
+            var file = new FileInfo(uri.LocalPath);
+            if (!file.Exists || file.Length > 4 * 1024 * 1024) throw new InvalidDataException("本地弹幕不存在或超过大小限制。");
+            bytes = await File.ReadAllBytesAsync(file.FullName, token).ConfigureAwait(false);
+        }
+        else bytes = (await http.GetBytesAsync(uri.AbsoluteUri, maxBytes: 4 * 1024 * 1024, cancellationToken: token).ConfigureAwait(false)).Content;
+        var content = System.Text.Encoding.UTF8.GetString(bytes).TrimStart('\uFEFF', '\r', '\n', ' ');
         var comments = new List<DanmakuEntry>();
         if (content.StartsWith('<'))
         {
@@ -44,7 +51,7 @@ public sealed class DanmakuService(SourceHttpClient http)
                     var text = Read(item, "text");
                     if (text.Length == 0) text = Read(item, "m");
                     if (text.Length == 0) text = Read(item, "content");
-                    Add(comments, time.Length > 0 ? time : fields[0], text, fields.ElementAtOrDefault(2) ?? Read(item, "color"));
+                    Add(comments, time.Length > 0 ? time : fields[0], text, fields.ElementAtOrDefault(3) ?? fields.ElementAtOrDefault(2) ?? Read(item, "color"));
                 }
                 else if (item.ValueKind == JsonValueKind.Array && item.GetArrayLength() >= 5)
                     Add(comments, item[0].ToString(), item[4].ToString(), item[2].ToString());

@@ -514,6 +514,7 @@ public sealed partial class MainWindow : Window
                 if (ContentFrame.Content is CastPage cast) await cast.StopAsync();
                 if (download is { IsCompleted: false })
                     await download.WaitAsync(TimeSpan.FromMilliseconds(750));
+                await ViewModel.Settings.FlushAsync();
             }
             else if (_currentTag == "player")
                 await (_leavingPlayer && _leavePlayerTask is not null ? _leavePlayerTask : ViewModel.Player.PrepareLeaveAsync());
@@ -528,6 +529,7 @@ public sealed partial class MainWindow : Window
         finally
         {
             Diagnostics.Log("Shutdown completed");
+            Diagnostics.Shutdown();
             ContentFrame.Content = null;
             _allowClose = true;
             Close();

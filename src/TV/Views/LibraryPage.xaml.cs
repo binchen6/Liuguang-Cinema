@@ -38,6 +38,19 @@ public sealed partial class LibraryPage : Page
     private void OnRemoveLocalMediaClick(object sender, RoutedEventArgs e) => ViewModel.RemoveLocalMediaCommand.Execute((sender as Button)?.Tag as LocalMediaEntry);
     private void OnRemoveLocalFolderClick(object sender, RoutedEventArgs e) => ViewModel.RemoveLocalFolderCommand.Execute((sender as Button)?.Tag as string);
 
+    private void OnPageSizeChanged(object sender, SizeChangedEventArgs e)
+    {
+        var narrow = e.NewSize.Width < 760;
+        RootLayout.Padding = e.NewSize.Width < 560 ? new Thickness(16, 16, 16, 20) : new Thickness(32, 24, 32, 32);
+        HeaderSubtitle.Visibility = e.NewSize.Width < 560 ? Visibility.Collapsed : Visibility.Visible;
+        HeaderGrid.RowSpacing = narrow ? 12 : 0;
+        SearchBox.Width = narrow ? double.NaN : 240;
+        SearchBox.HorizontalAlignment = narrow ? HorizontalAlignment.Stretch : HorizontalAlignment.Right;
+        Grid.SetRow(SearchBox, narrow ? 1 : 0);
+        Grid.SetColumn(SearchBox, narrow ? 0 : 1);
+        Grid.SetColumnSpan(SearchBox, narrow ? 4 : 1);
+    }
+
     private async void OnRefreshClick(object sender, RoutedEventArgs e)
     {
         if (ViewModel.IsLocalTab) await ViewModel.RefreshLocalCommand.ExecuteAsync(null);
@@ -52,6 +65,6 @@ public sealed partial class LibraryPage : Page
             var folder = await Windows.Storage.StorageFolder.GetFolderFromPathAsync(path);
             await Windows.System.Launcher.LaunchFolderAsync(folder);
         }
-        catch (Exception) { ViewModel.StatusMessage = "文件夹已移动或删除。"; }
+        catch (Exception) { ViewModel.ReportError("文件夹已移动或删除。"); }
     }
 }

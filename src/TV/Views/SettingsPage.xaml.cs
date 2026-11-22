@@ -24,15 +24,19 @@ public sealed partial class SettingsPage : Page
 
     private async void OnLoaded(object sender, Microsoft.UI.Xaml.RoutedEventArgs e)
     {
-        MotionService.Reveal(this);
-        var version = typeof(SettingsPage).Assembly.GetName().Version;
-        AppVersionText.Text = version is null ? "版本未知" : $"版本 {version.Major}.{version.Minor}.{version.Build}";
-        if (_activeSection is null)
+        try
         {
-            SourceSection.IsExpanded = true;
-            if (_activeSection is null) ActivateSection(SourceSection);
+            MotionService.Reveal(this);
+            var version = typeof(SettingsPage).Assembly.GetName().Version;
+            AppVersionText.Text = version is null ? "版本未知" : $"版本 {version.Major}.{version.Minor}.{version.Build}";
+            if (_activeSection is null)
+            {
+                SourceSection.IsExpanded = true;
+                if (_activeSection is null) ActivateSection(SourceSection);
+            }
+            await ViewModel.LoadAsync();
         }
-        await ViewModel.LoadAsync();
+        catch (Exception ex) { ViewModel.StatusMessage = "设置读取失败：" + ex.Message; }
     }
 
     /// <summary>左侧分区导航：每个分区是一个可展开项，展开即切换到右侧对应内容面板。</summary>

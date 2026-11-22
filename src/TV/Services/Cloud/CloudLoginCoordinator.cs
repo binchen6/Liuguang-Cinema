@@ -103,14 +103,17 @@ public sealed partial class CloudLoginCoordinator : ObservableObject, IDisposabl
         if (Provider != CloudProviderKind.Baidu || !IsActive) return false;
         IsBusy = true;
         Status = "正在验证百度登录…";
+        var lifetime = _lifetime;
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, lifetime?.Token ?? CancellationToken.None);
+        var token = linked.Token;
         try
         {
-            if (!await _cloud.Login.VerifyBaiduCookieAsync(credential, cancellationToken))
+            if (!await _cloud.Login.VerifyBaiduCookieAsync(credential, token))
             {
                 Status = "尚未检测到有效登录，请扫码确认后重试";
                 return false;
             }
-            await _cloud.SaveCredentialAsync(CloudProviderKind.Baidu, credential, cancellationToken);
+            await _cloud.SaveCredentialAsync(CloudProviderKind.Baidu, credential, token);
             Status = "登录成功";
             NotifySucceeded(Provider);
             return true;
@@ -121,7 +124,7 @@ public sealed partial class CloudLoginCoordinator : ObservableObject, IDisposabl
             Status = "登录验证失败：" + ex.Message;
             return false;
         }
-        finally { IsBusy = false; }
+        finally { if (ReferenceEquals(_lifetime, lifetime)) IsBusy = false; }
     }
 
     private void NotifySucceeded(CloudProviderKind provider)

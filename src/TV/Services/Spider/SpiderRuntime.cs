@@ -43,14 +43,18 @@ public sealed class SpiderRuntime : IDisposable
         request["requestId"] = id;
         var completion = new TaskCompletionSource<JsonElement>(TaskCreationOptions.RunContinuationsAsynchronously);
         Process process;
-        lock (_sync)
+        process = await Task.Run(() =>
         {
-            ObjectDisposedException.ThrowIf(_disposed, this);
-            cancellationToken.ThrowIfCancellationRequested();
-            EnsureStarted();
-            process = _process!;
-            _pending[id] = new PendingRequest(process, completion);
-        }
+            lock (_sync)
+            {
+                ObjectDisposedException.ThrowIf(_disposed, this);
+                cancellationToken.ThrowIfCancellationRequested();
+                EnsureStarted();
+                var started = _process!;
+                _pending[id] = new PendingRequest(started, completion);
+                return started;
+            }
+        }, cancellationToken).ConfigureAwait(false);
 
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeout.CancelAfter(TimeSpan.FromSeconds(Math.Clamp(site.Timeout, 5, 60)));
@@ -80,19 +84,25 @@ public sealed class SpiderRuntime : IDisposable
         {
             while (await process.StandardOutput.ReadLineAsync().ConfigureAwait(false) is { } line)
             {
-                using var document = JsonDocument.Parse(line);
-                var root = document.RootElement;
-                if (root.ValueKind != JsonValueKind.Object || !root.TryGetProperty("requestId", out var idElement)) continue;
-                long id;
-                if (idElement.ValueKind == JsonValueKind.Number) idElement.TryGetInt64(out id);
-                else if (idElement.ValueKind == JsonValueKind.String) long.TryParse(idElement.GetString(), out id);
-                else continue;
-                if (!_pending.TryGetValue(id, out var pending) || !ReferenceEquals(pending.Process, process) ||
-                    !_pending.TryRemove(id, out _)) continue;
-                if (root.TryGetProperty("success", out var success) && success.ValueKind == JsonValueKind.True)
-                    pending.Completion.TrySetResult(root.TryGetProperty("data", out var data) ? data.Clone() : default);
-                else
-                    pending.Completion.TrySetException(new InvalidOperationException("站点适配器请求失败。"));
+                if (line.Length > 16 * 1024 * 1024) throw new InvalidDataException("爬虫响应超过大小限制。");
+                JsonDocument document;
+                try { document = JsonDocument.Parse(line); }
+                catch (JsonException) { continue; }
+                using (document)
+                {
+                    var root = document.RootElement;
+                    if (root.ValueKind != JsonValueKind.Object || !root.TryGetProperty("requestId", out var idElement)) continue;
+                    long id;
+                    if (idElement.ValueKind == JsonValueKind.Number) idElement.TryGetInt64(out id);
+                    else if (idElement.ValueKind == JsonValueKind.String) long.TryParse(idElement.GetString(), out id);
+                    else continue;
+                    if (!_pending.TryGetValue(id, out var pending) || !ReferenceEquals(pending.Process, process) ||
+                        !_pending.TryRemove(id, out _)) continue;
+                    if (root.TryGetProperty("success", out var success) && success.ValueKind == JsonValueKind.True)
+                        pending.Completion.TrySetResult(root.TryGetProperty("data", out var data) ? data.Clone() : default);
+                    else
+                        pending.Completion.TrySetException(new InvalidOperationException("站点适配器请求失败。"));
+                }
             }
             throw new InvalidOperationException("爬虫进程已退出。");
         }
@@ -197,8 +207,8 @@ public sealed class SpiderRuntime : IDisposable
             var start = new ProcessStartInfo { FileName = javaExe, Arguments = "-version", UseShellExecute = false, CreateNoWindow = true, RedirectStandardError = true, RedirectStandardOutput = true };
             using var process = Process.Start(start);
             if (process is null) return -1;
-            var text = process.StandardError.ReadToEnd() + process.StandardOutput.ReadToEnd();
             if (!process.WaitForExit(3000)) { try { process.Kill(); } catch { } return -1; }
+            var text = process.StandardError.ReadToEnd() + process.StandardOutput.ReadToEnd();
             var match = Regex.Match(text, "version \"(\\d+)(?:\\.(\\d+))?");
             if (!match.Success) return -1;
             var major = int.Parse(match.Groups[1].Value);

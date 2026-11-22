@@ -10,10 +10,11 @@ namespace TV.Services.Imaging;
 
 public sealed class ImageCacheService
 {
-    private sealed class Entry(BitmapImage image, LinkedListNode<string> node)
+    private sealed class Entry(BitmapImage image, LinkedListNode<string> node, long pixels)
     {
         public BitmapImage Image { get; } = image;
         public LinkedListNode<string> Node { get; } = node;
+        public long Pixels { get; } = pixels;
     }
 
     private readonly SourceHttpClient _http;
@@ -21,6 +22,7 @@ public sealed class ImageCacheService
     private readonly Dictionary<string, Entry> _memory = new(StringComparer.OrdinalIgnoreCase);
     private readonly LinkedList<string> _lru = new();
     private readonly Lock _memoryLock = new();
+    private long _memoryPixels;
     private int _downloads;
 
     public ImageCacheService(SourceHttpClient http) => _http = http;
@@ -38,7 +40,7 @@ public sealed class ImageCacheService
                 return Task.FromResult<BitmapImage?>(entry.Image);
             }
         }
-        return _pending.GetOrAdd(url, key => GetCoreAsync(key, cancellationToken));
+        return _pending.GetOrAdd(url, key => GetCoreAsync(key, CancellationToken.None)).WaitAsync(cancellationToken);
     }
 
     private async Task<BitmapImage?> GetCoreAsync(string url, CancellationToken cancellationToken)
@@ -72,17 +74,20 @@ public sealed class ImageCacheService
             using var stream = new InMemoryRandomAccessStream();
             using (var writer = new DataWriter(stream)) { writer.WriteBytes(bytes); await writer.StoreAsync(); writer.DetachStream(); }
             stream.Seek(0);
-            var image = new BitmapImage { DecodePixelWidth = 360, DecodePixelType = DecodePixelType.Logical };
+            var image = new BitmapImage { DecodePixelWidth = 480, DecodePixelType = DecodePixelType.Physical };
             await image.SetSourceAsync(stream);
             lock (_memoryLock)
             {
                 if (_memory.TryGetValue(url, out var existing)) return existing.Image;
                 var node = _lru.AddFirst(url);
-                _memory[url] = new Entry(image, node);
-                while (_memory.Count > 80)
+                var pixels = Math.Max(1L, (long)image.PixelWidth * image.PixelHeight);
+                _memory[url] = new Entry(image, node, pixels);
+                _memoryPixels += pixels;
+                while (_memory.Count > 64 || _memoryPixels > 24_000_000)
                 {
                     var last = _lru.Last!;
                     _lru.RemoveLast();
+                    _memoryPixels -= _memory[last.Value].Pixels;
                     _memory.Remove(last.Value);
                 }
             }
@@ -98,22 +103,36 @@ public sealed class ImageCacheService
 
     public async Task ClearAsync()
     {
-        lock (_memoryLock) { _memory.Clear(); _lru.Clear(); }
+        lock (_memoryLock) { _memory.Clear(); _lru.Clear(); _memoryPixels = 0; }
         if (!Directory.Exists(AppPaths.Images)) return;
-        foreach (var file in Directory.EnumerateFiles(AppPaths.Images, "*.img"))
+        await Task.Run(() =>
         {
-            try { File.Delete(file); } catch (IOException) { }
-        }
-        await Task.CompletedTask;
+            try
+            {
+                foreach (var file in Directory.EnumerateFiles(AppPaths.Images, "*.img"))
+                {
+                    try { File.Delete(file); }
+                    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
+                }
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
+        });
     }
 
     private static byte[] NormalizeImage(byte[] bytes)
     {
-        using var source = SKBitmap.Decode(bytes);
-        if (source is null || source.Width <= 480) return bytes;
-        var height = Math.Max(1, (int)Math.Round(source.Height * (480d / source.Width)));
-        var info = new SKImageInfo(480, height, SKColorType.Bgra8888, SKAlphaType.Unpremul);
-        using var scaled = source.Resize(info, new SKSamplingOptions(SKFilterMode.Linear));
+        using var stream = new SKMemoryStream(bytes);
+        using var codec = SKCodec.Create(stream);
+        if (codec is null) return bytes;
+        var width = codec.Info.Width;
+        var height = codec.Info.Height;
+        if (width <= 0 || height <= 0 || (long)width * height > 40_000_000)
+            throw new InvalidDataException("图片像素尺寸无效或过大。");
+        var scale = Math.Min(1, Math.Min(480d / width, 1440d / height));
+        if (scale == 1) return bytes;
+        var info = new SKImageInfo(Math.Max(1, (int)Math.Round(width * scale)), Math.Max(1, (int)Math.Round(height * scale)),
+            SKColorType.Bgra8888, SKAlphaType.Unpremul);
+        using var scaled = SKBitmap.Decode(codec, info);
         if (scaled is null) return bytes;
         using var image = SKImage.FromBitmap(scaled);
         using var encoded = image.Encode(SKEncodedImageFormat.Jpeg, 84);
@@ -133,7 +152,7 @@ public sealed class ImageCacheService
                 file.Delete();
             }
         }
-        catch (IOException) { }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
     }
 
     private static string? Unwrap(string? url)

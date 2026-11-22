@@ -86,7 +86,22 @@ public sealed class DoubanService
     {
         var title = PlaybackParsing.CleanTitle(item.Name);
         var key = $"{Normalize(title)}|{item.Year}";
-        return _pending.GetOrAdd(key, _ => GetCoreAsync(key, title, item.Year, cancellationToken));
+        return _pending.GetOrAdd(key, _ => GetCoreAsync(key, title, item.Year, CancellationToken.None)).WaitAsync(cancellationToken);
+    }
+
+    public async Task<DoubanMetadata?> GetCachedMetadataAsync(VodItem item, CancellationToken cancellationToken = default)
+    {
+        if (!await IsEnabledAsync(cancellationToken).ConfigureAwait(false)) return null;
+        var title = PlaybackParsing.CleanTitle(item.Name);
+        var cached = await _database.GetMetadataAsync($"{Normalize(title)}|{item.Year}", cancellationToken).ConfigureAwait(false);
+        return ReadMetadata(cached?.Json);
+    }
+
+    private static DoubanMetadata? ReadMetadata(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json)) return null;
+        try { return JsonSerializer.Deserialize<DoubanMetadata>(json, JsonUtil.Options); }
+        catch (JsonException) { return null; }
     }
 
     private async Task<DoubanMetadata?> GetCoreAsync(string key, string title, string year, CancellationToken cancellationToken)
@@ -96,7 +111,7 @@ public sealed class DoubanService
             if (!await IsEnabledAsync(cancellationToken).ConfigureAwait(false)) return null;
             var cached = await _database.GetMetadataAsync(key, cancellationToken).ConfigureAwait(false);
             if (cached is not null && cached.ExpiresAt > DateTimeOffset.UtcNow)
-                return string.IsNullOrWhiteSpace(cached.Json) ? null : JsonSerializer.Deserialize<DoubanMetadata>(cached.Json, JsonUtil.Options);
+                return ReadMetadata(cached.Json);
 
             try
             {
@@ -207,9 +222,15 @@ public sealed class DoubanService
         var expected = Normalize(title);
         var actual = Normalize(PlaybackParsing.CleanTitle(candidate.Title));
         var score = actual == expected ? 90 : actual.Contains(expected) || expected.Contains(actual) ? 55 : 0;
-        if (year.Length >= 4 && candidate.Year == year[..4]) score += 20;
-        else if (year.Length >= 4 && candidate.Year.Length >= 4 && Math.Abs(int.Parse(year[..4]) - int.Parse(candidate.Year[..4])) <= 1) score += 8;
-        else if (year.Length >= 4 && candidate.Year.Length >= 4) score -= 25;
+        var expectedYear = 0;
+        var actualYear = 0;
+        var expectedYearValid = year.Length >= 4 && int.TryParse(year[..4], System.Globalization.NumberStyles.Integer,
+            System.Globalization.CultureInfo.InvariantCulture, out expectedYear);
+        var actualYearValid = candidate.Year.Length >= 4 && int.TryParse(candidate.Year[..4], System.Globalization.NumberStyles.Integer,
+            System.Globalization.CultureInfo.InvariantCulture, out actualYear);
+        if (expectedYearValid && actualYearValid && candidate.Year == year[..4]) score += 20;
+        else if (expectedYearValid && actualYearValid && Math.Abs(expectedYear - actualYear) <= 1) score += 8;
+        else if (expectedYearValid && actualYearValid) score -= 25;
         return score;
     }
 

@@ -94,17 +94,17 @@ public sealed class AppServices : IDisposable
     public void Dispose()
     {
         if (_player.IsValueCreated) _player.Value.Dispose();
-        if (PlayerOnly)
+        if (!PlayerOnly)
         {
-            BilibiliAccount.Dispose();
-            return;
+            Downloads.Dispose();
+            LocalMedia.Dispose();
+            CloudLogin.Dispose();
+            Cloud.Dispose();
+            Config.Dispose();
+            SpiderRuntime.Dispose();
         }
-        Downloads.Dispose();
-        LocalMedia.Dispose();
-        CloudLogin.Dispose();
-        Cloud.Dispose();
         BilibiliAccount.Dispose();
-        Config.Dispose();
-        SpiderRuntime.Dispose();
+        Http.Dispose();
+        Dns.Dispose();
     }
 }

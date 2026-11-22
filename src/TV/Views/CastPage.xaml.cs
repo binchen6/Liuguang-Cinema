@@ -276,12 +276,14 @@ public sealed partial class CastPage : Page
     private void ReleaseMedia()
     {
         _playing = null;
-        if (_player is not { } player) return;
-        _player = null;
-        player.MediaFailed -= OnMediaFailed;
-        player.MediaEnded -= OnMediaEnded;
-        Preview.SetMediaPlayer(null);
-        player.Dispose();
+        if (_player is { } player)
+        {
+            _player = null;
+            player.MediaFailed -= OnMediaFailed;
+            player.MediaEnded -= OnMediaEnded;
+            Preview.SetMediaPlayer(null);
+            player.Dispose();
+        }
         _media?.Dispose();
         _media = null;
     }

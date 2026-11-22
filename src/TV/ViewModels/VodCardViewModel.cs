@@ -54,11 +54,11 @@ public sealed partial class VodCardViewModel : ObservableObject
     {
         Poster = await _services.Images.GetImageAsync(Item.BestPicture);
         Rating = Item.Rating ?? string.Empty;
-        if (Item.DoubanId is not null && !priority) return;
+        if (!priority && Poster is not null && !string.IsNullOrWhiteSpace(Rating)) return;
         IsMetadataLoading = true;
         try
         {
-            var metadata = await _services.Douban.GetMetadataAsync(Item);
+            var metadata = priority ? await _services.Douban.GetMetadataAsync(Item) : await _services.Douban.GetCachedMetadataAsync(Item);
             if (metadata is null) return;
             Item.DoubanId = metadata.SubjectId;
             if (Poster is null && !string.IsNullOrWhiteSpace(metadata.Picture))
@@ -69,10 +69,11 @@ public sealed partial class VodCardViewModel : ObservableObject
             if (!string.IsNullOrWhiteSpace(metadata.Rating))
             {
                 Item.Rating = metadata.Rating;
-                Rating = Item.Rating ?? string.Empty;
+                Rating = Item.Rating;
             }
             if (string.IsNullOrWhiteSpace(Item.Description) && !string.IsNullOrWhiteSpace(metadata.Summary)) Item.Content = metadata.Summary;
         }
+        catch (Exception ex) { Diagnostics.Log($"海报元数据加载失败: {ex.GetType().Name}"); }
         finally { IsMetadataLoading = false; }
     }
 }

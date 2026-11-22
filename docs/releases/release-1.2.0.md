@@ -8,7 +8,7 @@
 
 - 安装包在普通 Windows 目录生成，打包脚本核对发布目录及 EXE 的完整性标记。原安装路径已完成 1.1.8 到 1.2.0 的静默覆盖，验证卸载记录、开始菜单快捷方式、965 个文件哈希和用户数据库。
 - 打包保留临时目录回退。现用安装目录拒绝写入时，安装器在替换文件前报告 Windows 错误码。
-- 下载遇到不完整的 HTTP 206 时保留已有文件。比特的单页分类到达末页后结束加载，奥特仍可按原站翻页。[开发指南](development.md) · [后台调试证据](site-verification.md) · [发布包校验](../artifacts/qa-site-fidelity-20261121/installer-destination/standard-release-manifest.csv)
+- 下载遇到不完整的 HTTP 206 时保留已有文件。比特的单页分类到达末页后结束加载，奥特仍可按原站翻页。[开发指南](../development.md) · [后台调试证据](../archive/site-verification-history.md) · [发布包校验](../../artifacts/qa-site-fidelity-20261121/installer-destination/standard-release-manifest.csv)
 
 ## 一、视觉与布局
 
@@ -49,6 +49,6 @@
 ## 五、交付物
 
 - 源码：`src/TV`（版本 1.2.0）。
-- 视觉/代码规范：`docs/design-guide-1.2.md`。
-- 下一阶段接续提示词：`docs/接续提示词-下一阶段-站点适配与内容还原.md`（最新；旧版 `docs/接续提示词-1.2.0-站点适配.md` 可作细节参考）。
+- 视觉/代码规范：历史基线为 `docs/archive/design-guide-1.2.md`；当前规范见 `docs/design-guide.md`。
+- 历史交接提示词：`docs/archive/prompts/流光影院-前端目标模式提示词.md`。
 - 截图证据：`artifacts/shot-vod3.png`、`shot-search3.png`、`shot-live3.png`、`shot-library3.png`、`shot-settings3.png`、`shot-cast3.png`、`shot-r3-player.png`、`shot-r2-vod-light.png` 等。

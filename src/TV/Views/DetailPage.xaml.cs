@@ -26,15 +26,33 @@ public sealed partial class DetailPage : Page
 
     private void OnPageSizeChanged(object sender, SizeChangedEventArgs e)
     {
-        var compact = e.NewSize.Width < 900;
-        var coverWidth = e.NewSize.Height < 560 ? 176 : e.NewSize.Height < 720 ? 208 : 260;
+        var width = e.NewSize.Width;
+        var compact = width < 900;
+        var stackedHero = width < 680;
+        var coverWidth = stackedHero ? 160 : e.NewSize.Height < 560 ? 176 : e.NewSize.Height < 720 ? 208 : 260;
         CoverFrame.Width = coverWidth;
         CoverFrame.Height = coverWidth * 1.5;
+        CoverFrame.HorizontalAlignment = HorizontalAlignment.Left;
+        CoverColumn.Width = stackedHero ? new GridLength(1, GridUnitType.Star) : GridLength.Auto;
+        InfoColumn.Width = stackedHero ? new GridLength(0) : new GridLength(1, GridUnitType.Star);
+        HeroGrid.ColumnSpacing = stackedHero ? 0 : 32;
+        HeroGrid.RowSpacing = stackedHero ? 20 : 0;
+        Grid.SetColumn(DetailInfo, stackedHero ? 0 : 1);
+        Grid.SetRow(DetailInfo, stackedHero ? 1 : 0);
+
         ActionSecondRow.Height = compact ? GridLength.Auto : new GridLength(0);
         Grid.SetColumn(DownloadAction, compact ? 0 : 2);
         Grid.SetRow(DownloadAction, compact ? 1 : 0);
         Grid.SetColumn(CastAction, compact ? 1 : 3);
         Grid.SetRow(CastAction, compact ? 1 : 0);
+
+        var stackedContent = width < 840;
+        SourceColumn.Width = stackedContent ? new GridLength(1, GridUnitType.Star) : new GridLength(2, GridUnitType.Star);
+        EpisodeColumn.Width = stackedContent ? new GridLength(0) : new GridLength(3, GridUnitType.Star);
+        ContentColumns.ColumnSpacing = stackedContent ? 0 : 32;
+        ContentColumns.RowSpacing = stackedContent ? 28 : 0;
+        Grid.SetColumn(EpisodePane, stackedContent ? 0 : 1);
+        Grid.SetRow(EpisodePane, stackedContent ? 1 : 0);
     }
 
     private void Attach(VodViewModel? model)

@@ -37,6 +37,7 @@ public sealed partial class PlayerPage : Page
     private ContentDialog? _sourceDialog;
     private ContentDialog? _onlineSubtitleDialog;
     private Flyout? _timingFlyout;
+    private int _volumeBeforeMute = 85;
     [System.Runtime.InteropServices.DllImport("user32.dll")] private static extern nint SetCursor(nint cursor);
     [System.Runtime.InteropServices.DllImport("user32.dll")] private static extern nint LoadCursor(nint instance, nint cursorName);
     private static void ShowArrowCursor() => SetCursor(LoadCursor(0, 32512));
@@ -442,13 +443,14 @@ public sealed partial class PlayerPage : Page
         }
         _lastCommentTime = now;
         var duration = 7d;
-        foreach (var item in _visibleComments.ToArray())
+        for (var index = _visibleComments.Count - 1; index >= 0; index--)
         {
+            var item = _visibleComments[index];
             var fraction = (now - item.Start) / duration;
             if (fraction >= 1)
             {
                 DanmakuLayer.Children.Remove(item.Text);
-                _visibleComments.Remove(item);
+                _visibleComments.RemoveAt(index);
             }
             else Canvas.SetLeft(item.Text, DanmakuLayer.ActualWidth - fraction * (DanmakuLayer.ActualWidth + item.Text.ActualWidth));
         }
@@ -457,7 +459,14 @@ public sealed partial class PlayerPage : Page
         while (_nextComment < _comments.Count && _comments[_nextComment].Seconds <= now)
         {
             var comment = _comments[_nextComment++];
-            var freeLane = Enumerable.Range(0, lanes).FirstOrDefault(lane => !_visibleComments.Any(item => item.Lane == lane), -1);
+            var freeLane = -1;
+            for (var lane = 0; lane < lanes && freeLane < 0; lane++)
+            {
+                var occupied = false;
+                foreach (var visible in _visibleComments)
+                    if (visible.Lane == lane) { occupied = true; break; }
+                if (!occupied) freeLane = lane;
+            }
             if (freeLane < 0) continue;
             var rgb = _danmaku.Color switch { 1 => 0xFFFFFFu, 2 => 0xFFD18Au, 3 => 0xA7B8FFu, _ => comment.Rgb };
             var text = new TextBlock
@@ -472,11 +481,7 @@ public sealed partial class PlayerPage : Page
         }
     }
 
-    private void OnPointerMoved(object sender, PointerRoutedEventArgs e)
-    {
-        ShowControls();
-        if (!_controlsVisible) SetCursor(0);
-    }
+    private void OnPointerMoved(object sender, PointerRoutedEventArgs e) => ShowControls();
 
     private void OnPointerExited(object sender, PointerRoutedEventArgs e) => ShowArrowCursor();
 
@@ -521,6 +526,7 @@ public sealed partial class PlayerPage : Page
     // 控制层淡入淡出时长：140–180ms（1.2 规范 §6）
     private const int ChromeFadeInMs = 150;
     private const int ChromeFadeOutMs = 160;
+    private int _chromeAnimationVersion;
 
     private void ShowControls()
     {
@@ -569,7 +575,7 @@ public sealed partial class PlayerPage : Page
     private bool AnyFlyoutOpen() => PlaylistFlyout.IsOpen || PlaybackOptionsFlyout.IsOpen || RateFlyout.IsOpen ||
         QualityFlyout.IsOpen || VolumeFlyout.IsOpen ||
         _danmakuFlyout is { IsOpen: true } || _timingFlyout is { IsOpen: true } || _sourceDialog is not null ||
-        _onlineSubtitleDialog is not null || _bilibiliLoginDialog is not null;
+        _onlineSubtitleDialog is not null || _bilibiliLoginDialog is not null || _cloudLoginDialog is not null;
 
     private void OnHideTimer(DispatcherQueueTimer sender, object args)
     {
@@ -584,14 +590,16 @@ public sealed partial class PlayerPage : Page
         if (IsLoaded) ShowControls();
     }
 
-    private static void Fade(UIElement target, double to, int milliseconds)
+    private void Fade(UIElement target, double to, int milliseconds)
     {
         if (!MotionService.CanAnimate) { target.Opacity = to; return; }
-        var storyboard = new Storyboard();
+        var storyboard = new Storyboard { FillBehavior = FillBehavior.Stop };
+        var version = ++_chromeAnimationVersion;
         var animation = new DoubleAnimation { To = to, Duration = TimeSpan.FromMilliseconds(milliseconds) };
         Storyboard.SetTarget(animation, target);
         Storyboard.SetTargetProperty(animation, "Opacity");
         storyboard.Children.Add(animation);
+        storyboard.Completed += (_, _) => { if (version == _chromeAnimationVersion) target.Opacity = to; };
         storyboard.Begin();
     }
 
@@ -760,7 +768,15 @@ public sealed partial class PlayerPage : Page
         ToolTipService.SetToolTip(DanmakuToggleButton, _danmaku.Enabled ? "关闭弹幕" : "显示弹幕");
     }
 
-    private void OnMuteClick(object sender, RoutedEventArgs e) => ViewModel.Volume = ViewModel.Volume == 0 ? 80 : 0;
+    private void OnMuteClick(object sender, RoutedEventArgs e)
+    {
+        if (ViewModel.Volume == 0) ViewModel.Volume = _volumeBeforeMute;
+        else
+        {
+            _volumeBeforeMute = ViewModel.Volume;
+            ViewModel.Volume = 0;
+        }
+    }
 
     private void OnSeekPressed(object sender, PointerRoutedEventArgs e) => ViewModel.BeginSeek();
 

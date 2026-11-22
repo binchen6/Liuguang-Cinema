@@ -23,7 +23,8 @@ public sealed class PlayUrlResolver
                     ? MediaRequestHeaders.ForTarget(headers, original, parser) : null;
                 var response = await _http.GetStringAsync(parse.Url + separator + "url=" + Uri.EscapeDataString(url), scoped, cancellationToken).ConfigureAwait(false);
                 using var document = JsonDocument.Parse(response);
-                if (TryFindUrl(document.RootElement, out var resolved) && Uri.TryCreate(resolved, UriKind.Absolute, out _)) return resolved;
+                if (TryFindUrl(document.RootElement, out var resolved) && Uri.TryCreate(resolved, UriKind.Absolute, out var address) &&
+                    address.Scheme is "http" or "https" && address.UserInfo.Length == 0) return address.AbsoluteUri;
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {

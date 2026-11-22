@@ -37,11 +37,15 @@
         <StackPanel Padding="{StaticResource PagePaddingStandard}" Spacing="{StaticResource SpaceXLarge}">
 
             <!-- 主信息：左封面 + 右标题/元数据/简介/主操作 -->
-            <Grid ColumnSpacing="{StaticResource SpaceXLarge}">
+            <Grid x:Name="HeroGrid" ColumnSpacing="{StaticResource SpaceXLarge}">
                 <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="Auto" />
-                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition x:Name="CoverColumn" Width="Auto" />
+                    <ColumnDefinition x:Name="InfoColumn" Width="*" />
                 </Grid.ColumnDefinitions>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
 
                 <Border x:Name="CoverFrame" Width="{StaticResource DetailCoverWidth}"
                         Height="{StaticResource DetailCoverHeight}"
@@ -58,25 +62,22 @@
                     </Grid>
                 </Border>
 
-                <StackPanel Grid.Column="1" Spacing="{StaticResource SpaceMedium}" VerticalAlignment="Top">
+                <StackPanel x:Name="DetailInfo" Grid.Column="1" Spacing="{StaticResource SpaceMedium}" VerticalAlignment="Top">
                     <StackPanel Spacing="{StaticResource SpaceSmall}">
                         <TextBlock Text="{Binding Detail.Name}" Style="{StaticResource PageTitleText}" />
-                        <StackPanel Orientation="Horizontal" Spacing="{StaticResource SpaceSmall}">
-                            <TextBlock Text="{Binding Detail.Rating}" Style="{StaticResource MetaText}"
-                                       FontWeight="SemiBold" Foreground="{ThemeResource RatingBrush}"
-                                       Visibility="{Binding Detail.Rating, Converter={StaticResource StringToVisibility}}" />
-                            <TextBlock Text="{Binding Detail.Year}" Style="{StaticResource MetaText}"
-                                       Visibility="{Binding Detail.Year, Converter={StaticResource StringToVisibility}}" />
-                            <TextBlock Text="{Binding Detail.TypeName}" Style="{StaticResource MetaText}"
-                                       Visibility="{Binding Detail.TypeName, Converter={StaticResource StringToVisibility}}" />
-                            <TextBlock Text="{Binding Detail.Area}" Style="{StaticResource MetaText}"
-                                       Visibility="{Binding Detail.Area, Converter={StaticResource StringToVisibility}}" />
-                            <TextBlock Text="{Binding Detail.Remarks}" Style="{StaticResource MetaText}"
-                                       Foreground="{ThemeResource AccentBrush}"
-                                       Visibility="{Binding Detail.Remarks, Converter={StaticResource StringToVisibility}}" />
-                            <TextBlock Text="{Binding Detail.SiteName}" Style="{StaticResource MetaText}"
-                                       Visibility="{Binding Detail.SiteName, Converter={StaticResource StringToVisibility}}" />
-                        </StackPanel>
+                        <ItemsControl ItemsSource="{Binding DetailMetadata}">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate><ItemsWrapGrid Orientation="Horizontal" /></ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Border Padding="8,3" Margin="0,0,8,6" Background="{ThemeResource SurfaceAltBrush}"
+                                            CornerRadius="{StaticResource RadiusTag}">
+                                        <TextBlock Text="{Binding}" Style="{StaticResource MetaText}" />
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
                     </StackPanel>
 
                     <!-- 简介：默认最多 6 行，可展开全文 -->
@@ -124,7 +125,7 @@
                             </StackPanel>
                             <Button.Flyout>
                                 <Flyout Placement="BottomEdgeAlignedLeft">
-                                    <StackPanel Width="288" Spacing="{StaticResource SpaceSmall}">
+                                    <StackPanel Width="320" Spacing="{StaticResource SpaceSmall}">
                                         <TextBlock Text="选择一集或多集，批量下载会保存到设置中的默认目录。"
                                                    Style="{StaticResource SecondaryText}" TextWrapping="Wrap" />
                                         <ListView x:Name="EpisodeToSave" ItemsSource="{Binding Episodes}"
@@ -137,21 +138,20 @@
                                                    Visibility="{Binding DownloadStatus, Converter={StaticResource StringToVisibility}}" />
                                         <ProgressBar Value="{Binding DownloadProgress}"
                                                      Visibility="{Binding IsDownloading, Converter={StaticResource BoolToVisibility}}" />
-                                        <StackPanel Orientation="Horizontal" Spacing="{StaticResource SpaceMini}"
-                                                    HorizontalAlignment="Right">
-                                            <Button Content="取消" Command="{Binding SaveEpisodeCancelCommand}"
-                                                    Height="{StaticResource PrimaryButtonHeight}" MinHeight="{StaticResource PrimaryButtonHeight}"
-                                                    Style="{StaticResource GhostButtonStyle}"
-                                                    Visibility="{Binding IsDownloading, Converter={StaticResource BoolToVisibility}}" />
-                                            <Button Content="全选" Click="OnSelectAllEpisodesClick" Style="{StaticResource GhostButtonStyle}"
-                                                    Height="{StaticResource PrimaryButtonHeight}" MinHeight="{StaticResource PrimaryButtonHeight}"
-                                                    Visibility="{Binding IsDownloading, Converter={StaticResource BoolToVisibility}, ConverterParameter=Inverse}" />
-                                            <Button Content="单集另存" Click="OnSaveAsClick" Style="{StaticResource GhostButtonStyle}"
-                                                    Height="{StaticResource PrimaryButtonHeight}" MinHeight="{StaticResource PrimaryButtonHeight}"
-                                                    Visibility="{Binding IsDownloading, Converter={StaticResource BoolToVisibility}, ConverterParameter=Inverse}" />
-                                            <Button Content="下载选中" Click="OnSaveClick"
+                                        <StackPanel Spacing="{StaticResource SpaceMini}">
+                                            <Button Content="下载选中" Click="OnSaveClick" HorizontalAlignment="Stretch"
                                                     Style="{StaticResource PrimaryButtonStyle}"
                                                     Visibility="{Binding IsDownloading, Converter={StaticResource BoolToVisibility}, ConverterParameter=Inverse}" />
+                                            <Grid ColumnSpacing="{StaticResource SpaceMini}">
+                                                <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                                                <Button Content="全选 / 取消全选" Click="OnSelectAllEpisodesClick" Style="{StaticResource GhostButtonStyle}"
+                                                        Visibility="{Binding IsDownloading, Converter={StaticResource BoolToVisibility}, ConverterParameter=Inverse}" />
+                                                <Button Grid.Column="1" Content="单集另存" Click="OnSaveAsClick" Style="{StaticResource GhostButtonStyle}"
+                                                        Visibility="{Binding IsDownloading, Converter={StaticResource BoolToVisibility}, ConverterParameter=Inverse}" />
+                                            </Grid>
+                                            <Button Content="取消下载" Command="{Binding CancelDownloadCommand}" HorizontalAlignment="Stretch"
+                                                    Style="{StaticResource SecondaryButtonStyle}"
+                                                    Visibility="{Binding IsDownloading, Converter={StaticResource BoolToVisibility}}" />
                                         </StackPanel>
                                     </StackPanel>
                                 </Flyout>
@@ -170,13 +170,17 @@
             </Grid>
 
             <!-- 来源与线路 / 选集 -->
-            <Grid ColumnSpacing="{StaticResource SpaceXLarge}">
+            <Grid x:Name="ContentColumns" ColumnSpacing="{StaticResource SpaceXLarge}">
                 <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="2*" />
-                    <ColumnDefinition Width="3*" />
+                    <ColumnDefinition x:Name="SourceColumn" Width="2*" />
+                    <ColumnDefinition x:Name="EpisodeColumn" Width="3*" />
                 </Grid.ColumnDefinitions>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
 
-                <StackPanel Spacing="{StaticResource SpaceMedium}">
+                <StackPanel x:Name="SourcePane" Spacing="{StaticResource SpaceMedium}">
                     <Grid ColumnSpacing="{StaticResource SpaceSmall}">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*" />
@@ -251,7 +255,7 @@
                     </Button>
                 </StackPanel>
 
-                <StackPanel Grid.Column="1" Spacing="{StaticResource SpaceMedium}">
+                <StackPanel x:Name="EpisodePane" Grid.Column="1" Spacing="{StaticResource SpaceMedium}">
                     <Grid ColumnSpacing="{StaticResource SpaceMini}">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*" />

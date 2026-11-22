@@ -60,7 +60,11 @@ public sealed class SpiderVodClient
             result = result with { UseHttpProxy = true };
         _playCache[cacheKey] = new CachedPlay(result, DateTimeOffset.UtcNow.AddMinutes(5));
         if (_playCache.Count > 256)
+        {
             foreach (var pair in _playCache.Where(pair => pair.Value.ExpiresAt <= DateTimeOffset.UtcNow)) _playCache.TryRemove(pair.Key, out _);
+            if (_playCache.Count > 256)
+                foreach (var pair in _playCache.OrderBy(pair => pair.Value.ExpiresAt).Take(_playCache.Count - 256)) _playCache.TryRemove(pair.Key, out _);
+        }
         return result;
     }
 
@@ -111,7 +115,7 @@ public sealed class SpiderVodClient
                 if (string.IsNullOrWhiteSpace(link)) continue;
                 var resolved = baseUri?.Scheme is "http" or "https"
                     ? Uri.TryCreate(baseUri, link, out var uri) : Uri.TryCreate(link, UriKind.Absolute, out uri);
-                if (resolved && uri!.Scheme is "http" or "https") yield return uri;
+                if (resolved && uri!.Scheme is ("http" or "https") && uri.UserInfo.Length == 0) yield return uri;
             }
         }
     }

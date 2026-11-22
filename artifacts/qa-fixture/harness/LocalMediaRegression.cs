@@ -11,6 +11,7 @@ using TV.Models;
 using TV.Services;
 using TV.Services.Http;
 using TV.Services.Library;
+using TV.Services.Live;
 using TV.Services.Maintenance;
 using TV.Services.Persistence;
 using TV.Services.Playback;
@@ -23,6 +24,7 @@ var mediaFolder = Path.Combine(root, "media");
 Directory.CreateDirectory(mediaFolder);
 var database = new DatabaseService();
 await database.InitializeAsync();
+Uri? localDanmaku = null;
 using (var local = new LocalMediaService(database))
 {
     var single = Path.Combine(mediaFolder, "single.mkv");
@@ -34,18 +36,19 @@ using (var local = new LocalMediaService(database))
     Directory.CreateDirectory(nestedFolder);
     var episode = Path.Combine(nestedFolder, "My.Show.S01E02.1080p.mkv");
     File.WriteAllBytes(episode, [4, 5, 6]);
-    File.WriteAllText(Path.ChangeExtension(episode, ".srt"), "1\n00:00:00,000 --> 00:00:01,000\nfixture\n");
-    File.WriteAllText(Path.ChangeExtension(episode, ".xml"), "<i><d p=\"1.0,1,25,16777215,0,0,0,0\">hello</d></i>");
+    File.WriteAllText(Path.ChangeExtension(episode, ".SRT"), "1\n00:00:00,000 --> 00:00:01,000\nfixture\n");
+    File.WriteAllText(Path.ChangeExtension(episode, ".XML"), "<i><d p=\"1.0,1,25,16777215,0,0,0,0\">hello</d></i>");
     Require(await local.AddFolderAsync(mediaFolder) == 2, "folder import recursively indexes only supported media");
     var request = LocalMediaService.CreateRequest(episode);
     Require(request.Subtitles.Count == 1 && request.Danmaku is not null && request.SiteKey == "local", "local playback attaches matching subtitle and danmaku sidecars");
+    localDanmaku = request.Danmaku;
     Require(MediaMatching.Title(Path.GetFileNameWithoutExtension(episode)) == "My Show" && MediaMatching.EpisodeNumber("第 12 集") == 12,
         "filename matching removes technical tags and reads the episode number");
     var added = Path.Combine(nestedFolder, "added.mp4");
     File.WriteAllBytes(added, [7]);
-    await Until(async () => (await database.GetLocalFilesAsync()).Any(file => file.Path == added), "watcher imports a new file");
+    await Until(async () => (await database.GetLocalFilesAsync()).Any(file => file.Path == Path.GetFullPath(added)), "watcher imports a new file");
     File.Delete(added);
-    await Until(async () => (await database.GetLocalFilesAsync()).All(file => file.Path != added), "watcher removes a deleted file from the index");
+    await Until(async () => (await database.GetLocalFilesAsync()).All(file => file.Path != Path.GetFullPath(added)), "watcher removes a deleted file from the index");
     await local.RemoveFolderAsync(mediaFolder);
     Require((await database.GetLocalFilesAsync()).Count == 0 && File.Exists(single) && File.Exists(episode), "removing a watched folder removes only index rows");
 }
@@ -55,6 +58,7 @@ using (var http = new HttpClient())
     var listener = new HttpListener();
     var port = FreePort();
     listener.Prefixes.Add($"http://127.0.0.1:{port}/");
+    listener.Prefixes.Add($"http://localhost:{port}/");
     listener.Start();
     var requests = 0;
     var serving = Task.Run(async () =>
@@ -69,7 +73,27 @@ using (var http = new HttpClient())
             var path = context.Request.Url?.AbsolutePath ?? string.Empty;
             byte[] data;
             string type;
-            if (path == "/movie.mp4")
+            if (path == "/private.m3u8")
+            {
+                if (context.Request.Headers["Cookie"] != "fixture=secret") context.Response.StatusCode = 403;
+                data = Encoding.UTF8.GetBytes($"#EXTM3U\n#EXT-X-TARGETDURATION:1\n#EXTINF:1,\nhttp://localhost:{port}/private-segment.ts\n#EXT-X-ENDLIST\n");
+                type = "application/vnd.apple.mpegurl";
+            }
+            else if (path == "/private-segment.ts")
+            {
+                var clean = !new[] { "Cookie", "X-Test-Token", "Authorization", "Referer" }.Any(name => context.Request.Headers[name] is not null);
+                if (!clean) context.Response.StatusCode = 400;
+                data = Encoding.ASCII.GetBytes(clean ? "clean-segment" : "leaked");
+                type = "video/mp2t";
+            }
+            else if (path == "/epg.xml")
+            {
+                var start = DateTimeOffset.Now.AddMinutes(-5).ToString("yyyyMMddHHmmss zzz");
+                var end = DateTimeOffset.Now.AddMinutes(30).ToString("yyyyMMddHHmmss zzz");
+                data = Encoding.UTF8.GetBytes($"<tv><programme channel=\"fixture\" start=\"{start}\" stop=\"{end}\"><title>当前节目</title><desc>节目简介</desc></programme></tv>");
+                type = "text/xml";
+            }
+            else if (path == "/movie.mp4")
             {
                 data = Enumerable.Range(0, 256 * 1024).Select(index => (byte)(index % 251)).ToArray();
                 type = "video/mp4";
@@ -100,7 +124,9 @@ using (var http = new HttpClient())
             context.Response.Close();
         }
     });
-    var sourceHttp = new SourceHttpClient();
+    using var sourceHttp = new SourceHttpClient();
+    var localComments = await new DanmakuService(sourceHttp).LoadAsync(localDanmaku!, CancellationToken.None);
+    Require(localComments.Count == 1 && localComments[0].Text == "hello", "local XML danmaku loads from an uppercase sidecar");
     var provider = new BilibiliVodProvider(sourceHttp, null);
     var online = new OnlineMediaService(sourceHttp, provider);
     var track = new OnlineSubtitleTrack("中文", new Uri($"http://127.0.0.1:{port}/subtitle.json"));
@@ -108,6 +134,14 @@ using (var http = new HttpClient())
     var vtt = File.ReadAllText(subtitle.LocalPath);
     Require(vtt.StartsWith("WEBVTT") && vtt.Contains("00:00:01.250 --> 00:00:03.500") && vtt.Contains("在线字幕测试"), "online JSON subtitles become valid WebVTT");
     Require((await online.SaveSubtitleAsync(track, CancellationToken.None)) == subtitle && requests == 1, "converted online subtitles are cached");
+    var epg = new EpgService(sourceHttp);
+    var channel = new LiveChannel { Name = "测试频道", EpgId = "fixture", EpgUrl = $"http://127.0.0.1:{port}/epg.xml" };
+    var beforeEpgRequests = requests;
+    var programs = await Task.WhenAll(Enumerable.Range(0, 3).Select(_ => epg.GetCurrentProgramAsync(channel)));
+    Require(programs.All(program => program?.Contains("当前节目", StringComparison.Ordinal) == true) && requests == beforeEpgRequests + 1,
+        "EPG requests coalesce and parse the current programme");
+    await epg.GetCurrentProgramAsync(channel);
+    Require(requests == beforeEpgRequests + 1, "fresh EPG cache avoids another network request");
     using (var downloadService = new VideoDownloadService(new DnsResolverService(database)))
     {
         var downloadRoot = Path.Combine(root, "download-regression");
@@ -126,6 +160,17 @@ using (var http = new HttpClient())
         var segments = (await File.ReadAllLinesAsync(childPath)).Where(line => line.Length > 0 && !line.StartsWith('#')).ToArray();
         Require(segments.Length == 2 && segments.All(segment => File.Exists(Path.Combine(Path.GetDirectoryName(childPath)!, segment))),
             "batch download materializes the HLS variant and both local segments");
+        var privateHls = Path.Combine(downloadRoot, "private.m3u8");
+        var privateRequest = new PlaybackRequest
+        {
+            Url = $"http://127.0.0.1:{port}/private.m3u8",
+            Headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            { ["Cookie"] = "fixture=secret", ["X-Test-Token"] = "secret", ["Authorization"] = "Bearer secret" }
+        };
+        await downloadService.SaveAsync(privateRequest, privateHls, new Progress<double>(), CancellationToken.None);
+        var privateAsset = (await File.ReadAllLinesAsync(privateHls)).Single(line => line.Length > 0 && !line.StartsWith('#'));
+        Require(await File.ReadAllTextAsync(Path.Combine(downloadRoot, privateAsset)) == "clean-segment",
+            "HLS downloads retain same-origin credentials and strip them from a cross-origin segment");
     }
     listener.Stop();
     listener.Close();

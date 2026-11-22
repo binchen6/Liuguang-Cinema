@@ -17,6 +17,7 @@ public sealed class LocalMediaService : IDisposable
     private readonly ConcurrentDictionary<string, FileSystemWatcher> _watchers = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, byte> _pending = new(StringComparer.OrdinalIgnoreCase);
     private readonly SemaphoreSlim _refreshGate = new(1, 1);
+    private readonly SemaphoreSlim _initializeGate = new(1, 1);
     private readonly CancellationTokenSource _lifetime = new();
     private readonly Timer _timer;
     private bool _started;
@@ -35,9 +36,15 @@ public sealed class LocalMediaService : IDisposable
     public async Task InitializeAsync(CancellationToken token = default)
     {
         if (_started) return;
-        _started = true;
-        foreach (var folder in await ReadFoldersAsync(token).ConfigureAwait(false)) Watch(folder);
-        _timer.Change(TimeSpan.FromMinutes(5), TimeSpan.FromMinutes(5));
+        await _initializeGate.WaitAsync(token).ConfigureAwait(false);
+        try
+        {
+            if (_started) return;
+            foreach (var folder in await ReadFoldersAsync(token).ConfigureAwait(false)) Watch(folder);
+            _started = true;
+            _timer.Change(TimeSpan.FromMinutes(5), TimeSpan.FromMinutes(5));
+        }
+        finally { _initializeGate.Release(); }
     }
 
     private readonly Timer _refreshTimer;
@@ -65,6 +72,7 @@ public sealed class LocalMediaService : IDisposable
 
     public async Task RemoveFolderAsync(string path, CancellationToken token = default)
     {
+        path = Path.GetFullPath(path);
         var folders = (await ReadFoldersAsync(token).ConfigureAwait(false)).Where(folder => !folder.Equals(path, StringComparison.OrdinalIgnoreCase)).ToArray();
         await database.SetSettingAsync("local.folders", JsonSerializer.Serialize(folders), token).ConfigureAwait(false);
         if (_watchers.TryRemove(path, out var watcher)) watcher.Dispose();
@@ -76,6 +84,7 @@ public sealed class LocalMediaService : IDisposable
 
     public async Task RemoveFileAsync(string path, CancellationToken token = default)
     {
+        path = Path.GetFullPath(path);
         await database.RemoveLocalFileAsync(path, token: token).ConfigureAwait(false);
         Changed?.Invoke(this, EventArgs.Empty);
     }
@@ -122,7 +131,9 @@ public sealed class LocalMediaService : IDisposable
         try
         {
             var json = await database.GetSettingAsync("local.folders", token).ConfigureAwait(false);
-            return string.IsNullOrWhiteSpace(json) ? [] : JsonSerializer.Deserialize<string[]>(json) ?? [];
+            if (string.IsNullOrWhiteSpace(json)) return [];
+            return (JsonSerializer.Deserialize<string[]>(json) ?? []).Where(folder => !string.IsNullOrWhiteSpace(folder))
+                .Select(folder => folder.Trim()).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
         }
         catch (Exception ex) when (ex is JsonException or IOException)
         {
@@ -144,7 +155,7 @@ public sealed class LocalMediaService : IDisposable
             watcher.Deleted += changed;
             watcher.Renamed += renamed;
             watcher.EnableRaisingEvents = true;
-            _watchers.TryAdd(folder, watcher);
+            if (!_watchers.TryAdd(folder, watcher)) watcher.Dispose();
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
@@ -191,6 +202,9 @@ public sealed class LocalMediaService : IDisposable
 
     public static bool IsVideo(string path) => SupportedExtensions.Contains(Path.GetExtension(path));
 
+    private static bool IsExtension(string path, params string[] extensions) =>
+        extensions.Contains(Path.GetExtension(path), StringComparer.OrdinalIgnoreCase);
+
     public static PlaybackRequest CreateRequest(string path)
     {
         var file = Path.GetFullPath(path);
@@ -209,8 +223,8 @@ public sealed class LocalMediaService : IDisposable
             if (directory is null) return;
             var basename = Path.GetFileNameWithoutExtension(file);
             var files = Directory.EnumerateFiles(directory, basename + ".*").Take(32).ToArray();
-            request.Subtitles = files.Where(path => Path.GetExtension(path) is ".srt" or ".ass" or ".ssa" or ".vtt").Select(path => new Uri(path)).ToList();
-            var danmaku = files.FirstOrDefault(path => Path.GetExtension(path) is ".xml" or ".json");
+            request.Subtitles = files.Where(path => IsExtension(path, ".srt", ".ass", ".ssa", ".vtt")).Select(path => new Uri(path)).ToList();
+            var danmaku = files.FirstOrDefault(path => IsExtension(path, ".xml", ".json"));
             if (danmaku is not null) request.Danmaku = new Uri(danmaku);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }

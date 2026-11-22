@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Globalization;
 using System.IO.Compression;
 using System.Xml;
@@ -13,6 +14,7 @@ public sealed class EpgService
     private sealed record Cache(DateTimeOffset LoadedAt, List<Program> Programs);
     private readonly SourceHttpClient _http;
     private readonly Dictionary<string, Cache> _cache = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, Lazy<Task<Cache>>> _pending = new(StringComparer.OrdinalIgnoreCase);
     private readonly SemaphoreSlim _lock = new(1, 1);
 
     public EpgService(SourceHttpClient http) => _http = http;
@@ -22,26 +24,45 @@ public sealed class EpgService
         if (string.IsNullOrWhiteSpace(channel.EpgUrl)) return null;
         var name = string.IsNullOrWhiteSpace(channel.EpgName) ? channel.Name : channel.EpgName;
         var url = channel.EpgUrl.Replace("{name}", Uri.EscapeDataString(name), StringComparison.OrdinalIgnoreCase);
+        Cache? cache = null;
         await _lock.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            if (!_cache.TryGetValue(url, out var cache) || cache.LoadedAt < DateTimeOffset.UtcNow.AddMinutes(-10))
-            {
-                var payload = await _http.GetBytesAsync(url, cancellationToken: cancellationToken, scopeRedirectHeaders: true).ConfigureAwait(false);
-                var loadedAt = DateTimeOffset.UtcNow;
-                cache = new Cache(loadedAt, Parse(payload.Content, loadedAt));
-                if (_cache.Count > 8) _cache.Remove(_cache.Keys.First());
-                _cache[url] = cache;
-            }
-            var now = DateTimeOffset.Now;
-            Program? Find(string id) => id.Length == 0 ? null : cache.Programs.FirstOrDefault(program =>
-                program.ChannelId.Equals(id, StringComparison.OrdinalIgnoreCase) && program.Start <= now && program.End > now);
-            var current = Find(channel.EpgId) ?? Find(name) ?? Find(channel.Name);
-            return current is null ? null :
-                $"{current.Title}  {current.Start.ToLocalTime():HH:mm}–{current.End.ToLocalTime():HH:mm}" +
-                (string.IsNullOrWhiteSpace(current.Description) ? string.Empty : $"\n{current.Description}");
+            if (_cache.TryGetValue(url, out var cached) && cached.LoadedAt >= DateTimeOffset.UtcNow.AddMinutes(-10)) cache = cached;
         }
         finally { _lock.Release(); }
+        if (cache is null)
+        {
+            var pending = _pending.GetOrAdd(url, _ => new Lazy<Task<Cache>>(() => LoadCacheAsync(url), LazyThreadSafetyMode.ExecutionAndPublication));
+            cache = await pending.Value.WaitAsync(cancellationToken).ConfigureAwait(false);
+        }
+        var now = DateTimeOffset.Now;
+        Program? Find(string id) => id.Length == 0 ? null : cache.Programs.FirstOrDefault(program =>
+            program.ChannelId.Equals(id, StringComparison.OrdinalIgnoreCase) && program.Start <= now && program.End > now);
+        var current = Find(channel.EpgId) ?? Find(name) ?? Find(channel.Name);
+        return current is null ? null :
+            $"{current.Title}  {current.Start.ToLocalTime():HH:mm}–{current.End.ToLocalTime():HH:mm}" +
+            (string.IsNullOrWhiteSpace(current.Description) ? string.Empty : $"\n{current.Description}");
+    }
+
+    private async Task<Cache> LoadCacheAsync(string url)
+    {
+        try
+        {
+            var payload = await _http.GetBytesAsync(url, cancellationToken: CancellationToken.None, scopeRedirectHeaders: true).ConfigureAwait(false);
+            var loadedAt = DateTimeOffset.UtcNow;
+            var cache = new Cache(loadedAt, Parse(payload.Content, loadedAt));
+            await _lock.WaitAsync().ConfigureAwait(false);
+            try
+            {
+                if (_cache.Count >= 8 && !_cache.ContainsKey(url))
+                    _cache.Remove(_cache.MinBy(pair => pair.Value.LoadedAt).Key);
+                _cache[url] = cache;
+            }
+            finally { _lock.Release(); }
+            return cache;
+        }
+        finally { _pending.TryRemove(url, out _); }
     }
 
     private static List<Program> Parse(byte[] xml, DateTimeOffset loadedAt)
@@ -54,18 +75,22 @@ public sealed class EpgService
             XmlResolver = null,
             MaxCharactersInDocument = 32 * 1024 * 1024
         });
-        var document = XDocument.Load(reader);
-        var programmes = document.Root?.Elements("programme") ?? Enumerable.Empty<XElement>();
+        var result = new List<Program>();
         var cacheUntil = loadedAt.AddMinutes(10);
-        return programmes.Select(element => new Program(
-            element.Attribute("channel")?.Value ?? string.Empty,
-            element.Element("title")?.Value.Trim() ?? string.Empty,
-            element.Element("desc")?.Value.Trim() ?? string.Empty,
-            ParseTime(element.Attribute("start")?.Value),
-            ParseTime(element.Attribute("stop")?.Value)))
-            .Where(program => program.ChannelId.Length > 0 && program.Start != default &&
-                program.End > program.Start && program.End > loadedAt && program.Start <= cacheUntil)
-            .ToList();
+        while (reader.Read())
+        {
+            if (reader.NodeType != XmlNodeType.Element || reader.Name != "programme") continue;
+            var channel = reader.GetAttribute("channel") ?? string.Empty;
+            var start = ParseTime(reader.GetAttribute("start"));
+            var end = ParseTime(reader.GetAttribute("stop"));
+            using var subtree = reader.ReadSubtree();
+            subtree.MoveToContent();
+            var element = XElement.Load(subtree);
+            if (channel.Length == 0 || start == default || end <= start || end <= loadedAt || start > cacheUntil) continue;
+            result.Add(new Program(channel, element.Element("title")?.Value.Trim() ?? string.Empty,
+                element.Element("desc")?.Value.Trim() ?? string.Empty, start, end));
+        }
+        return result;
     }
 
     private static DateTimeOffset ParseTime(string? value)

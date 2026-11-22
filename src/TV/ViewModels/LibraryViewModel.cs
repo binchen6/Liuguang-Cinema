@@ -12,6 +12,8 @@ public sealed partial class LibraryViewModel : ObservableObject
     private readonly AppServices _services;
     private readonly Action<PlaybackRequest> _play;
     private readonly Action<VodItem> _openDetail;
+    private readonly Microsoft.UI.Dispatching.DispatcherQueue _dispatcher;
+    private readonly SemaphoreSlim _loadGate = new(1, 1);
     private List<HistoryEntry> _history = [];
     private List<FavoriteEntry> _favorites = [];
     private List<DownloadEntry> _downloads = [];
@@ -22,11 +24,23 @@ public sealed partial class LibraryViewModel : ObservableObject
         _services = services;
         _play = play;
         _openDetail = openDetail;
-        _services.LocalMedia.Changed += (_, _) => Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread()?.TryEnqueue(async () =>
+        _dispatcher = Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread();
+        _services.LocalMedia.Changed += OnLocalMediaChanged;
+    }
+
+    private void OnLocalMediaChanged(object? sender, EventArgs e) =>
+        _dispatcher.TryEnqueue(() => _ = RefreshLocalFilesAsync());
+
+    private async Task RefreshLocalFilesAsync()
+    {
+        await _loadGate.WaitAsync();
+        try
         {
             _localFiles = await _services.LocalMedia.GetFilesAsync();
             ApplySearch();
-        });
+        }
+        catch (Exception ex) { _statusIsError = true; StatusMessage = "本地媒体自动更新失败：" + ex.Message; }
+        finally { _loadGate.Release(); }
     }
 
     public ObservableCollection<HistoryEntry> History { get; } = [];
@@ -54,12 +68,21 @@ public sealed partial class LibraryViewModel : ObservableObject
 
     [ObservableProperty] private string _emptyFavorites = string.Empty;
     [ObservableProperty] private string _emptyDownloads = string.Empty;
-    [ObservableProperty, NotifyPropertyChangedFor(nameof(HasError))] private string _statusMessage = string.Empty;
-    public bool HasError => !string.IsNullOrWhiteSpace(StatusMessage);
+    [ObservableProperty, NotifyPropertyChangedFor(nameof(HasError)), NotifyPropertyChangedFor(nameof(HasSuccess))] private string _statusMessage = string.Empty;
+    private bool _statusIsError;
+    public bool HasError => _statusIsError && !string.IsNullOrWhiteSpace(StatusMessage);
+    public bool HasSuccess => !_statusIsError && !string.IsNullOrWhiteSpace(StatusMessage);
+
+    internal void ReportError(string message)
+    {
+        _statusIsError = true;
+        StatusMessage = message;
+    }
 
     [RelayCommand]
     private async Task LoadAsync()
     {
+        await _loadGate.WaitAsync();
         try
         {
             var database = _services.Database;
@@ -75,9 +98,11 @@ public sealed partial class LibraryViewModel : ObservableObject
             _favorites = favorites;
             _downloads = downloads;
             ApplySearch();
+            _statusIsError = false;
             StatusMessage = string.Empty;
         }
-        catch (Exception ex) { StatusMessage = ex.Message; }
+        catch (Exception ex) { _statusIsError = true; StatusMessage = ex.Message; }
+        finally { _loadGate.Release(); }
     }
 
     partial void OnSearchQueryChanged(string value) => ApplySearch();
@@ -122,7 +147,7 @@ public sealed partial class LibraryViewModel : ObservableObject
                 _play(request);
             }
         }
-        catch (Exception ex) { StatusMessage = "无法恢复播放记录：" + ex.Message; }
+        catch (Exception ex) { _statusIsError = true; StatusMessage = "无法恢复播放记录：" + ex.Message; }
     }
 
     [RelayCommand]
@@ -135,7 +160,7 @@ public sealed partial class LibraryViewModel : ObservableObject
             _history.RemoveAll(item => item.Id == entry.Id);
             ApplySearch();
         }
-        catch (Exception ex) { StatusMessage = ex.Message; }
+        catch (Exception ex) { _statusIsError = true; StatusMessage = ex.Message; }
     }
 
     [RelayCommand]
@@ -155,7 +180,7 @@ public sealed partial class LibraryViewModel : ObservableObject
                 if (item is not null) _openDetail(item);
             }
         }
-        catch (Exception ex) { StatusMessage = "无法打开收藏：" + ex.Message; }
+        catch (Exception ex) { _statusIsError = true; StatusMessage = "无法打开收藏：" + ex.Message; }
     }
 
     [RelayCommand]
@@ -174,7 +199,7 @@ public sealed partial class LibraryViewModel : ObservableObject
             _downloads.RemoveAll(item => string.Equals(item.FilePath, entry.FilePath, StringComparison.OrdinalIgnoreCase));
             ApplySearch();
         }
-        catch (Exception ex) { StatusMessage = ex.Message; }
+        catch (Exception ex) { _statusIsError = true; StatusMessage = ex.Message; }
     }
 
     [RelayCommand]
@@ -194,9 +219,9 @@ public sealed partial class LibraryViewModel : ObservableObject
             _localFiles = await _services.LocalMedia.GetFilesAsync();
             SelectedTab = 3;
             ApplySearch();
-            StatusMessage = $"已导入 {count} 个本地视频";
+            _statusIsError = false; StatusMessage = $"已导入 {count} 个本地视频";
         }
-        catch (Exception ex) { StatusMessage = "导入本地视频失败：" + ex.Message; }
+        catch (Exception ex) { _statusIsError = true; StatusMessage = "导入本地视频失败：" + ex.Message; }
         finally { IsLocalBusy = false; }
     }
 
@@ -214,9 +239,9 @@ public sealed partial class LibraryViewModel : ObservableObject
             var count = await _services.LocalMedia.AddFolderAsync(folder.Path);
             await LoadAsync();
             SelectedTab = 3;
-            StatusMessage = $"已导入文件夹，共 {count} 个视频；新增、删除和修改会自动更新。";
+            _statusIsError = false; StatusMessage = $"已导入文件夹，共 {count} 个视频；新增、删除和修改会自动更新。";
         }
-        catch (Exception ex) { StatusMessage = "导入文件夹失败：" + ex.Message; }
+        catch (Exception ex) { _statusIsError = true; StatusMessage = "导入文件夹失败：" + ex.Message; }
         finally { IsLocalBusy = false; }
     }
 
@@ -225,8 +250,8 @@ public sealed partial class LibraryViewModel : ObservableObject
     {
         if (IsLocalBusy) return;
         IsLocalBusy = true;
-        try { await _services.LocalMedia.RefreshAsync(); await LoadAsync(); StatusMessage = "本地媒体索引已更新"; }
-        catch (Exception ex) { StatusMessage = ex.Message; }
+        try { _statusIsError = false; await _services.LocalMedia.RefreshAsync(); await LoadAsync(); _statusIsError = false; StatusMessage = "本地媒体索引已更新"; }
+        catch (Exception ex) { _statusIsError = true; StatusMessage = ex.Message; }
         finally { IsLocalBusy = false; }
     }
 
@@ -235,7 +260,7 @@ public sealed partial class LibraryViewModel : ObservableObject
     {
         if (string.IsNullOrWhiteSpace(path)) return;
         try { await _services.LocalMedia.RemoveFolderAsync(path); await LoadAsync(); StatusMessage = "已停止监视并移除该文件夹的索引，原文件未删除。"; }
-        catch (Exception ex) { StatusMessage = ex.Message; }
+        catch (Exception ex) { _statusIsError = true; StatusMessage = ex.Message; }
     }
 
     [RelayCommand]
@@ -243,7 +268,7 @@ public sealed partial class LibraryViewModel : ObservableObject
     {
         if (entry is null) return;
         try { _play(LocalMediaService.CreateRequest(entry.Path)); }
-        catch (Exception ex) { StatusMessage = ex.Message; }
+        catch (Exception ex) { _statusIsError = true; StatusMessage = ex.Message; }
     }
 
     [RelayCommand]
@@ -251,7 +276,7 @@ public sealed partial class LibraryViewModel : ObservableObject
     {
         if (entry is null) return;
         try { await _services.LocalMedia.RemoveFileAsync(entry.Path); _localFiles.Remove(entry); ApplySearch(); }
-        catch (Exception ex) { StatusMessage = ex.Message; }
+        catch (Exception ex) { _statusIsError = true; StatusMessage = ex.Message; }
     }
 
     [RelayCommand]
@@ -268,13 +293,14 @@ public sealed partial class LibraryViewModel : ObservableObject
             var file = await picker.PickSingleFileAsync();
             if (file is not null) OpenLocal(file.Path, Path.GetFileNameWithoutExtension(file.Path), string.Empty);
         }
-        catch (Exception ex) { StatusMessage = ex.Message; }
+        catch (Exception ex) { _statusIsError = true; StatusMessage = ex.Message; }
     }
 
     private void OpenLocal(string path, string title, string subtitle)
     {
         if (!File.Exists(path))
         {
+            _statusIsError = true;
             StatusMessage = "本地文件已移动或删除。";
             return;
         }
@@ -300,6 +326,6 @@ public sealed partial class LibraryViewModel : ObservableObject
             _favorites.RemoveAll(item => item.Id == entry.Id);
             ApplySearch();
         }
-        catch (Exception ex) { StatusMessage = ex.Message; }
+        catch (Exception ex) { _statusIsError = true; StatusMessage = ex.Message; }
     }
 }

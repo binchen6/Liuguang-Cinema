@@ -56,7 +56,7 @@ public sealed class CleanupService(DatabaseService database)
             {
                 if (File.Exists(entry.FilePath)) { bytes += new FileInfo(entry.FilePath).Length; count++; }
             }
-            catch (IOException) { }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
         }
         categories.Add(new CleanupCategory(Downloads, "已下载媒体", "会删除媒体库记录对应的本地文件，请先确认", bytes, count));
         var temp = await Task.Run(() => Measure(Path.GetTempPath(), path =>
@@ -123,7 +123,7 @@ public sealed class CleanupService(DatabaseService database)
                 token.ThrowIfCancellationRequested();
                 await DeleteDownloadAssetsAsync(entry.FilePath, DeleteFilesAsync);
                 await DeleteFilesAsync([entry.FilePath]);
-                await database.RemoveDownloadAsync(entry, token);
+                if (!File.Exists(entry.FilePath)) await database.RemoveDownloadAsync(entry, token);
             }
         }
         if (ids.Contains(UserTemporary))
@@ -161,7 +161,11 @@ public sealed class CleanupService(DatabaseService database)
             }
         }
         foreach (var directory in assets)
-            await delete(Directory.EnumerateFiles(directory, "*", SearchOption.AllDirectories));
+        {
+            await delete(Files(directory, _ => true, limit: 20_000));
+            try { if (Directory.Exists(directory) && !Directory.EnumerateFileSystemEntries(directory).Any()) Directory.Delete(directory); }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
+        }
     }
 
     private async Task<string> DownloadDirectoryAsync(CancellationToken token)
@@ -187,17 +191,24 @@ public sealed class CleanupService(DatabaseService database)
         if (!Directory.Exists(root)) yield break;
         var options = new EnumerationOptions { RecurseSubdirectories = recursive, IgnoreInaccessible = true,
             AttributesToSkip = FileAttributes.ReparsePoint | FileAttributes.System, ReturnSpecialDirectories = false };
-        var count = 0;
-        IEnumerable<string> files;
-        try { files = Directory.EnumerateFiles(root, "*", options); }
+        IEnumerator<string>? enumerator = null;
+        try { enumerator = Directory.EnumerateFiles(root, "*", options).GetEnumerator(); }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { yield break; }
-        foreach (var path in files)
+        using (enumerator)
         {
-            if (++count > limit || !predicate(path)) continue;
-            string full;
-            try { full = Path.GetFullPath(path); }
-            catch (ArgumentException) { continue; }
-            if (predicate(full)) yield return full;
+            var count = 0;
+            while (count < limit)
+            {
+                string path;
+                try
+                {
+                    if (!enumerator.MoveNext()) yield break;
+                    path = Path.GetFullPath(enumerator.Current);
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException) { yield break; }
+                count++;
+                if (predicate(path)) yield return path;
+            }
         }
     }
 

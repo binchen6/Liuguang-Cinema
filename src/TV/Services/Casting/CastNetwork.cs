@@ -228,7 +228,7 @@ internal sealed class CastNetwork : IAsyncDisposable
     {
         if (path is null) return;
         try { File.Delete(path); }
-        catch (IOException) { }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
     }
 
     public async ValueTask DisposeAsync()
@@ -249,7 +249,7 @@ internal sealed class CastNetwork : IAsyncDisposable
             {
                 foreach (var path in Directory.EnumerateFiles(_directory)) DeleteVideo(path);
                 try { Directory.Delete(_directory); }
-                catch (IOException) { }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
             }
         }
     }

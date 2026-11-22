@@ -69,8 +69,13 @@ public sealed class PrefetchStream : Stream
             }
             if (_nextPosition >= _endExclusive) return 0;
             var start = _nextPosition;
-            if (!_chunks.TryRemove(start, out var task)) task = FetchAsync(start, _lifetime.Token);
+            if (!_chunks.TryGetValue(start, out var task))
+            {
+                var fetch = FetchAsync(start, _lifetime.Token);
+                task = _chunks.GetOrAdd(start, fetch);
+            }
             var bytes = await task.WaitAsync(cancellationToken).ConfigureAwait(false);
+            _chunks.TryRemove(start, out _);
             _nextPosition += bytes.Length;
             _current = new MemoryStream(bytes, writable: false);
             ScheduleWindow();
@@ -194,6 +199,9 @@ public sealed class PrefetchStream : Stream
             _lifetime.Dispose();
             _current?.Dispose();
             _current = null;
+            foreach (var pending in _chunks.Values)
+                _ = pending.ContinueWith(task => _ = task.Exception, CancellationToken.None,
+                    TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
             _chunks.Clear();
         }
         base.Dispose(disposing);

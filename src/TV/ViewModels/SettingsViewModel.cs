@@ -15,8 +15,19 @@ public sealed partial class SettingsViewModel : ObservableObject
 {
     private readonly AppServices _services;
     private bool _loaded;
+    private bool _hasLoaded;
+    private readonly Microsoft.UI.Dispatching.DispatcherQueueTimer _saveTimer;
+    private readonly Dictionary<string, string> _pendingWrites = [];
+    private readonly SemaphoreSlim _settingsWriteGate = new(1, 1);
 
-    public SettingsViewModel(AppServices services) => _services = services;
+    public SettingsViewModel(AppServices services)
+    {
+        _services = services;
+        _saveTimer = Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread().CreateTimer();
+        _saveTimer.Interval = TimeSpan.FromMilliseconds(250);
+        _saveTimer.IsRepeating = false;
+        _saveTimer.Tick += async (_, _) => await FlushPendingWritesAsync();
+    }
 
     [ObservableProperty] private string _activeSource = "尚未加载";
     [ObservableProperty] private string _newSourceUrl = string.Empty;
@@ -62,6 +73,7 @@ public sealed partial class SettingsViewModel : ObservableObject
 
     public async Task LoadAsync()
     {
+        if (_hasLoaded) return;
         _loaded = false;
         ActiveSource = _services.Config.ActiveUrl;
         await LoadImportsAsync();
@@ -97,6 +109,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         UcCookie = string.Empty;
         BaiduCookie = string.Empty;
         _loaded = true;
+        _hasLoaded = true;
     }
 
     [RelayCommand]
@@ -171,9 +184,18 @@ public sealed partial class SettingsViewModel : ObservableObject
     {
         var index = CloudAccounts.ToList().FindIndex(account => account.Provider == provider);
         if (index >= 0) CloudAccounts[index] = CloudAccounts[index] with { State = CloudAccountState.Checking, Status = "正在验证…" };
-        var account = await _services.Cloud.VerifyAccountAsync(provider);
-        if (index >= 0) CloudAccounts[index] = account;
-        StatusMessage = $"{account.Name}：{account.Status}";
+        try
+        {
+            var account = await _services.Cloud.VerifyAccountAsync(provider);
+            if (index >= 0 && index < CloudAccounts.Count && CloudAccounts[index].Provider == provider) CloudAccounts[index] = account;
+            StatusMessage = $"{account.Name}：{account.Status}";
+        }
+        catch (Exception ex)
+        {
+            if (index >= 0 && index < CloudAccounts.Count) CloudAccounts[index] = CloudAccounts[index] with
+            { State = CloudAccountState.Error, Status = "验证失败，请稍后重试" };
+            StatusMessage = "网盘账号验证失败：" + ex.Message;
+        }
     }
 
     [RelayCommand]
@@ -193,11 +215,16 @@ public sealed partial class SettingsViewModel : ObservableObject
     {
         try
         {
-            long images = Directory.Exists(AppPaths.Images)
-                ? Directory.EnumerateFiles(AppPaths.Images, "*.img").Sum(path => new FileInfo(path).Length) : 0;
-            long database = File.Exists(AppPaths.Database) ? new FileInfo(AppPaths.Database).Length : 0;
-            var wal = AppPaths.Database + "-wal";
-            if (File.Exists(wal)) database += new FileInfo(wal).Length;
+            long images = 0;
+            long database = 0;
+            await Task.Run(() =>
+            {
+                if (Directory.Exists(AppPaths.Images))
+                    images = Directory.EnumerateFiles(AppPaths.Images, "*.img").Sum(path => new FileInfo(path).Length);
+                if (File.Exists(AppPaths.Database)) database = new FileInfo(AppPaths.Database).Length;
+                var wal = AppPaths.Database + "-wal";
+                if (File.Exists(wal)) database += new FileInfo(wal).Length;
+            });
             var history = await _services.Database.CountRowsAsync("history");
             var favorites = await _services.Database.CountRowsAsync("favorites");
             var downloads = await _services.Database.CountRowsAsync("downloads");
@@ -240,13 +267,18 @@ public sealed partial class SettingsViewModel : ObservableObject
     [RelayCommand]
     private async Task SaveCloudAsync()
     {
-        if (!string.IsNullOrWhiteSpace(AliToken)) await _services.Cloud.SaveCredentialAsync(CloudProviderKind.Ali, AliToken);
-        if (!string.IsNullOrWhiteSpace(QuarkCookie)) await _services.Cloud.SaveCredentialAsync(CloudProviderKind.Quark, QuarkCookie);
-        if (!string.IsNullOrWhiteSpace(UcCookie)) await _services.Cloud.SaveCredentialAsync(CloudProviderKind.UC, UcCookie);
-        if (!string.IsNullOrWhiteSpace(BaiduCookie)) await _services.Cloud.SaveCredentialAsync(CloudProviderKind.Baidu, BaiduCookie);
-        _services.Cloud.ClearShareCache();
-        await RefreshCloudAccountsAsync();
-        StatusMessage = "网盘凭据已加密保存";
+        try
+        {
+            if (!string.IsNullOrWhiteSpace(AliToken)) await _services.Cloud.SaveCredentialAsync(CloudProviderKind.Ali, AliToken);
+            if (!string.IsNullOrWhiteSpace(QuarkCookie)) await _services.Cloud.SaveCredentialAsync(CloudProviderKind.Quark, QuarkCookie);
+            if (!string.IsNullOrWhiteSpace(UcCookie)) await _services.Cloud.SaveCredentialAsync(CloudProviderKind.UC, UcCookie);
+            if (!string.IsNullOrWhiteSpace(BaiduCookie)) await _services.Cloud.SaveCredentialAsync(CloudProviderKind.Baidu, BaiduCookie);
+            _services.Cloud.ClearShareCache();
+            AliToken = QuarkCookie = UcCookie = BaiduCookie = string.Empty;
+            await RefreshCloudAccountsAsync();
+            StatusMessage = "网盘凭据已加密保存，输入框已清空";
+        }
+        catch (Exception ex) { StatusMessage = "网盘凭据保存失败：" + ex.Message; }
     }
 
     [RelayCommand(AllowConcurrentExecutions = true)]
@@ -414,6 +446,39 @@ public sealed partial class SettingsViewModel : ObservableObject
     private async Task<int> Int(string key, int fallback) => int.TryParse(await _services.Database.GetSettingAsync(key), out var value) ? value : fallback;
     private void Save(string key, object value)
     {
-        if (_loaded) _ = _services.Database.SetSettingAsync(key, value is bool flag ? (flag ? "true" : "false") : value.ToString()!);
+        if (!_loaded) return;
+        _pendingWrites[key] = value is bool flag ? (flag ? "true" : "false") : value.ToString()!;
+        _saveTimer.Stop();
+        _saveTimer.Start();
+    }
+
+    internal Task FlushAsync()
+    {
+        _saveTimer.Stop();
+        return FlushPendingWritesAsync();
+    }
+
+    private async Task FlushPendingWritesAsync()
+    {
+        await _settingsWriteGate.WaitAsync();
+        try
+        {
+            while (_pendingWrites.Count > 0)
+            {
+                var writes = _pendingWrites.ToArray();
+                _pendingWrites.Clear();
+                foreach (var (key, value) in writes)
+                {
+                    try { await _services.Database.SetSettingAsync(key, value); }
+                    catch (Exception ex)
+                    {
+                        Diagnostics.Log($"设置保存失败 ({key}): {ex.GetType().Name}");
+                        StatusMessage = $"设置保存失败：{ex.Message}";
+                    }
+                }
+            }
+        }
+        catch (Exception ex) { Diagnostics.Log($"设置写入队列失败: {ex.GetType().Name}"); }
+        finally { _settingsWriteGate.Release(); }
     }
 }

@@ -222,22 +222,32 @@ public sealed class DatabaseService
     public async Task RemoveLocalFileAsync(string path, string? folder = null, CancellationToken token = default)
     {
         await InitializeAsync(token).ConfigureAwait(false);
-        await using var connection = await OpenAsync(token).ConfigureAwait(false);
-        await using var command = connection.CreateCommand();
-        command.CommandText = folder is null ? "DELETE FROM local_files WHERE path=$path" : "DELETE FROM local_files WHERE folder=$folder";
-        command.Parameters.AddWithValue("$path", path);
-        if (folder is not null) command.Parameters.AddWithValue("$folder", folder);
-        await command.ExecuteNonQueryAsync(token).ConfigureAwait(false);
+        await _writeLock.WaitAsync(token).ConfigureAwait(false);
+        try
+        {
+            await using var connection = await OpenAsync(token).ConfigureAwait(false);
+            await using var command = connection.CreateCommand();
+            command.CommandText = folder is null ? "DELETE FROM local_files WHERE path=$path" : "DELETE FROM local_files WHERE folder=$folder";
+            command.Parameters.AddWithValue("$path", path);
+            if (folder is not null) command.Parameters.AddWithValue("$folder", folder);
+            await command.ExecuteNonQueryAsync(token).ConfigureAwait(false);
+        }
+        finally { _writeLock.Release(); }
     }
 
     public async Task DeleteHistoryAsync(string id, CancellationToken cancellationToken = default)
     {
         await InitializeAsync(cancellationToken).ConfigureAwait(false);
-        await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
-        var command = connection.CreateCommand();
-        command.CommandText = "DELETE FROM history WHERE id=$id";
-        command.Parameters.AddWithValue("$id", id);
-        await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        await _writeLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
+            var command = connection.CreateCommand();
+            command.CommandText = "DELETE FROM history WHERE id=$id";
+            command.Parameters.AddWithValue("$id", id);
+            await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        }
+        finally { _writeLock.Release(); }
     }
 
     public async Task<List<FavoriteEntry>> GetFavoritesAsync(CancellationToken cancellationToken = default)
@@ -280,7 +290,7 @@ public sealed class DatabaseService
             await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
             var command = connection.CreateCommand();
             command.CommandText = favorite
-                ? "INSERT INTO favorites VALUES($id,$title,$picture,$kind,$subtitle,$added,$data) ON CONFLICT(id) DO UPDATE SET title=excluded.title,picture=excluded.picture,data=excluded.data"
+                ? "INSERT INTO favorites VALUES($id,$title,$picture,$kind,$subtitle,$added,$data) ON CONFLICT(id) DO UPDATE SET title=excluded.title,picture=excluded.picture,kind=excluded.kind,subtitle=excluded.subtitle,data=excluded.data"
                 : "DELETE FROM favorites WHERE id=$id";
             command.Parameters.AddWithValue("$id", id);
             command.Parameters.AddWithValue("$title", title);
@@ -327,10 +337,15 @@ public sealed class DatabaseService
     {
         if (table is not ("history" or "favorites" or "metadata")) throw new ArgumentOutOfRangeException(nameof(table));
         await InitializeAsync(cancellationToken).ConfigureAwait(false);
-        await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
-        var command = connection.CreateCommand();
-        command.CommandText = $"DELETE FROM {table}";
-        await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        await _writeLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
+            var command = connection.CreateCommand();
+            command.CommandText = $"DELETE FROM {table}";
+            await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        }
+        finally { _writeLock.Release(); }
     }
 
     public async Task<int> CountRowsAsync(string table, CancellationToken cancellationToken = default)
@@ -352,7 +367,18 @@ public sealed class DatabaseService
     private async Task<SqliteConnection> OpenAsync(CancellationToken cancellationToken)
     {
         var connection = new SqliteConnection(_connectionString);
-        await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
-        return connection;
+        try
+        {
+            await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
+            await using var timeout = connection.CreateCommand();
+            timeout.CommandText = "PRAGMA busy_timeout=3000;";
+            await timeout.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+            return connection;
+        }
+        catch
+        {
+            await connection.DisposeAsync();
+            throw;
+        }
     }
 }

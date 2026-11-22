@@ -19,7 +19,11 @@ public sealed class OnlineMediaService(SourceHttpClient http, BilibiliVodProvide
         if (_matches.TryGetValue(key, out var cached) && cached.Expires > DateTimeOffset.UtcNow) return cached.Match;
         var match = await bilibili.MatchAsync(title, episode, index, token).ConfigureAwait(false);
         if (_matches.Count >= 64)
+        {
             foreach (var pair in _matches.Where(pair => pair.Value.Expires < DateTimeOffset.UtcNow)) _matches.TryRemove(pair.Key, out _);
+            if (_matches.Count >= 64)
+                foreach (var pair in _matches.OrderBy(pair => pair.Value.Expires).Take(_matches.Count - 63)) _matches.TryRemove(pair.Key, out _);
+        }
         _matches[key] = (match, DateTimeOffset.UtcNow.AddHours(2));
         return match;
     }
@@ -52,7 +56,8 @@ public sealed class OnlineMediaService(SourceHttpClient http, BilibiliVodProvide
             foreach (var item in body.EnumerateArray().Take(30_000))
             {
                 if (!item.TryGetProperty("from", out var from) || !item.TryGetProperty("to", out var to) ||
-                    !from.TryGetDouble(out var start) || !to.TryGetDouble(out var end) || end <= start) continue;
+                    !from.TryGetDouble(out var start) || !to.TryGetDouble(out var end) ||
+                    !double.IsFinite(start) || !double.IsFinite(end) || start < 0 || end <= start || end > 24 * 60 * 60) continue;
                 var content = item.TryGetProperty("content", out var value) ? value.GetString() : null;
                 if (string.IsNullOrWhiteSpace(content)) continue;
                 output.AppendLine((++index).ToString(CultureInfo.InvariantCulture));
@@ -61,10 +66,18 @@ public sealed class OnlineMediaService(SourceHttpClient http, BilibiliVodProvide
             }
             webVtt = output.ToString();
         }
-        var temporary = destination + ".tmp";
-        await File.WriteAllTextAsync(temporary, webVtt, new UTF8Encoding(false), token).ConfigureAwait(false);
-        File.Move(temporary, destination, true);
-        return new Uri(destination);
+        var temporary = destination + "." + Guid.NewGuid().ToString("N") + ".tmp";
+        try
+        {
+            await File.WriteAllTextAsync(temporary, webVtt, new UTF8Encoding(false), token).ConfigureAwait(false);
+            File.Move(temporary, destination, true);
+            return new Uri(destination);
+        }
+        finally
+        {
+            try { if (File.Exists(temporary)) File.Delete(temporary); }
+            catch (IOException) { }
+        }
     }
 
     private static string Timestamp(double seconds) =>

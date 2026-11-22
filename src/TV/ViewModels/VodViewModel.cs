@@ -52,8 +52,11 @@ public sealed partial class VodViewModel : ObservableObject
     public IReadOnlyList<VodCardViewModel> DetailSources => SelectedCard?.MatchedSources is { Count: > 0 } sources
         ? sources : SelectedCard is { } selected ? [selected] : [];
     public bool HasAlternateSources => DetailSources.Count > 1;
-    [ObservableProperty, NotifyPropertyChangedFor(nameof(HasCredits)), NotifyPropertyChangedFor(nameof(CanExpandIntro))]
+    [ObservableProperty, NotifyPropertyChangedFor(nameof(HasCredits)), NotifyPropertyChangedFor(nameof(CanExpandIntro)),
+        NotifyPropertyChangedFor(nameof(DetailMetadata))]
     private VodItem? _detail;
+    public IReadOnlyList<string> DetailMetadata => Detail is null ? [] : new[] { Detail.Rating, Detail.Year, Detail.TypeName,
+        Detail.Area, Detail.Remarks, Detail.SiteName }.Where(value => !string.IsNullOrWhiteSpace(value)).ToArray();
     public bool HasCredits => !string.IsNullOrWhiteSpace(Detail?.Director) || !string.IsNullOrWhiteSpace(Detail?.Actor);
     [ObservableProperty] private PlaybackLine? _selectedLine;
     [ObservableProperty] private Episode? _currentEpisode;
@@ -156,10 +159,10 @@ public sealed partial class VodViewModel : ObservableObject
         try
         {
             var preferDouban = _preferDouban ?? await _services.Database.GetSettingAsync("vod.recommendations", token) == "1";
-            var trendingTask = preferDouban ? _services.Douban.GetTrendingAsync(token) : null;
+            var trendingTask = preferDouban ? ReadTrendingSafeAsync(token) : null;
             var siteTask = ReadHomeResultAsync(site, allowFallback, token);
             var searchOnly = Services.Vod.Native.NativeVodProviderRouter.IsSearchOnly(site);
-            var cached = !searchOnly && !preferDouban ? await ReadHomeCacheAsync(site, allowFallback, token) : null;
+            var cached = !searchOnly ? await ReadHomeCacheAsync(site, allowFallback, token) : null;
             token.ThrowIfCancellationRequested();
             if (cached is { } cachedHome)
             {
@@ -206,7 +209,7 @@ public sealed partial class VodViewModel : ObservableObject
                     IsLoading = false;
                     return;
                 }
-                var trending = await (trendingTask ?? _services.Douban.GetTrendingAsync(token));
+                var trending = await (trendingTask ?? ReadTrendingSafeAsync(token));
                 token.ThrowIfCancellationRequested();
                 if (trending.Count > 0)
                 {
@@ -271,6 +274,17 @@ public sealed partial class VodViewModel : ObservableObject
         {
             Diagnostics.Log($"读取首页失败 ({site.Key}): {ex.Message}");
             return (null, (ex as HttpRequestException)?.StatusCode);
+        }
+    }
+
+    private async Task<IReadOnlyList<VodItem>> ReadTrendingSafeAsync(CancellationToken token)
+    {
+        try { return await _services.Douban.GetTrendingAsync(token); }
+        catch (OperationCanceledException) when (token.IsCancellationRequested) { throw; }
+        catch (Exception ex)
+        {
+            Diagnostics.Log($"推荐内容不可用: {ex.GetType().Name}");
+            return [];
         }
     }
 
@@ -483,7 +497,13 @@ public sealed partial class VodViewModel : ObservableObject
         var history = await _services.Database.GetHistoryAsync(token);
         var entry = history.FirstOrDefault(item => item.Id == DatabaseKey(detail));
         if (entry is null || entry.IsCompleted) return;
-        var saved = JsonSerializer.Deserialize<PlaybackRequest>(entry.RequestJson, JsonUtil.Options);
+        PlaybackRequest? saved;
+        try { saved = JsonSerializer.Deserialize<PlaybackRequest>(entry.RequestJson, JsonUtil.Options); }
+        catch (JsonException ex)
+        {
+            Diagnostics.Log($"播放记录格式无效: {ex.GetType().Name}");
+            return;
+        }
         if (saved is null) return;
         if (Lines.ElementAtOrDefault(saved.LineIndex) is { } line && !ReferenceEquals(SelectedLine, line))
         {
@@ -683,7 +703,7 @@ public sealed partial class VodViewModel : ObservableObject
             token.ThrowIfCancellationRequested();
             DownloadStatus = $"正在下载 {episode.Name}";
             await _services.Downloads.SaveAsync(media, destination.Path, new Progress<double>(value => DownloadProgress = value), token);
-            await _services.Database.SaveDownloadAsync(new DownloadEntry(destination.Path, request.Title, episode.Name));
+            await _services.Database.SaveDownloadAsync(new DownloadEntry(destination.Path, request.Title, episode.Name), token);
             DownloadStatus = "已保存到媒体库";
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested) { DownloadStatus = "下载已取消"; }
@@ -695,6 +715,10 @@ public sealed partial class VodViewModel : ObservableObject
     private async Task SaveEpisodesAsync(IList<Episode>? episodes, CancellationToken token)
     {
         if (episodes is null || episodes.Count == 0 || Detail is null || IsDownloading) return;
+        var requests = new List<(Episode Episode, PlaybackRequest Request)>();
+        foreach (var episode in episodes)
+            if (CreatePlaybackRequest(episode) is { } request) requests.Add((episode, request));
+        if (requests.Count == 0) return;
         IsDownloading = true;
         DownloadProgress = 0;
         var completed = 0;
@@ -705,28 +729,27 @@ public sealed partial class VodViewModel : ObservableObject
             var directory = string.IsNullOrWhiteSpace(configured)
                 ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyVideos), "流光影院") : configured;
             Directory.CreateDirectory(directory);
-            for (var index = 0; index < episodes.Count; index++)
+            for (var index = 0; index < requests.Count; index++)
             {
-                var episode = episodes[index];
-                if (CreatePlaybackRequest(episode) is not { } request) continue;
-                DownloadStatus = $"正在解析 {index + 1}/{episodes.Count}：{episode.Name}";
+                var (episode, request) = requests[index];
+                DownloadStatus = $"正在解析 {index + 1}/{requests.Count}：{episode.Name}";
                 try
                 {
                     var media = await _services.Playback.ResolveForDownloadAsync(request, token);
                     var extension = await _services.Downloads.GetExtensionAsync(media, token);
                     var filename = DownloadFileName(request, episode, extension);
                     var destination = AvailableDownloadPath(Path.Combine(directory, filename + extension));
-                    DownloadStatus = $"正在下载 {index + 1}/{episodes.Count}：{episode.Name}";
+                    DownloadStatus = $"正在下载 {index + 1}/{requests.Count}：{episode.Name}";
                     await _services.Downloads.SaveAsync(media, destination,
-                        new Progress<double>(value => DownloadProgress = (index + value / 100d) * 100d / episodes.Count), token);
+                        new Progress<double>(value => DownloadProgress = (index + value / 100d) * 100d / requests.Count), token);
                     await _services.Database.SaveDownloadAsync(new DownloadEntry(destination, request.Title, episode.Name), token);
                     completed++;
                 }
                 catch (OperationCanceledException) when (token.IsCancellationRequested) { throw; }
                 catch (Exception ex) { failed.Add($"{episode.Name}：{ex.Message}"); }
             }
-            DownloadProgress = (double)completed / episodes.Count * 100;
-            DownloadStatus = $"已完成 {completed}/{episodes.Count} 集，保存到 {directory}" +
+            DownloadProgress = (double)completed / requests.Count * 100;
+            DownloadStatus = $"已完成 {completed}/{requests.Count} 集，保存到 {directory}" +
                 (failed.Count > 0 ? $"\n{failed.Count} 集失败：{string.Join("；", failed.Take(3))}" : string.Empty);
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested)
@@ -735,6 +758,13 @@ public sealed partial class VodViewModel : ObservableObject
         }
         catch (Exception ex) { DownloadStatus = "下载目录不可用：" + ex.Message; }
         finally { IsDownloading = false; }
+    }
+
+    [RelayCommand]
+    private void CancelDownload()
+    {
+        SaveEpisodeCommand.Cancel();
+        SaveEpisodesCommand.Cancel();
     }
 
     private static string DownloadFileName(PlaybackRequest request, Episode episode, string extension)
@@ -763,10 +793,19 @@ public sealed partial class VodViewModel : ObservableObject
     [RelayCommand]
     private async Task ToggleFavoriteAsync()
     {
-        if (Detail is null) return;
-        IsFavorite = !IsFavorite;
-        await _services.Database.SetFavoriteAsync(DatabaseKey(Detail), Detail.Name, Detail.BestPicture, "Vod", Detail.SiteName,
-            System.Text.Json.JsonSerializer.Serialize(Detail, JsonUtil.Options), IsFavorite);
+        if (Detail is not { } detail) return;
+        var desired = !IsFavorite;
+        IsFavorite = desired;
+        try
+        {
+            await _services.Database.SetFavoriteAsync(DatabaseKey(detail), detail.Name, detail.BestPicture, "Vod", detail.SiteName,
+                System.Text.Json.JsonSerializer.Serialize(detail, JsonUtil.Options), desired);
+        }
+        catch (Exception ex)
+        {
+            if (ReferenceEquals(Detail, detail)) IsFavorite = !desired;
+            DetailStatus = "收藏保存失败：" + ex.Message;
+        }
     }
 
     [ObservableProperty] private bool _isIntroExpanded;

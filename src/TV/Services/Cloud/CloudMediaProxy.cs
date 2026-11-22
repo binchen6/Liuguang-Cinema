@@ -1,3 +1,4 @@
+using System.Buffers;
 using System.Buffers.Binary;
 using System.Collections.Concurrent;
 using System.Net;
@@ -102,7 +103,9 @@ public sealed class CloudMediaProxy : IDisposable
             try
             {
                 var stream = client.GetStream();
-                var header = await ReadHeaderAsync(stream, _cts.Token).ConfigureAwait(false);
+                using var headerTimeout = CancellationTokenSource.CreateLinkedTokenSource(_cts.Token);
+                headerTimeout.CancelAfter(TimeSpan.FromSeconds(10));
+                var header = await ReadHeaderAsync(stream, headerTimeout.Token).ConfigureAwait(false);
                 var lines = header.Split("\r\n", StringSplitOptions.RemoveEmptyEntries);
                 if (lines.Length == 0) return;
                 var requestParts = lines[0].Split(' ');
@@ -231,7 +234,7 @@ public sealed class CloudMediaProxy : IDisposable
                         return;
                     }
                     await WriteResponseHeadAsync(stream, statusCode, reason, contentType, length, sessionHeaders).ConfigureAwait(false);
-                    await (prefetched ?? source).CopyToAsync(stream, 256 * 1024, _cts.Token).ConfigureAwait(false);
+                    await CopyToClientAsync(prefetched ?? source, stream).ConfigureAwait(false);
                 }
             }
             catch (CloudAuthenticationException ex)
@@ -247,7 +250,9 @@ public sealed class CloudMediaProxy : IDisposable
     private async Task SendPngWrappedSegmentAsync(Stream downstream, Stream upstream, long length, Dictionary<string, string> headers)
     {
         var buffer = new byte[4096];
-        var read = await upstream.ReadAtLeastAsync(buffer, buffer.Length, throwOnEndOfStream: false, cancellationToken: _cts.Token).ConfigureAwait(false);
+        using var readTimeout = CancellationTokenSource.CreateLinkedTokenSource(_cts.Token);
+        readTimeout.CancelAfter(TimeSpan.FromSeconds(20));
+        var read = await upstream.ReadAtLeastAsync(buffer, buffer.Length, throwOnEndOfStream: false, cancellationToken: readTimeout.Token).ConfigureAwait(false);
         var offset = FindPngWrappedTs(buffer.AsSpan(0, read), length);
         if (offset > 0)
         {
@@ -257,7 +262,7 @@ public sealed class CloudMediaProxy : IDisposable
         }
         await WriteResponseHeadAsync(downstream, 200, "OK", offset > 0 ? "video/mp2t" : "image/png", length, headers).ConfigureAwait(false);
         await downstream.WriteAsync(buffer.AsMemory(offset, read - offset), _cts.Token).ConfigureAwait(false);
-        await upstream.CopyToAsync(downstream, 256 * 1024, _cts.Token).ConfigureAwait(false);
+        await CopyToClientAsync(upstream, downstream).ConfigureAwait(false);
     }
 
     private static int FindPngWrappedTs(ReadOnlySpan<byte> bytes, long length)
@@ -404,6 +409,24 @@ public sealed class CloudMediaProxy : IDisposable
             if (split > 0) result[line[..split].Trim()] = line[(split + 1)..].Trim();
         }
         return result;
+    }
+
+    private async Task CopyToClientAsync(Stream source, Stream destination)
+    {
+        var buffer = ArrayPool<byte>.Shared.Rent(256 * 1024);
+        try
+        {
+            using var idle = CancellationTokenSource.CreateLinkedTokenSource(_cts.Token);
+            while (true)
+            {
+                idle.CancelAfter(TimeSpan.FromSeconds(45));
+                var read = await source.ReadAsync(buffer.AsMemory(), idle.Token).ConfigureAwait(false);
+                if (read == 0) break;
+                idle.CancelAfter(TimeSpan.FromSeconds(45));
+                await destination.WriteAsync(buffer.AsMemory(0, read), idle.Token).ConfigureAwait(false);
+            }
+        }
+        finally { ArrayPool<byte>.Shared.Return(buffer); }
     }
 
     private static async Task WriteResponseHeadAsync(Stream stream, int status, string reason, string type, long length, Dictionary<string, string>? headers = null)

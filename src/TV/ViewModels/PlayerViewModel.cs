@@ -28,6 +28,7 @@ public sealed partial class PlayerViewModel : ObservableObject
     private CancellationTokenSource _loadCts = new();
     private CancellationTokenSource? _cloudSubtitleCts;
     private readonly SemaphoreSlim _loadGate = new(1, 1);
+    private long _loadGeneration;
     private int _tickRunning;
     private int _recoveryRunning;
     private long _lastProgressMs = -1;
@@ -142,18 +143,33 @@ public sealed partial class PlayerViewModel : ObservableObject
 
     public async Task LoadAsync(PlaybackRequest request)
     {
-        _loadCts.Cancel();
+        var (generation, cancellation) = BeginLoadOperation();
         await _loadGate.WaitAsync();
-        try { await LoadCoreAsync(request); }
+        try
+        {
+            if (generation != _loadGeneration) return;
+            await LoadCoreAsync(request, cancellation.Token, generation);
+        }
+        catch (OperationCanceledException) when (cancellation.IsCancellationRequested) { }
         finally { _loadGate.Release(); }
     }
 
-    private async Task LoadCoreAsync(PlaybackRequest request)
+    private (long Generation, CancellationTokenSource Cancellation) BeginLoadOperation()
     {
-        _loadCts.Cancel();
-        _loadCts = new CancellationTokenSource();
-        var token = _loadCts.Token;
+        var generation = Interlocked.Increment(ref _loadGeneration);
+        var cancellation = new CancellationTokenSource();
+        var previous = Interlocked.Exchange(ref _loadCts, cancellation);
+        previous.Cancel();
+        previous.Dispose();
         _qualityCts?.Cancel();
+        return (generation, cancellation);
+    }
+
+    private bool IsCurrentLoad(long generation, CancellationToken token) =>
+        generation == _loadGeneration && !token.IsCancellationRequested;
+
+    private async Task LoadCoreAsync(PlaybackRequest request, CancellationToken token, long generation)
+    {
         ResetCloudSubtitles();
         RequiredLoginProvider = null;
         QualityMessage = string.Empty;
@@ -195,6 +211,7 @@ public sealed partial class PlayerViewModel : ObservableObject
         _settingQuality = false;
         PositionMs = 0;
         DurationMs = 0;
+        PlaybackRequest? pendingMedia = null;
         try
         {
             var settings = _services.Database;
@@ -239,9 +256,11 @@ public sealed partial class PlayerViewModel : ObservableObject
                 _settingQuality = false;
                 media = await _services.Playback.ResolveAsync(request, SelectedQuality, GetHdrOutputAsync, token);
             }
+            pendingMedia = media;
             StatusMessage = "正在打开媒体…";
             await _viewReady.Task.WaitAsync(TimeSpan.FromSeconds(8), token);
             await _services.Player.PlayAsync(media, token);
+            if (!IsCurrentLoad(generation, token)) return;
             _resolvedMedia = media;
             SelectedQuality = DisplayQuality(media, SelectedQuality);
             DanmakuChanged?.Invoke(this, media.Danmaku);
@@ -264,6 +283,10 @@ public sealed partial class PlayerViewModel : ObservableObject
                 _ = RecoverPlaybackAsync();
             }
             else StatusMessage = "播放失败：" + ex.Message;
+        }
+        finally
+        {
+            if (!ReferenceEquals(_resolvedMedia, pendingMedia)) ReleaseMedia(pendingMedia, _resolvedMedia);
         }
     }
 
@@ -288,41 +311,56 @@ public sealed partial class PlayerViewModel : ObservableObject
     [RelayCommand]
     private async Task StopAsync()
     {
-        _loadCts.Cancel();
-        _qualityCts?.Cancel();
+        var (generation, cancellation) = BeginLoadOperation();
         ResetCloudSubtitles();
         StopTimerAndSave();
         DanmakuChanged?.Invoke(this, null);
+        await _loadGate.WaitAsync();
         try
         {
+            if (generation != _loadGeneration) return;
             await _services.StopPlayerAsync();
             ReleaseMedia(_resolvedMedia);
+            _resolvedMedia = null;
+            IsPlaying = false;
+            IsBuffering = false;
             StatusMessage = "已停止播放";
         }
-        catch (Exception ex) { StatusMessage = ex.Message; }
+        catch (Exception ex) { if (!cancellation.IsCancellationRequested) StatusMessage = ex.Message; }
+        finally { _loadGate.Release(); }
     }
 
     /// <summary>离开播放器页面前调用：停播并等解码线程退出，避免交换链被销毁后 VLC 写帧导致进程崩溃。</summary>
     public async Task PrepareLeaveAsync()
     {
-        _loadCts.Cancel();
-        _qualityCts?.Cancel();
+        var (generation, _) = BeginLoadOperation();
         ResetVideoReady();
         ResetCloudSubtitles();
         _timer.Stop();
         DanmakuChanged?.Invoke(this, null);
-        if (_request is not null)
+        await _loadGate.WaitAsync();
+        try
         {
-            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(2));
-            var save = SaveHistoryAsync(timeout.Token);
-            _request = null;
-            OnPropertyChanged(nameof(HasMedia));
-            _hasPlayedMedia = false;
-            await Task.WhenAll(save.WaitAsync(timeout.Token), _services.StopPlayerAsync().WaitAsync(timeout.Token))
-                .ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing | ConfigureAwaitOptions.ContinueOnCapturedContext);
-            ReleaseMedia(_resolvedMedia);
+            if (generation != _loadGeneration) return;
+            if (_request is not null)
+            {
+                using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+                var save = SaveHistoryAsync(timeout.Token);
+                var saveVolume = _services.Database.SetSettingAsync("playback.volume", Volume.ToString(System.Globalization.CultureInfo.InvariantCulture), timeout.Token);
+                _request = null;
+                OnPropertyChanged(nameof(HasMedia));
+                _hasPlayedMedia = false;
+                await Task.WhenAll(save.WaitAsync(timeout.Token), saveVolume.WaitAsync(timeout.Token), _services.StopPlayerAsync().WaitAsync(timeout.Token))
+                    .ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing | ConfigureAwaitOptions.ContinueOnCapturedContext);
+                ReleaseMedia(_resolvedMedia);
+                _resolvedMedia = null;
+            }
+            IsPlaying = false;
+            IsBuffering = false;
+            RequiredLoginProvider = null;
+            StatusMessage = string.Empty;
         }
-        StatusMessage = string.Empty;
+        finally { _loadGate.Release(); }
     }
 
     [RelayCommand]
@@ -456,6 +494,8 @@ public sealed partial class PlayerViewModel : ObservableObject
         if (media.Url != retained?.Url) _services.Cloud.ReleaseMedia(media.Url);
         foreach (var track in media.AudioTracks)
             if (retained?.AudioTracks.Contains(track) != true) _services.Cloud.ReleaseMedia(track.AbsoluteUri);
+        foreach (var subtitle in media.Subtitles)
+            if (retained?.Subtitles.Contains(subtitle) != true) _services.Cloud.ReleaseMedia(subtitle.AbsoluteUri);
     }
 
     private void ReadFixedVideoQuality(VideoFormat? format)
@@ -535,6 +575,7 @@ public sealed partial class PlayerViewModel : ObservableObject
             if (!ReferenceEquals(_resolvedMedia, media)) return;
             if (!await _services.Player.AddSubtitleAsync(address))
                 throw new InvalidOperationException("无法加载字幕。");
+            if (!media.Subtitles.Contains(address)) media.Subtitles.Add(address);
             _selectedCloudSubtitleAddress = address;
             SelectedCloudSubtitle = track;
             QualityMessage = string.Empty;
@@ -573,7 +614,6 @@ public sealed partial class PlayerViewModel : ObservableObject
     {
         CancelCloudSubtitleLoad();
         ClearCloudSubtitleSelection();
-        _resolvedMedia = null;
     }
 
     private async Task LoadTimingAsync(CancellationToken token)
@@ -781,9 +821,12 @@ public sealed partial class PlayerViewModel : ObservableObject
     private async Task RecoverPlaybackAsync()
     {
         if (Interlocked.CompareExchange(ref _recoveryRunning, 1, 0) != 0 || _request is not { } request) return;
+        var generation = _loadGeneration;
+        var token = _loadCts.Token;
+        _qualityCts?.Cancel();
         try
         {
-            if (_loadCts.IsCancellationRequested || DateTimeOffset.UtcNow - _lastRecoveryAt < TimeSpan.FromSeconds(8)) return;
+            if (!IsCurrentLoad(generation, token) || DateTimeOffset.UtcNow - _lastRecoveryAt < TimeSpan.FromSeconds(8)) return;
             _lastRecoveryAt = DateTimeOffset.UtcNow;
             var resume = _services.Player.LastSnapshot.TimeMs;
             if (_services.Player.HardwareDecoding && _resolvedMedia is { } media)
@@ -791,7 +834,8 @@ public sealed partial class PlayerViewModel : ObservableObject
                 _services.Player.HardwareDecoding = false;
                 var retry = media.Copy();
                 retry.StartPositionMs = resume;
-                await _services.Player.PlayAsync(retry, _loadCts.Token);
+                await _services.Player.PlayAsync(retry, token);
+                if (!IsCurrentLoad(generation, token) || !ReferenceEquals(_request, request)) return;
                 _resolvedMedia = retry;
                 QualityMessage = "已切换兼容解码模式，正在恢复播放。";
                 _timer.Start();
@@ -808,12 +852,14 @@ public sealed partial class PlayerViewModel : ObservableObject
                 _refreshedSource = true;
                 var copy = request.Copy();
                 copy.StartPositionMs = resume;
+                PlaybackRequest? refreshed = null;
                 try
                 {
-                    var refreshed = await _services.Playback.ResolveAsync(copy, QualityOptions[0], GetHdrOutputAsync, _loadCts.Token);
+                    refreshed = await _services.Playback.ResolveAsync(copy, QualityOptions[0], GetHdrOutputAsync, token);
                     refreshed.StartPositionMs = resume;
                     var previous = _resolvedMedia;
-                    await _services.Player.PlayAsync(refreshed, _loadCts.Token);
+                    await _services.Player.PlayAsync(refreshed, token);
+                    if (!IsCurrentLoad(generation, token) || !ReferenceEquals(_request, request)) return;
                     _resolvedMedia = refreshed;
                     ReleaseMedia(previous, refreshed);
                     DanmakuChanged?.Invoke(this, refreshed.Danmaku);
@@ -825,11 +871,17 @@ public sealed partial class PlayerViewModel : ObservableObject
                 {
                     Diagnostics.Log($"原来源刷新失败: {ex.GetType().Name}");
                 }
+                finally
+                {
+                    if (!ReferenceEquals(_resolvedMedia, refreshed)) ReleaseMedia(refreshed, _resolvedMedia);
+                }
             }
+            if (!IsCurrentLoad(generation, token)) return;
             StatusMessage = request.RecoverMissingSource ? "历史来源失效，正在自动获取最新资源…" : "当前来源可能失效，正在查找可用来源…";
-            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(_loadCts.Token);
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(token);
             timeout.CancelAfter(TimeSpan.FromSeconds(24));
             var candidates = await _services.SourceRecovery.FindAsync(request.Item, timeout.Token);
+            if (!IsCurrentLoad(generation, token) || !ReferenceEquals(_request, request)) return;
             if (candidates.Count == 0)
             {
                 StatusMessage = "暂未找到有效的新来源，原播放记录已保留。可稍后重试。";
@@ -847,10 +899,10 @@ public sealed partial class PlayerViewModel : ObservableObject
             }
             SourceRecoveryOffered?.Invoke(this, candidates);
         }
-        catch (OperationCanceledException) { }
+        catch (OperationCanceledException) when (token.IsCancellationRequested) { }
         catch (Exception ex)
         {
-            if (!_loadCts.IsCancellationRequested) StatusMessage = "恢复播放失败：" + ex.Message + "。可返回详情页更换来源。";
+            if (IsCurrentLoad(generation, token)) StatusMessage = "恢复播放失败：" + ex.Message + "。可返回详情页更换来源。";
         }
         finally { Interlocked.Exchange(ref _recoveryRunning, 0); }
     }
@@ -908,7 +960,7 @@ public sealed partial class PlayerViewModel : ObservableObject
             var state = service.LastSnapshot;
             var position = Math.Max(0, state.TimeMs);
             var duration = Math.Max(0, state.LengthMs);
-            await Task.Run(() => _services.Database.SaveHistoryAsync(snapshot, position, duration, cancellationToken), cancellationToken);
+            await _services.Database.SaveHistoryAsync(snapshot, position, duration, cancellationToken);
         }
         catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"保存播放记录失败: {ex.Message}"); }
     }

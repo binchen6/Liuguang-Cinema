@@ -7,7 +7,7 @@ using TV.Services.Persistence;
 
 namespace TV.Services.Http;
 
-public sealed class DnsResolverService
+public sealed class DnsResolverService : IDisposable
 {
     private sealed record Entry(Lazy<Task<IPAddress[]>> Task, DateTimeOffset ExpiresAt);
     private static readonly IReadOnlyDictionary<int, string[]> UdpProviders = new Dictionary<int, string[]>
@@ -179,4 +179,6 @@ public sealed class DnsResolverService
         }
         return offset;
     }
+
+    public void Dispose() => _doh.Dispose();
 }

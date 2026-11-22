@@ -15,6 +15,8 @@ public sealed class PlayerService : IDisposable
 {
     private readonly SemaphoreSlim _nativeGate = new(1, 1);
     private readonly object _stopSync = new();
+    private readonly object _commandSync = new();
+    private Task _commandTail = Task.CompletedTask;
     private Media? _currentMedia;
     private long _pendingStartPosition;
     private long? _pendingSeekPosition;
@@ -340,21 +342,25 @@ public sealed class PlayerService : IDisposable
 
     private async Task RunNativeAsync(Action action, CancellationToken token)
     {
-        await Task.Run(async () =>
-        {
-            await _nativeGate.WaitAsync(token).ConfigureAwait(false);
-            try
-            {
-                token.ThrowIfCancellationRequested();
-                action();
-            }
-            finally { _nativeGate.Release(); }
-        }, CancellationToken.None).ConfigureAwait(false);
+        Task pending;
+        lock (_commandSync) pending = _commandTail;
+        await pending.WaitAsync(token).ConfigureAwait(false);
+        await RunNativeCoreAsync(action, token).ConfigureAwait(false);
     }
 
     private async Task<T> RunNativeAsync<T>(Func<T> action, CancellationToken token)
     {
-        return await Task.Run(async () =>
+        Task pending;
+        lock (_commandSync) pending = _commandTail;
+        await pending.WaitAsync(token).ConfigureAwait(false);
+        return await RunNativeCoreAsync(action, token).ConfigureAwait(false);
+    }
+
+    private async Task RunNativeCoreAsync(Action action, CancellationToken token) =>
+        await RunNativeCoreAsync(() => { action(); return true; }, token).ConfigureAwait(false);
+
+    private async Task<T> RunNativeCoreAsync<T>(Func<T> action, CancellationToken token) =>
+        await Task.Run(async () =>
         {
             await _nativeGate.WaitAsync(token).ConfigureAwait(false);
             try
@@ -364,14 +370,19 @@ public sealed class PlayerService : IDisposable
             }
             finally { _nativeGate.Release(); }
         }, CancellationToken.None).ConfigureAwait(false);
+
+    private void RunFireAndForget(Action action)
+    {
+        lock (_commandSync) _commandTail = RunCommandAsync(_commandTail, action);
     }
 
-    private void RunFireAndForget(Action action) => _ = Task.Run(async () =>
+    private async Task RunCommandAsync(Task previous, Action action)
     {
+        await previous.ConfigureAwait(false);
         if (_disposed || IsStopping) return;
-        try { await RunNativeAsync(action, CancellationToken.None).ConfigureAwait(false); }
+        try { await RunNativeCoreAsync(action, CancellationToken.None).ConfigureAwait(false); }
         catch (Exception ex) { Diagnostics.Log($"LibVLC command failed: {ex.GetType().Name} {ex.Message}"); }
-    });
+    }
 
     private void OnBuffering(object? sender, MediaPlayerBufferingEventArgs e)
     {

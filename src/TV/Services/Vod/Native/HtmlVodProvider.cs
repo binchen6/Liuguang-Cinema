@@ -196,7 +196,7 @@ public sealed class HtmlVodProvider(SourceHttpClient http) : INativePlaybackProv
         if (!TryPageLink(path, origin, out var uri)) throw new InvalidDataException("站点页面地址无效。");
         var payload = await http.GetBytesAsync(uri.AbsoluteUri, Headers(site), maxBytes: 4 * 1024 * 1024, cancellationToken: token,
             scopeRedirectHeaders: true).ConfigureAwait(false);
-        var html = await new HtmlParser().ParseDocumentAsync(System.Text.Encoding.UTF8.GetString(payload.Content), token).ConfigureAwait(false);
+        var html = await new HtmlParser().ParseDocumentAsync(SourceHttpClient.DecodeText(payload.Content), token).ConfigureAwait(false);
         return (html, payload.FinalUri, uri);
     }
 

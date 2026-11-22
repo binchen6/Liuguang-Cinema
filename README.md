@@ -34,8 +34,8 @@
 安装包目前未购买 Authenticode 代码签名，Windows 可能显示 SmartScreen 提示。请核对发布页提供的 SHA-256：
 
 ```powershell
-Get-FileHash .\TV-Setup-1.4.0-x64.exe -Algorithm SHA256
-Get-Content .\TV-Setup-1.4.0-x64.exe.sha256
+Get-FileHash .\TV-Setup-1.4.1-x64.exe -Algorithm SHA256
+Get-Content .\TV-Setup-1.4.1-x64.exe.sha256
 ```
 
 ## 使用指南
@@ -93,7 +93,8 @@ Get-Content .\TV-Setup-1.4.0-x64.exe.sha256
 - `tv.db`：设置、历史、收藏、下载与本地媒体索引，以及加密凭据
 - `config/last-good.json`：最近成功的配置缓存
 - `cache`：图片、在线字幕和临时媒体缓存
-- `diagnostic.log`、`last-error.log`：诊断信息
+- `diagnostic.log`、`diagnostic.log.1`：当前及上一份轮转诊断日志，单份上限 2 MB
+- `last-error.log`：未处理异常
 
 应用没有账号遥测上传功能。访问第三方站点、网盘、豆瓣或 B 站时，网络请求会发送到相应服务，适用其隐私政策。媒体代理只监听 `127.0.0.1`，并按来源限制敏感请求头与重定向范围。
 
@@ -169,7 +170,7 @@ installer/               Inno Setup 安装器与输出完整性检查
 artifacts/qa-fixture/    隔离测试夹具与回归脚本
 ```
 
-更多技术说明见[开发指南](docs/development.md)、[站点适配矩阵](docs/site-matrix.csv)、[验收边界](docs/site-verification.md)和[设计契约](docs/design-guide-1.2.md)。
+更多技术说明见[开发指南](docs/development.md)、[站点适配矩阵](docs/site-matrix.csv)、[验收边界](docs/site-verification.md)和[设计契约](docs/design-guide.md)。当前版本说明见[1.4.1 发行说明](docs/releases/release-1.4.1.md)，历史文档索引见[docs/README](docs/README.md)。
 
 ## 验证与贡献
 

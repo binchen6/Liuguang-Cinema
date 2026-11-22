@@ -93,6 +93,7 @@ public sealed partial class CloudDriveViewModel : ObservableObject
     private async Task ReadFolderAsync(CloudProviderKind provider, int page, bool append, CancellationToken token)
     {
         IsLoading = true;
+        if (!append) Entries.Clear();
         EmptyText = string.Empty;
         StatusMessage = string.Empty;
         RequiredLoginProvider = null;
@@ -133,6 +134,7 @@ public sealed partial class CloudDriveViewModel : ObservableObject
         if (SelectedAccount is not { } account || string.IsNullOrWhiteSpace(Query)) return;
         var token = BeginLoad();
         IsLoading = true;
+        Entries.Clear();
         StatusMessage = string.Empty;
         EmptyText = string.Empty;
         RequiredLoginProvider = null;
@@ -166,6 +168,7 @@ public sealed partial class CloudDriveViewModel : ObservableObject
             try
             {
                 var listing = await _services.Cloud.SearchFolderAsync(account.Provider, Query.Trim(), _page + 1, token);
+                token.ThrowIfCancellationRequested();
                 foreach (var entry in listing.Items) Entries.Add(entry);
                 _page++;
                 HasMore = listing.HasMore;

@@ -14,7 +14,10 @@ public sealed partial class VideoDownloadService : IDisposable
     {
         ConnectTimeout = TimeSpan.FromSeconds(12),
         ConnectCallback = dns.ConnectAsync,
-        UseCookies = false
+        UseCookies = false,
+        AllowAutoRedirect = false,
+        AutomaticDecompression = DecompressionMethods.All,
+        MaxConnectionsPerServer = 6
     }) { Timeout = Timeout.InfiniteTimeSpan };
 
     public async Task<string> GetExtensionAsync(PlaybackRequest request, CancellationToken token)
@@ -53,7 +56,7 @@ public sealed partial class VideoDownloadService : IDisposable
                 Directory.CreateDirectory(assets);
                 var files = new Dictionary<Uri, string>();
                 var lines = await ReadPlaylistAsync(response, token).ConfigureAwait(false);
-                var updated = await MaterializeAsync(lines, response.RequestMessage.RequestUri, assets, files, request.Headers, progress, token, 0, true).ConfigureAwait(false);
+                var updated = await MaterializeAsync(lines, response.RequestMessage.RequestUri, uri, assets, files, request.Headers, progress, token, 0, true).ConfigureAwait(false);
                 await File.WriteAllLinesAsync(temporary, updated, new UTF8Encoding(false), token).ConfigureAwait(false);
             }
             else await CopyAsync(response, temporary, progress, token).ConfigureAwait(false);
@@ -64,12 +67,14 @@ public sealed partial class VideoDownloadService : IDisposable
         }
         finally
         {
-            if (File.Exists(temporary)) File.Delete(temporary);
-            if (!committed && assets is not null && Directory.Exists(assets)) Directory.Delete(assets, true);
+            try { if (File.Exists(temporary)) File.Delete(temporary); }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { Diagnostics.Log($"下载临时文件清理失败: {ex.GetType().Name}"); }
+            try { if (!committed && assets is not null && Directory.Exists(assets)) Directory.Delete(assets, true); }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { Diagnostics.Log($"下载资源目录清理失败: {ex.GetType().Name}"); }
         }
     }
 
-    private async Task<string[]> MaterializeAsync(string[] lines, Uri baseUri, string assets, Dictionary<Uri, string> files,
+    private async Task<string[]> MaterializeAsync(string[] lines, Uri baseUri, Uri origin, string assets, Dictionary<Uri, string> files,
         IReadOnlyDictionary<string, string> headers, IProgress<double> progress, CancellationToken token, int depth, bool root)
     {
         if (depth > 4 || lines.Length > 40_000) throw new InvalidDataException("播放列表超出离线下载范围。");
@@ -84,6 +89,12 @@ public sealed partial class VideoDownloadService : IDisposable
             throw new NotSupportedException("当前直播或仍在更新的视频无法下载。");
 
         var prefix = root ? Path.GetFileName(assets) + "/" : "";
+        var resourceCount = Math.Max(1, lines.Count(line => line.Length > 0 && (!line.StartsWith('#') || UriAttribute().IsMatch(line))));
+        var completedResources = 0;
+        void ReportProgress()
+        {
+            if (!master) progress.Report(Math.Min(99, ++completedResources * 100d / resourceCount));
+        }
         var segmentExtension = lines.Any(line => line.StartsWith("#EXT-X-MAP:", StringComparison.Ordinal)) ? ".m4s" : ".ts";
         for (var index = 0; index < lines.Length; index++)
         {
@@ -92,7 +103,8 @@ public sealed partial class VideoDownloadService : IDisposable
             if (!line.StartsWith('#'))
             {
                 lines[index] = prefix + await SaveResourceAsync(line, master ? ".m3u8" : segmentExtension,
-                    baseUri, assets, files, headers, progress, token, depth).ConfigureAwait(false);
+                    baseUri, origin, assets, files, headers, progress, token, depth).ConfigureAwait(false);
+                ReportProgress();
                 continue;
             }
             var uriAttribute = UriAttribute().Match(line);
@@ -101,19 +113,20 @@ public sealed partial class VideoDownloadService : IDisposable
             if (uri.StartsWith("data:", StringComparison.OrdinalIgnoreCase)) continue;
             var extension = line.StartsWith("#EXT-X-MEDIA:", StringComparison.Ordinal) ? ".m3u8"
                 : line.StartsWith("#EXT-X-MAP:", StringComparison.Ordinal) ? ".mp4" : ".key";
-            var local = await SaveResourceAsync(uri, extension, baseUri, assets, files, headers, progress, token, depth).ConfigureAwait(false);
+            var local = await SaveResourceAsync(uri, extension, baseUri, origin, assets, files, headers, progress, token, depth).ConfigureAwait(false);
             lines[index] = line.Remove(uriAttribute.Groups[1].Index, uri.Length).Insert(uriAttribute.Groups[1].Index, prefix + local);
+            ReportProgress();
         }
         return lines;
     }
 
-    private async Task<string> SaveResourceAsync(string value, string defaultExtension, Uri baseUri, string assets, Dictionary<Uri, string> files,
+    private async Task<string> SaveResourceAsync(string value, string defaultExtension, Uri baseUri, Uri origin, string assets, Dictionary<Uri, string> files,
         IReadOnlyDictionary<string, string> headers, IProgress<double> progress, CancellationToken token, int depth)
     {
         var uri = new Uri(baseUri, value);
         if (files.TryGetValue(uri, out var cached)) return cached;
         if (files.Count >= 20_000) throw new InvalidDataException("播放列表包含过多文件。");
-        using var response = await OpenAsync(uri, headers, token).ConfigureAwait(false);
+        using var response = await OpenAsync(uri, headers, token, origin).ConfigureAwait(false);
         var effective = response.RequestMessage!.RequestUri!;
         var playlist = defaultExtension == ".m3u8" || HlsManifest.IsPlaylist(effective.AbsoluteUri, response.Content.Headers.ContentType?.MediaType);
         var extension = playlist ? ".m3u8" : Path.GetExtension(effective.AbsolutePath);
@@ -124,33 +137,50 @@ public sealed partial class VideoDownloadService : IDisposable
         if (playlist)
         {
             var lines = await ReadPlaylistAsync(response, token).ConfigureAwait(false);
-            var updated = await MaterializeAsync(lines, effective, assets, files, headers, progress, token, depth + 1, false).ConfigureAwait(false);
+            var updated = await MaterializeAsync(lines, effective, origin, assets, files, headers, progress, token, depth + 1, false).ConfigureAwait(false);
             await File.WriteAllLinesAsync(path, updated, new UTF8Encoding(false), token).ConfigureAwait(false);
         }
         else await CopyAsync(response, path, null, token).ConfigureAwait(false);
         return filename;
     }
 
-    private async Task<HttpResponseMessage> OpenAsync(Uri uri, IReadOnlyDictionary<string, string> headers, CancellationToken token)
+    private async Task<HttpResponseMessage> OpenAsync(Uri uri, IReadOnlyDictionary<string, string> headers, CancellationToken token, Uri? origin = null)
     {
-        if (uri.Scheme is not ("http" or "https")) throw new NotSupportedException("当前地址不支持另存。");
-        using var request = new HttpRequestMessage(HttpMethod.Get, uri);
-        foreach (var (key, value) in headers)
-            if (!key.Equals("Host", StringComparison.OrdinalIgnoreCase)) request.Headers.TryAddWithoutValidation(key, value);
+        origin ??= uri;
+        if (uri.Scheme is not ("http" or "https") || uri.UserInfo.Length > 0) throw new NotSupportedException("当前地址不支持另存。");
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(token);
         timeout.CancelAfter(TimeSpan.FromSeconds(20));
-        var response = await _client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, timeout.Token).ConfigureAwait(false);
-        if (response.StatusCode == HttpStatusCode.PartialContent && !CoversEntireMedia(response))
+        var target = uri;
+        for (var redirects = 0; ; redirects++)
         {
-            response.Dispose();
-            throw new EndOfStreamException("服务器只返回了部分媒体内容，无法保存完整文件。");
-        }
-        if (response.IsSuccessStatusCode && response.Content.Headers.ContentType?.MediaType is not ("text/html" or "application/json"))
-            return response;
-        using (response)
-        {
-            response.EnsureSuccessStatusCode();
-            throw new InvalidDataException("服务器返回的内容不是媒体文件。");
+            using var request = new HttpRequestMessage(HttpMethod.Get, target);
+            foreach (var (key, value) in MediaRequestHeaders.ForTarget(headers, origin, target))
+                if (!key.Equals("Host", StringComparison.OrdinalIgnoreCase)) request.Headers.TryAddWithoutValidation(key, value);
+            var response = await _client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, timeout.Token).ConfigureAwait(false);
+            if ((int)response.StatusCode is 301 or 302 or 303 or 307 or 308 && response.Headers.Location is not null)
+            {
+                using (response)
+                {
+                    if (redirects >= 7 || !Uri.TryCreate(target, response.Headers.Location, out var next) ||
+                        next.Scheme is not ("http" or "https") || next.UserInfo.Length > 0 ||
+                        target.Scheme == "https" && next.Scheme != "https")
+                        throw new InvalidDataException("下载重定向无效。");
+                    target = next;
+                }
+                continue;
+            }
+            if (response.StatusCode == HttpStatusCode.PartialContent && !CoversEntireMedia(response))
+            {
+                response.Dispose();
+                throw new EndOfStreamException("服务器只返回了部分媒体内容，无法保存完整文件。");
+            }
+            if (response.IsSuccessStatusCode && response.Content.Headers.ContentType?.MediaType is not ("text/html" or "application/json"))
+                return response;
+            using (response)
+            {
+                response.EnsureSuccessStatusCode();
+                throw new InvalidDataException("服务器返回的内容不是媒体文件。");
+            }
         }
     }
 

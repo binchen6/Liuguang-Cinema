@@ -59,7 +59,7 @@ public sealed class CmsClient
             if (!text.StartsWith('{')) throw new InvalidDataException("站点返回了非 JSON/XML 内容。");
             return JsonSerializer.Deserialize<CmsResponse>(text, JsonUtil.Options) ?? new CmsResponse();
         }
-        catch (Exception ex) when (ex is JsonException or FormatException)
+        catch (Exception ex) when (ex is JsonException or FormatException or System.Xml.XmlException)
         {
             throw new InvalidDataException($"站点 {site.Name} 的响应格式无法解析。", ex);
         }
@@ -80,7 +80,14 @@ public sealed class CmsClient
 
     private static CmsResponse ParseXml(string xml)
     {
-        var document = XDocument.Parse(xml);
+        using var text = new StringReader(xml);
+        using var reader = System.Xml.XmlReader.Create(text, new System.Xml.XmlReaderSettings
+        {
+            DtdProcessing = System.Xml.DtdProcessing.Prohibit,
+            XmlResolver = null,
+            MaxCharactersInDocument = 12 * 1024 * 1024
+        });
+        var document = XDocument.Load(reader);
         var root = document.Root ?? throw new InvalidDataException("XML 根节点为空。");
         var response = new CmsResponse
         {
@@ -119,14 +126,17 @@ public sealed class CmsClient
     private static string NormalizeUrl(string value, string baseUrl)
     {
         if (string.IsNullOrWhiteSpace(value)) return string.Empty;
-        if (value.StartsWith("//")) return "https:" + value;
-        return Uri.TryCreate(value, UriKind.Absolute, out _) ? value : new Uri(new Uri(baseUrl), value).ToString();
+        if (value.StartsWith("//", StringComparison.Ordinal)) return "https:" + value;
+        if (Uri.TryCreate(value, UriKind.Absolute, out var absolute))
+            return absolute.Scheme is "http" or "https" && absolute.UserInfo.Length == 0 ? absolute.AbsoluteUri : string.Empty;
+        return new Uri(new Uri(baseUrl), value).ToString();
     }
 
     private static void EnsureSupported(SourceSite site)
     {
         if (!site.IsSupported) throw new NotSupportedException($"{site.Name} 依赖专用爬虫，当前版本无法直接运行。");
-        if (!Uri.TryCreate(site.Api, UriKind.Absolute, out _)) throw new InvalidDataException($"{site.Name} 的 API 地址无效。");
+        if (!Uri.TryCreate(site.Api, UriKind.Absolute, out var api) || api.Scheme is not ("http" or "https") || api.UserInfo.Length > 0)
+            throw new InvalidDataException($"{site.Name} 的 API 地址无效。");
     }
 
     private static string BuildUrl(string api, params (string Key, string Value)[] parameters) => BuildUrl(api, (IEnumerable<(string Key, string Value)>)parameters);

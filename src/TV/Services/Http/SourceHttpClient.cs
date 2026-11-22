@@ -6,16 +6,18 @@ namespace TV.Services.Http;
 
 public sealed record HttpPayload(byte[] Content, string ContentType, Uri FinalUri);
 
-public sealed class SourceHttpClient
+public sealed class SourceHttpClient : IDisposable
 {
     public const string DefaultUserAgent = "okhttp/3.12.11";
     private readonly HttpClient _client;
     private readonly Lazy<HttpClient> _mediaClient;
     private readonly DnsResolverService _dns;
+    private readonly bool _ownsDns;
 
     public SourceHttpClient(DnsResolverService? dns = null)
     {
         _dns = dns ?? new DnsResolverService(new Persistence.DatabaseService());
+        _ownsDns = dns is null;
         Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
         _client = CreateClient(true);
         _mediaClient = new Lazy<HttpClient>(() => CreateClient(false));
@@ -138,5 +140,12 @@ public sealed class SourceHttpClient
             Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
             return Encoding.GetEncoding("GB18030").GetString(bytes);
         }
+    }
+
+    public void Dispose()
+    {
+        _client.Dispose();
+        if (_mediaClient.IsValueCreated) _mediaClient.Value.Dispose();
+        if (_ownsDns) _dns.Dispose();
     }
 }

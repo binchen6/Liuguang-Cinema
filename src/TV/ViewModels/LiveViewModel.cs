@@ -229,7 +229,7 @@ public sealed partial class LiveViewModel : ObservableObject
         var version = ++_epgVersion;
         if (value is not null)
         {
-            _ = UpdateFavoriteAsync(value);
+            _ = UpdateFavoriteAsync(value, version);
             _ = LoadEpgAsync(value, version);
         }
     }
@@ -272,13 +272,28 @@ public sealed partial class LiveViewModel : ObservableObject
     [RelayCommand]
     private async Task ToggleFavoriteAsync()
     {
-        if (SelectedChannel is null) return;
-        IsFavorite = !IsFavorite;
-        var channel = SelectedChannel;
-        await _services.Database.SetFavoriteAsync(TV.Services.Persistence.DatabaseService.GetLiveId(channel.Url), channel.Name,
-            channel.Logo, "Live", channel.Group, System.Text.Json.JsonSerializer.Serialize(channel, JsonUtil.Options), IsFavorite);
+        if (SelectedChannel is not { } channel) return;
+        var desired = !IsFavorite;
+        IsFavorite = desired;
+        try
+        {
+            await _services.Database.SetFavoriteAsync(TV.Services.Persistence.DatabaseService.GetLiveId(channel.Url), channel.Name,
+                channel.Logo, "Live", channel.Group, System.Text.Json.JsonSerializer.Serialize(channel, JsonUtil.Options), desired);
+        }
+        catch (Exception ex)
+        {
+            if (ReferenceEquals(SelectedChannel, channel)) IsFavorite = !desired;
+            StatusMessage = "收藏保存失败：" + ex.Message;
+        }
     }
 
-    private async Task UpdateFavoriteAsync(LiveChannel channel) =>
-        IsFavorite = await _services.Database.IsFavoriteAsync(TV.Services.Persistence.DatabaseService.GetLiveId(channel.Url));
+    private async Task UpdateFavoriteAsync(LiveChannel channel, int version)
+    {
+        try
+        {
+            var favorite = await _services.Database.IsFavoriteAsync(TV.Services.Persistence.DatabaseService.GetLiveId(channel.Url));
+            if (version == _epgVersion && ReferenceEquals(SelectedChannel, channel)) IsFavorite = favorite;
+        }
+        catch (Exception ex) { Diagnostics.Log($"直播收藏读取失败: {ex.GetType().Name}"); }
+    }
 }
