@@ -176,7 +176,7 @@
         <Button x:Name="CenterPlayButton"
                 HorizontalAlignment="Center" VerticalAlignment="Center"
                 Style="{StaticResource PlayerCenterPlayButtonStyle}"
-                Command="{Binding TogglePauseCommand}" Visibility="Collapsed"
+                Click="OnPlayPauseClick" Visibility="Collapsed"
                 ToolTipService.ToolTip="播放 / 暂停 (空格)" AutomationProperties.Name="播放">
             <FontIcon Glyph="&#xE768;" FontSize="{StaticResource FontSizeHero}" />
         </Button>
@@ -217,20 +217,19 @@
                                 <MenuFlyout x:Name="PlaybackOptionsFlyout" Placement="BottomEdgeAlignedRight"
                                             Opening="OnPlaybackOptionsOpening" Closed="OnMenuFlyoutClosed">
                                     <MenuFlyoutSubItem x:Name="AudioTracks" Text="音轨" />
-                                    <MenuFlyoutSubItem x:Name="SubtitleTracks" Text="字幕" />
-                                    <MenuFlyoutItem Text="字幕设置与时间轴" Click="OnSubtitleSettingsClick" />
-                                    <MenuFlyoutItem Text="加载本地字幕" Click="OnLoadSubtitleClick" />
-                                    <MenuFlyoutItem Text="匹配在线字幕" Click="OnMatchSubtitleClick" />
-                                    <MenuFlyoutSeparator />
-                                    <MenuFlyoutItem Text="AI 自动生成字幕" Click="OnAiGenerateSubtitleClick" />
-                                    <MenuFlyoutItem Text="AI 生成并翻译字幕" Click="OnAiGenerateAndTranslateClick" />
-                                    <MenuFlyoutItem Text="AI 翻译字幕" Click="OnAiTranslateSubtitleClick" />
-                                    <ToggleMenuFlyoutItem x:Name="RealtimeSubtitleToggleItem" Text="实时字幕 (Qwen3-ASR)" Click="OnRealtimeSubtitleToggleClick" />
+                                    <MenuFlyoutSubItem x:Name="SubtitleTracks" Text="字幕轨道" />
+                                    <MenuFlyoutItem Text="字幕设置与时间轴…" Click="OnSubtitleSettingsClick" />
+                                    <MenuFlyoutSubItem Text="AI 智能字幕">
+                                        <MenuFlyoutItem Text="AI 自动生成字幕" Click="OnAiGenerateSubtitleClick" />
+                                        <MenuFlyoutItem Text="AI 生成并翻译字幕" Click="OnAiGenerateAndTranslateClick" />
+                                        <MenuFlyoutItem Text="AI 翻译当前/本地字幕" Click="OnAiTranslateSubtitleClick" />
+                                        <ToggleMenuFlyoutItem x:Name="RealtimeSubtitleToggleItem" Text="实时字幕 (Qwen3-ASR)" Click="OnRealtimeSubtitleToggleClick" />
+                                    </MenuFlyoutSubItem>
+                                    <MenuFlyoutItem Text="弹幕设置…" Click="OnDanmakuSettingsClick" AutomationProperties.Name="弹幕" />
                                     <MenuFlyoutSeparator />
                                     <MenuFlyoutSubItem x:Name="AspectRatioMenu" Text="画面比例" />
-                                    <MenuFlyoutSubItem x:Name="SyncDelayMenu" Text="字幕与音频同步" />
-                                    <MenuFlyoutItem Text="片头片尾设置" Click="OnTimingSettingsClick" />
-                                    <MenuFlyoutItem Text="弹幕设置" Click="OnDanmakuSettingsClick" AutomationProperties.Name="弹幕" />
+                                    <MenuFlyoutSubItem x:Name="SyncDelayMenu" Text="音画延迟微调" />
+                                    <MenuFlyoutItem Text="片头片尾设置…" Click="OnTimingSettingsClick" />
                                     <MenuFlyoutSeparator />
                                     <ToggleMenuFlyoutItem x:Name="LoopEpisodeItem" Text="单集循环" Click="OnLoopEpisodeClick" />
                                     <MenuFlyoutItem Text="视频截图" Click="OnSnapshotClick" />
@@ -261,9 +260,9 @@
                         </Grid.ColumnDefinitions>
                         <TextBlock Text="{Binding PositionText}" Style="{StaticResource SecondaryText}" FontWeight="SemiBold"
                                    Foreground="{ThemeResource PrimaryTextBrush}" VerticalAlignment="Center" MinWidth="52" />
-                        <Slider Grid.Column="1" Minimum="0" Maximum="{Binding DurationMs}" Value="{Binding PositionMs, Mode=TwoWay}"
+                        <Slider x:Name="SeekSlider" Grid.Column="1" Minimum="0" Maximum="{Binding DurationMs}" Value="{Binding PositionMs, Mode=TwoWay}"
                                 VerticalAlignment="Center" MinHeight="{StaticResource IconButtonSize}"
-                                PointerPressed="OnSeekPressed" PointerReleased="OnSeekReleased"
+                                ValueChanged="OnSeekValueChanged"
                                 StepFrequency="1000" SmallChange="5000" LargeChange="30000"
                                 AutomationProperties.Name="播放进度" />
                         <TextBlock Grid.Column="2" Text="{Binding DurationText}" Style="{StaticResource SecondaryText}" FontWeight="SemiBold"
@@ -284,7 +283,8 @@
 
                         <Border x:Name="TransportControls" Style="{StaticResource PlayerControlGroupStyle}" VerticalAlignment="Center">
                             <StackPanel Orientation="Horizontal" Spacing="{StaticResource SpaceTiny}">
-                            <Button Style="{StaticResource PlayerPrimaryTransportStyle}" Command="{Binding TogglePauseCommand}"
+                            <Button x:Name="PlayPauseButton" Style="{StaticResource PlayerPrimaryTransportStyle}"
+                                    Click="OnPlayPauseClick"
                                     ToolTipService.ToolTip="播放 / 暂停 (空格)" AutomationProperties.Name="播放暂停">
                                 <FontIcon Glyph="{Binding PlayPauseGlyph}" FontSize="{StaticResource FontSizeSection}" />
                             </Button>

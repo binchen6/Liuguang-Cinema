@@ -189,30 +189,34 @@
 
             <!-- 继续观看 -->
             <Grid Visibility="{Binding IsHistoryTab, Converter={StaticResource BoolToVisibility}}">
-                <ListView ItemsSource="{Binding History}" SelectionMode="None" IsItemClickEnabled="True"
+                <GridView ItemsSource="{Binding History}" SelectionMode="None" IsItemClickEnabled="True"
                           ItemClick="OnHistoryClick" Padding="0"
                           Background="Transparent" BorderThickness="0"
-                          ItemContainerStyle="{StaticResource WatchCardItemStyle}"
-                          ScrollViewer.HorizontalScrollMode="Enabled"
-                          ScrollViewer.HorizontalScrollBarVisibility="Auto"
-                          ScrollViewer.VerticalScrollMode="Disabled"
-                          ScrollViewer.VerticalScrollBarVisibility="Disabled">
-                    <ListView.ItemsPanel>
+                          ScrollViewer.HorizontalScrollMode="Disabled"
+                          ScrollViewer.VerticalScrollBarVisibility="Auto">
+                    <GridView.ItemsPanel>
                         <ItemsPanelTemplate>
-                            <StackPanel Orientation="Horizontal" />
+                            <ItemsWrapGrid Orientation="Horizontal" ItemWidth="316" ItemHeight="186" />
                         </ItemsPanelTemplate>
-                    </ListView.ItemsPanel>
-                    <ListView.ItemTemplate>
+                    </GridView.ItemsPanel>
+                    <GridView.ItemContainerStyle>
+                        <Style TargetType="GridViewItem">
+                            <Setter Property="Padding" Value="0" />
+                            <Setter Property="Margin" Value="0,0,16,16" />
+                            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                            <Setter Property="VerticalContentAlignment" Value="Stretch" />
+                        </Style>
+                    </GridView.ItemContainerStyle>
+                    <GridView.ItemTemplate>
                         <DataTemplate>
                             <Grid Width="{StaticResource WatchCardWidth}" Height="{StaticResource WatchCardHeight}">
                                 <Border CornerRadius="{StaticResource RadiusCard}"
                                         Background="{ThemeResource PosterPlaceholderBrush}"
                                         BorderBrush="{ThemeResource SubtleBorderBrush}" BorderThickness="1">
                                     <Grid>
-                                        <!-- 封面：ImageBrush 渲染在圆角 Border 背景上，天然裁圆角 -->
                                         <Grid>
                                             <FontIcon Glyph="&#xE8B9;" FontSize="28" Foreground="{ThemeResource TertiaryTextBrush}" HorizontalAlignment="Center" VerticalAlignment="Center" />
-                                            <Image Source="{Binding Picture}" Stretch="UniformToFill" controls:PosterImage.AutoFit="True" />
+                                            <Image controls:PosterImage.CachedSource="{Binding Picture}" Stretch="UniformToFill" controls:PosterImage.AutoFit="True" />
                                         </Grid>
                                         <!-- 底部压暗渐变 -->
                                         <Rectangle Fill="{StaticResource CardBottomScrim}" />
@@ -250,8 +254,8 @@
                                 </Border>
                             </Grid>
                         </DataTemplate>
-                    </ListView.ItemTemplate>
-                </ListView>
+                    </GridView.ItemTemplate>
+                </GridView>
                 <!-- 空状态 -->
                 <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center"
                             MaxWidth="380" Spacing="{StaticResource SpaceSmall}"
@@ -293,7 +297,7 @@
                                                   HorizontalAlignment="Center" VerticalAlignment="Center" />
                                         <Grid>
                                             <FontIcon Glyph="&#xE8B9;" FontSize="20" Foreground="{ThemeResource TertiaryTextBrush}" HorizontalAlignment="Center" VerticalAlignment="Center" />
-                                            <Image Source="{Binding Picture}" Stretch="UniformToFill" controls:PosterImage.AutoFit="True" />
+                                            <Image controls:PosterImage.CachedSource="{Binding Picture}" Stretch="UniformToFill" controls:PosterImage.AutoFit="True" />
                                         </Grid>
                                     </Grid>
                                 </Border>

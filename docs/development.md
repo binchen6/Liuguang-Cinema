@@ -89,16 +89,28 @@ $env:TMP = $env:TEMP = (Resolve-Path 'artifacts/tmp').Path
 & .\scripts\build-installer.ps1 -MavenOffline -NoRestore
 ```
 
-安装器统一输出到：
+安装器与便携包统一输出到：
 
 ```text
 artifacts/installers/TV-Setup-<version>-x64.exe
 artifacts/installers/TV-Setup-<version>-x64.exe.sha256
+artifacts/installers/TV-<version>-win-x64-portable.zip
+artifacts/installers/TV-<version>-win-x64-portable.zip.sha256
 ```
 
-版本来自 `Directory.Build.props`。发布脚本会生成 Java 运行时、CatVod JAR、LibVLC、WinUI 资源和第三方许可文件，并检查输出目录及 EXE 为 Medium 完整性。`artifacts/installers` 还允许沙箱用户组读取和执行，不要改到 Downloads。
+版本来自 `Directory.Build.props`。发布脚本会自动：
+1. 生成裁剪后的 Java 运行时，并从 Microsoft Build of OpenJDK 还原全部 Microsoft 签名的 `.exe` / `.dll`；
+2. 随应用内置 6 个 Microsoft 签名应用本地 VC++ x64 CRT DLL，免去嵌套 `vc_redist.x64.exe` 与 UAC 提权；
+3. 支持通过 `-CertThumbprint` / `-PfxPath`（或环境变量 `TV_SIGN_THUMBPRINT` / `TV_SIGN_PFX` / `TV_SIGN_PASSWORD`）执行双层 Authenticode 签名（内部未签名 PE + 卸载器 + 安装包，详见[智能应用控制与签名说明](smart-app-control.md)）；
+4. 检查输出目录及 EXE 为 Medium 完整性。`artifacts/installers` 还允许沙箱用户组读取和执行，不要改到 Downloads。
 
-当前安装器未做 Authenticode 签名。正式发布前应核对版本、文件哈希、SHA-256 文件和 GitHub Release 资产一致性。
+### 安装包启动速度防回退守卫
+
+`installer/TV.iss` 必须始终保持 `InternalCompressLevel=none`、`SolidCompression=no` 且不嵌套外部 `.exe` 安装器。每次发版前必须执行启动耗时基准检验，确保安装包秒开且后续版本不回退：
+
+```powershell
+pwsh -NoProfile -File .\scripts\Test-InstallerLaunchSpeed.ps1 -InstallerPath .\artifacts\installers\TV-Setup-<version>-x64.exe -AssertIssSettings -Runs 3 -MaxColdMs 1500 -MaxWarmMs 600
+```
 
 ## 测试
 

@@ -16,21 +16,31 @@ internal static class Program
     {
         WinRT.ComWrappersSupport.InitializeComWrappers();
         var startupVideo = VideoArgument(args);
-        var profile = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(AppPaths.Root.ToUpperInvariant())));
-        var instance = AppInstance.FindOrRegisterForKey("TV-" + profile);
-        if (!instance.IsCurrent)
+        AppInstance? instance = null;
+        try
         {
-            try
+            var profile = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(AppPaths.Root.ToUpperInvariant())));
+            instance = AppInstance.FindOrRegisterForKey("TV-" + profile);
+            if (!instance.IsCurrent)
             {
-                Task.Run(async () =>
+                try
                 {
-                    var activation = AppInstance.GetCurrent().GetActivatedEventArgs();
-                    await instance.RedirectActivationToAsync(activation).AsTask()
-                        .WaitAsync(TimeSpan.FromSeconds(6)).ConfigureAwait(false);
-                }).GetAwaiter().GetResult();
+                    Task.Run(async () =>
+                    {
+                        var activation = AppInstance.GetCurrent().GetActivatedEventArgs();
+                        await instance.RedirectActivationToAsync(activation).AsTask()
+                            .WaitAsync(TimeSpan.FromSeconds(6)).ConfigureAwait(false);
+                    }).GetAwaiter().GetResult();
+                }
+                catch (Exception ex) { Diagnostics.Log($"窗口唤回失败: {ex.Message}"); }
+                return;
             }
-            catch (Exception ex) { Diagnostics.Log($"窗口唤回失败: {ex.Message}"); }
-            return;
+        }
+        catch (Exception ex)
+        {
+            // Fallback gracefully on restricted/older Windows environments where AppLifecycle single-instance IPC is unavailable.
+            Diagnostics.Log($"单实例注册降级继续启动: {ex.GetType().Name} {ex.Message}");
+            instance = null;
         }
 
         App.PlayerOnly = startupVideo is not null;
@@ -39,11 +49,14 @@ internal static class Program
         {
             var dispatcher = DispatcherQueue.GetForCurrentThread();
             SynchronizationContext.SetSynchronizationContext(new DispatcherQueueSynchronizationContext(dispatcher));
-            instance.Activated += (_, activation) => dispatcher.TryEnqueue(() =>
+            if (instance is not null)
             {
-                if (VideoArgument(activation) is { } path) App.OpenLocal(path);
-                else App.Window?.RestoreWindow();
-            });
+                instance.Activated += (_, activation) => dispatcher.TryEnqueue(() =>
+                {
+                    if (VideoArgument(activation) is { } path) App.OpenLocal(path);
+                    else App.Window?.RestoreWindow();
+                });
+            }
             _ = new App();
         });
     }

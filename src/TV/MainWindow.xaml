@@ -8,12 +8,13 @@
             <ColumnDefinition Width="*" />
         </Grid.ColumnDefinitions>
 
-        <!-- 侧栏：品牌 + 一级导航 + 设置（全高，与标题栏一体） -->
+        <!-- 侧栏：品牌 + 全局搜索 + 一级导航（点播/直播/媒体库/云盘/投屏）+ 设置 -->
         <Border x:Name="NavPane" Grid.Column="0" Background="{ThemeResource SurfaceBrush}"
                 BorderBrush="{ThemeResource DividerBrush}" BorderThickness="0,0,1,0">
             <Grid x:Name="NavPaneContent">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="52" />
+                    <RowDefinition Height="Auto" />
                     <RowDefinition Height="*" />
                     <RowDefinition Height="Auto" />
                 </Grid.RowDefinitions>
@@ -36,7 +37,27 @@
                                Foreground="{ThemeResource PrimaryTextBrush}" VerticalAlignment="Center" />
                 </StackPanel>
 
-                <ListView x:Name="NavList" Grid.Row="1" Margin="0,8,0,0" Padding="0,0,0,8"
+                <!-- 全局快捷搜索入口（Ctrl+F），窄窗自动折叠为图标 -->
+                <Button x:Name="NavSearchButton" Grid.Row="1" Style="{StaticResource SecondaryButtonStyle}"
+                        Margin="10,4,10,6" Height="38" MinHeight="38" Padding="12,0"
+                        HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
+                        Click="OnSearchNavClick"
+                        ToolTipService.ToolTip="全站搜索 (Ctrl+F)" AutomationProperties.Name="全站搜索">
+                    <Grid x:Name="NavSearchContent" ColumnSpacing="10">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <FontIcon Glyph="&#xE721;" FontSize="15" Foreground="{ThemeResource SecondaryTextBrush}" VerticalAlignment="Center" />
+                        <TextBlock x:Name="NavSearchLabel" Grid.Column="1" Text="搜索片库" Style="{StaticResource SecondaryText}"
+                                   VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+                        <TextBlock x:Name="NavSearchHint" Grid.Column="2" Text="Ctrl+F" Style="{StaticResource MetaText}"
+                                   Opacity="0.65" VerticalAlignment="Center" />
+                    </Grid>
+                </Button>
+
+                <ListView x:Name="NavList" Grid.Row="2" Margin="0,4,0,0" Padding="0,0,0,8"
                           Background="Transparent" BorderThickness="0"
                           SelectionMode="Single" IsItemClickEnabled="False"
                           ScrollViewer.VerticalScrollBarVisibility="Disabled"
@@ -65,6 +86,12 @@
                             <TextBlock x:Name="NavLabelLibrary" Text="媒体库" Style="{StaticResource BodyText}" VerticalAlignment="Center" />
                         </StackPanel>
                     </ListViewItem>
+                    <ListViewItem Tag="cloud" AutomationProperties.Name="云盘" ToolTipService.ToolTip="我的云盘">
+                        <StackPanel x:Name="NavContentCloud" Orientation="Horizontal" Spacing="14">
+                            <FontIcon Glyph="&#xE753;" FontSize="19" Width="24" />
+                            <TextBlock x:Name="NavLabelCloud" Text="云盘" Style="{StaticResource BodyText}" VerticalAlignment="Center" />
+                        </StackPanel>
+                    </ListViewItem>
                     <ListViewItem Tag="cast" AutomationProperties.Name="投屏" ToolTipService.ToolTip="投屏">
                         <StackPanel x:Name="NavContentCast" Orientation="Horizontal" Spacing="14">
                             <FontIcon Glyph="&#xEC15;" FontSize="19" Width="24" />
@@ -73,7 +100,7 @@
                     </ListViewItem>
                 </ListView>
 
-                <StackPanel Grid.Row="2" Margin="0,0,0,12">
+                <StackPanel Grid.Row="3" Margin="0,0,0,12">
                     <Border Height="1" Background="{ThemeResource DividerBrush}" Margin="16,4,16,8" />
                     <Button x:Name="SettingsButton" Style="{StaticResource GhostButtonStyle}"
                             Margin="8,0,8,0" Height="{StaticResource NavItemHeight}" Padding="17,0,14,0"
@@ -86,8 +113,8 @@
                     </Button>
                 </StackPanel>
 
-                <!-- 物理弹簧滑行的全局侧栏指示条（跨点播/直播/媒体库/投屏/设置丝滑过渡） -->
-                <Border x:Name="FloatingNavIndicator" Grid.RowSpan="3"
+                <!-- 物理弹簧滑行的全局侧栏指示条（跨点播/直播/媒体库/云盘/投屏/设置丝滑过渡） -->
+                <Border x:Name="FloatingNavIndicator" Grid.RowSpan="4"
                         Width="3.5" Height="22" CornerRadius="2"
                         Background="{ThemeResource SelectionIndicatorBrush}"
                         HorizontalAlignment="Left" VerticalAlignment="Top"

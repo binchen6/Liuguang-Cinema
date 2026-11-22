@@ -65,7 +65,7 @@ public sealed class AppServices : IDisposable
         Live = new LiveService(http);
         Epg = new EpgService(http);
         Douban = new DoubanService(http, Database);
-        Images = new ImageCacheService(http, Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread());
+        Images = new ImageCacheService(http, Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread(), dns);
         Resolver = new PlayUrlResolver(http);
         Sniffer = new SniffService(Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread());
         Playback = new PlaybackResolver(this);
@@ -116,6 +116,7 @@ public sealed class AppServices : IDisposable
         if (_player.IsValueCreated) _player.Value.Dispose();
         if (!PlayerOnly)
         {
+            Images.Dispose();
             Downloads.Dispose();
             LocalMedia.Dispose();
             CloudLogin.Dispose();

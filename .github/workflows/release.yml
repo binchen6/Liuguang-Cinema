@@ -1,0 +1,92 @@
+name: Release Windows x64
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  id-token: write
+  attestations: write
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 10
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Setup Microsoft Build of OpenJDK 17 (Microsoft-signed JRE binaries)
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'microsoft'
+          java-version: '17'
+          cache: 'maven'
+
+      - name: Restore NuGet packages (locked mode)
+        run: dotnet restore src/TV/TV.csproj --locked-mode
+
+      - name: Prepare optional Authenticode certificate
+        id: cert
+        shell: pwsh
+        env:
+          SIGN_PFX_BASE64: ${{ secrets.SIGN_PFX_BASE64 }}
+        run: |
+          if (-not [string]::IsNullOrWhiteSpace($env:SIGN_PFX_BASE64)) {
+            $pfxPath = Join-Path $env:RUNNER_TEMP "release-sign.pfx"
+            [IO.File]::WriteAllBytes($pfxPath, [Convert]::FromBase64String($env:SIGN_PFX_BASE64))
+            "pfx_path=$pfxPath" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+            "has_cert=true" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          } else {
+            "has_cert=false" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          }
+
+      - name: Build installer and portable package
+        shell: pwsh
+        env:
+          DANDANPLAY_APP_ID: ${{ secrets.DANDANPLAY_APP_ID }}
+          DANDANPLAY_APP_SECRET_1: ${{ secrets.DANDANPLAY_APP_SECRET_1 }}
+          DANDANPLAY_APP_SECRET_2: ${{ secrets.DANDANPLAY_APP_SECRET_2 }}
+          TV_SIGN_PFX: ${{ steps.cert.outputs.pfx_path }}
+          TV_SIGN_PASSWORD: ${{ secrets.SIGN_PFX_PASSWORD }}
+        run: |
+          pwsh -NoProfile -File ./scripts/build-installer.ps1 -NoRestore
+
+      - name: Verify installer fast-launch non-regression gate
+        shell: pwsh
+        run: |
+          $version = ([xml](Get-Content 'Directory.Build.props' -Raw)).Project.PropertyGroup.Version
+          $setup = "artifacts/installers/TV-Setup-$version-x64.exe"
+          pwsh -NoProfile -File ./scripts/Test-InstallerLaunchSpeed.ps1 -InstallerPath $setup -AssertIssSettings -Runs 2 -MaxColdMs 3500 -MaxWarmMs 1200
+
+      - name: Clean temporary signing certificate
+        if: always() && steps.cert.outputs.has_cert == 'true'
+        shell: pwsh
+        run: |
+          if (Test-Path "${{ steps.cert.outputs.pfx_path }}") {
+            Remove-Item -LiteralPath "${{ steps.cert.outputs.pfx_path }}" -Force
+          }
+
+      - name: Generate GitHub Build Provenance Attestation
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: |
+            artifacts/installers/TV-Setup-*-x64.exe
+            artifacts/installers/TV-*-win-x64-portable.zip
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: liuguang-cinema-win-x64
+          path: |
+            artifacts/installers/TV-Setup-*-x64.exe
+            artifacts/installers/TV-Setup-*-x64.exe.sha256
+            artifacts/installers/TV-*-win-x64-portable.zip
+            artifacts/installers/TV-*-win-x64-portable.zip.sha256

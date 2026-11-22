@@ -26,17 +26,17 @@
 
 ### 系统要求
 
-- 64 位 Windows 10 1809 或更高版本，推荐 Windows 11
-- 支持 D3D11 的显卡驱动；硬解能力取决于 GPU 与驱动
-- 安装程序会检查 Visual C++ 运行库和 WebView2
+- 64 位 Windows 10 1809 或更高版本，推荐 Windows 11（已针对 Windows 10 / 多显示器 / RDP / 虚拟机做自动降级兼容）
+- 支持 D3D11 的显卡驱动；硬解能力取决于 GPU 与驱动（不支持硬解时自动回退软件解码）
+- 无需管理员权限、无需系统 Java 或 .NET 运行时，并已内置 Microsoft 签名应用本地 VC++ 运行库，纯净系统开箱即用
 
-从 [GitHub Releases](https://github.com/binchen6/Liuguang-Cinema/releases) 下载 `TV-Setup-<version>-x64.exe`。安装包为当前用户安装，默认不需要管理员权限，也不需要系统 Java 或 .NET 运行时。
+从 [GitHub Releases](https://github.com/binchen6/Liuguang-Cinema/releases) 下载 `TV-Setup-<version>-x64.exe`（秒开安装器）或免安装便携包 `TV-<version>-win-x64-portable.zip`。
 
-安装包目前未购买 Authenticode 代码签名，Windows 可能显示 SmartScreen 提示。请核对发布页提供的 SHA-256：
+社区开源构建默认尚未附带商业 Authenticode 代码签名证书，在开启 Windows 11 **智能应用控制（Smart App Control）** 或 SmartScreen 的设备上可能出现提示或拦截。详情与合规处理/签名路径请见 [Windows 智能应用控制与签名说明](docs/smart-app-control.md)。下载后请务必核对发布页提供的 SHA-256：
 
 ```powershell
-Get-FileHash .\TV-Setup-1.7.0-x64.exe -Algorithm SHA256
-Get-Content .\TV-Setup-1.7.0-x64.exe.sha256
+Get-FileHash .\TV-Setup-1.8.0-x64.exe -Algorithm SHA256
+Get-Content .\TV-Setup-1.8.0-x64.exe.sha256
 ```
 
 ## 使用指南
@@ -175,7 +175,7 @@ installer/               Inno Setup 安装器与输出完整性检查
 artifacts/qa-fixture/    隔离测试夹具与回归脚本
 ```
 
-更多技术说明见[开发指南](docs/development.md)、[站点适配矩阵](docs/site-matrix.csv)、[验收边界](docs/site-verification.md)和[设计契约](docs/design-guide.md)。当前版本说明见[1.7.0 发行说明](docs/releases/release-1.7.0.md)，历史文档索引见[docs/README](docs/README.md)。
+更多技术说明见[开发指南](docs/development.md)、[智能应用控制与签名说明](docs/smart-app-control.md)、[站点适配矩阵](docs/site-matrix.csv)、[验收边界](docs/site-verification.md)和[设计契约](docs/design-guide.md)。当前版本说明见[1.8.0 发行说明](docs/releases/release-1.8.0.md)，历史文档索引见[docs/README](docs/README.md)。
 
 ## 验证与贡献
 

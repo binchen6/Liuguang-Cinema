@@ -9,6 +9,7 @@ namespace TV.Views;
 public sealed partial class SettingsPage : Page
 {
     private readonly List<(Expander Section, UIElement Pane)> _sections = new();
+    private readonly Dictionary<Expander, ToggleButton> _headerToggleCache = [];
     private Expander? _activeSection;
     private bool _switchingSection;
     private Flyout? _loginFlyout;
@@ -92,9 +93,13 @@ public sealed partial class SettingsPage : Page
         finally { _switchingSection = false; }
     }
 
-    private static void ResetSectionVisual(Expander section, bool active)
+    private void ResetSectionVisual(Expander section, bool active)
     {
-        if (FindTemplateChild(section, "HeaderToggle") is not ToggleButton toggle) return;
+        if (!_headerToggleCache.TryGetValue(section, out var toggle))
+        {
+            if (FindTemplateChild(section, "HeaderToggle") is not ToggleButton found) return;
+            _headerToggleCache[section] = toggle = found;
+        }
         VisualStateManager.GoToState(toggle, active ? "Checked" : "Unchecked", true);
         VisualStateManager.GoToState(toggle, "Normal", true);
     }

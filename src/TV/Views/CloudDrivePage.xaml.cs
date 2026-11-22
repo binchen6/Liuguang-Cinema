@@ -16,7 +16,6 @@ public sealed partial class CloudDrivePage : Page
 
     private async void OnLoaded(object sender, RoutedEventArgs e)
     {
-        MotionService.Reveal(this);
         try { await ViewModel.InitializeAsync(); }
         catch (Exception ex) { ViewModel.StatusMessage = ex.Message; }
     }

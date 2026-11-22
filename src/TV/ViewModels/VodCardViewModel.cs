@@ -35,9 +35,12 @@ public sealed partial class VodCardViewModel : ObservableObject
     }
     public string SearchMetadata => string.Join(" · ", new[] { Item.Year, Item.TypeName, Item.Remarks }.Where(value => !string.IsNullOrWhiteSpace(value)));
 
+    private bool _priorityLoaded;
+
     public Task LoadVisualAsync(bool priority = false)
     {
-        if (_visualLoad is not null) return _visualLoad;
+        if (_visualLoad is not null && (!priority || _priorityLoaded)) return _visualLoad;
+        if (priority) _priorityLoaded = true;
         _visualLoad = LoadCoreAsync(priority);
         return _visualLoad;
     }
@@ -52,7 +55,12 @@ public sealed partial class VodCardViewModel : ObservableObject
 
     private async Task LoadCoreAsync(bool priority)
     {
-        Poster = await _services.Images.GetImageAsync(Item.BestPicture);
+        var primaryUrl = Item.BestPicture;
+        if (Poster is null || priority)
+        {
+            var fetched = await _services.Images.GetImageAsync(primaryUrl, highRes: priority);
+            if (fetched is not null) Poster = fetched;
+        }
         Rating = Item.Rating ?? string.Empty;
         if (!priority && Poster is not null && !string.IsNullOrWhiteSpace(Rating)) return;
         IsMetadataLoading = true;
@@ -64,7 +72,7 @@ public sealed partial class VodCardViewModel : ObservableObject
             if (Poster is null && !string.IsNullOrWhiteSpace(metadata.Picture))
             {
                 Item.DoubanPicture = metadata.Picture;
-                Poster = await _services.Images.GetImageAsync(metadata.Picture);
+                Poster = await _services.Images.GetImageAsync(metadata.Picture, highRes: priority);
             }
             if (!string.IsNullOrWhiteSpace(metadata.Rating))
             {

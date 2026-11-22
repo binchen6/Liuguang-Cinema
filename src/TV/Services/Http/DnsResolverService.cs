@@ -26,7 +26,7 @@ public sealed class DnsResolverService : IDisposable
     {
         var host = context.DnsEndPoint.Host;
         if (IPAddress.TryParse(host, out var address)) return await ConnectAsync(address, context.DnsEndPoint.Port, token).ConfigureAwait(false);
-        var provider = await ProviderAsync(token).ConfigureAwait(false);
+        var provider = IsLocalOrLanHost(host) ? 0 : await ProviderAsync(token).ConfigureAwait(false);
         if (provider != 0)
         {
             try
@@ -51,6 +51,17 @@ public sealed class DnsResolverService : IDisposable
             socket.Dispose();
             throw;
         }
+    }
+
+    internal static bool IsLocalOrLanHost(string host)
+    {
+        if (string.IsNullOrWhiteSpace(host)) return true;
+        if (host.Equals("localhost", StringComparison.OrdinalIgnoreCase)) return true;
+        if (!host.Contains('.')) return true; // single-label NetBIOS / LAN hostnames
+        return host.EndsWith(".local", StringComparison.OrdinalIgnoreCase)
+            || host.EndsWith(".lan", StringComparison.OrdinalIgnoreCase)
+            || host.EndsWith(".internal", StringComparison.OrdinalIgnoreCase)
+            || host.EndsWith(".home.arpa", StringComparison.OrdinalIgnoreCase);
     }
 
     private static async Task<Stream> ConnectAsync(IPAddress address, int port, CancellationToken token)

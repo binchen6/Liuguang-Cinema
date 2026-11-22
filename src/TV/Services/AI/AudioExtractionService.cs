@@ -76,7 +76,7 @@ public sealed class AudioExtractionService
 
         await Task.Run(async () =>
         {
-            Core.Initialize();
+            TV.Services.Playback.PlayerService.EnsureVlcRuntimeInitialized();
             using var vlc = new LibVLC(
                 "--no-video",
                 "--vout=none",
@@ -92,8 +92,8 @@ public sealed class AudioExtractionService
                 ? new Media(vlc, uri.LocalPath, FromType.FromPath)
                 : new Media(vlc, mediaUrl, FromType.FromLocation);
 
-            // Escape single quotes in path for VLC sout syntax
-            var escapedDst = outputPath.Replace("'", "\\'");
+            // Escape backslashes, single quotes, and braces for VLC sout syntax (handles Unicode/spaces/special usernames)
+            var escapedDst = outputPath.Replace("\\", "\\\\").Replace("'", "\\'");
             media.AddOption($":sout=#transcode{{vcodec=none,{transcodeAudio}}}:std{{access=file,mux={mux},dst='{escapedDst}'}}");
             media.AddOption(":no-sout-all");
             media.AddOption(":sout-keep");

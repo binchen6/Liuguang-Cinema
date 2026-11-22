@@ -1,5 +1,4 @@
 using System.Diagnostics;
-using Microsoft.UI;
 using Microsoft.UI.Text;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -11,8 +10,170 @@ using Windows.UI;
 namespace TV.Controls;
 
 /// <summary>
+/// Strictly monotonic PLL-slewed playback clock for danmaku rendering.
+/// Absorbs coarse/jittery LibVLC MediaPlayer.Time updates without ever rewinding or wiping active comments.
+/// </summary>
+internal sealed class DanmakuClock
+{
+    private bool _initialized;
+    private double _clockSec;
+    private double _lastMediaSec;
+    private long _lastMediaTs;
+    private long _lastFrameTs;
+    private double _playbackRate = 1.0;
+    private bool _isPlaying;
+    private bool _isBuffering;
+
+    public bool IsInitialized => _initialized;
+    public double ClockSec => _clockSec;
+    public bool IsPlaying => _isPlaying;
+    public bool IsBuffering => _isBuffering;
+    public double PlaybackRate => _playbackRate;
+
+    public void Reset()
+    {
+        _initialized = false;
+        _clockSec = 0;
+        _lastMediaSec = 0;
+        _lastMediaTs = 0;
+        _lastFrameTs = 0;
+        _playbackRate = 1.0;
+        _isPlaying = false;
+        _isBuffering = false;
+    }
+
+    public void SeekTo(double targetSec, long nowTs)
+    {
+        if (!double.IsFinite(targetSec) || targetSec < 0) return;
+        _initialized = true;
+        _clockSec = targetSec;
+        _lastMediaSec = targetSec;
+        _lastMediaTs = nowTs;
+        _lastFrameTs = nowTs;
+    }
+
+    public void SetPlayingImmediate(bool isPlaying, long nowTs)
+    {
+        var resuming = !_isPlaying && isPlaying;
+        _isPlaying = isPlaying;
+        if (resuming)
+        {
+            _lastMediaSec = _clockSec;
+            _lastMediaTs = nowTs;
+            _lastFrameTs = nowTs;
+        }
+    }
+
+    /// <summary>
+    /// Syncs authoritative media snapshot. Returns true ONLY when a genuine discontinuity/seek occurred
+    /// that requires clearing active comments and repositioning the cursor.
+    /// </summary>
+    public bool Sync(double mediaTimeSec, long capturedTs, double playbackRate, bool isPlaying, bool isBuffering, long nowTs)
+    {
+        if (!double.IsFinite(mediaTimeSec) || mediaTimeSec < 0) return false;
+        var rate = playbackRate > 0.05 && double.IsFinite(playbackRate) ? playbackRate : 1.0;
+        var wasRunning = _isPlaying && !_isBuffering;
+        var willRun = isPlaying && !isBuffering;
+
+        _playbackRate = rate;
+        _isPlaying = isPlaying;
+        _isBuffering = isBuffering;
+
+        if (!_initialized)
+        {
+            _initialized = true;
+            _clockSec = mediaTimeSec;
+            _lastMediaSec = mediaTimeSec;
+            _lastMediaTs = capturedTs != 0 ? capturedTs : nowTs;
+            _lastFrameTs = nowTs;
+            return true;
+        }
+
+        // Compare authoritative mediaTimeSec against previous authoritative _lastMediaSec (NOT extrapolated _clockSec!)
+        // so coarse LibVLC PTS updates or brief frame jitter NEVER trigger false backward seeks.
+        var rawJump = mediaTimeSec - _lastMediaSec;
+        if (rawJump < -1.5 || rawJump > 3.5)
+        {
+            _clockSec = mediaTimeSec;
+            _lastMediaSec = mediaTimeSec;
+            _lastMediaTs = capturedTs != 0 ? capturedTs : nowTs;
+            _lastFrameTs = nowTs;
+            return true;
+        }
+
+        // Only refresh anchor timestamp when VLC actually advanced its reported media time,
+        // or when transitioning out of pause/buffering. Keeping the anchor when VLC repeats the same
+        // coarse timestamp prevents sawtooth pull-back.
+        var mediaAdvanced = Math.Abs(mediaTimeSec - _lastMediaSec) > 0.004;
+        if (mediaAdvanced)
+        {
+            _lastMediaSec = mediaTimeSec;
+            _lastMediaTs = capturedTs != 0 ? capturedTs : nowTs;
+        }
+        else if (!wasRunning && willRun)
+        {
+            // Resumed from pause/buffering: anchor smoothly from current rendered clock if close
+            if (Math.Abs(mediaTimeSec - _clockSec) > 1.0)
+                _lastMediaSec = mediaTimeSec;
+            else
+                _lastMediaSec = Math.Max(_clockSec, mediaTimeSec);
+            _lastMediaTs = nowTs;
+        }
+
+        if (!wasRunning && willRun)
+            _lastFrameTs = nowTs;
+
+        return false;
+    }
+
+    /// <summary>
+    /// Advances the display clock by one frame using PLL slewing.
+    /// Guaranteed to return a non-negative stepSec >= 0 so scrolling danmaku can NEVER move backward.
+    /// </summary>
+    public double StepFrame(long nowTs, out bool jumpedForward)
+    {
+        jumpedForward = false;
+        if (!_initialized || !_isPlaying || _isBuffering) return 0;
+
+        var realDt = _lastFrameTs == 0
+            ? 0.016
+            : Math.Clamp(Stopwatch.GetElapsedTime(_lastFrameTs, nowTs).TotalSeconds, 0.0, 0.05);
+        _lastFrameTs = nowTs;
+        if (realDt <= 0) return 0;
+
+        var sinceAnchor = _lastMediaTs == 0
+            ? 0.0
+            : Math.Clamp(Stopwatch.GetElapsedTime(_lastMediaTs, nowTs).TotalSeconds, 0.0, 0.85);
+        var targetSec = _lastMediaSec + sinceAnchor * _playbackRate;
+        var err = targetSec - _clockSec;
+
+        if (err > 2.5)
+        {
+            // Large forward recovery after UI freeze: fast-forward clock cleanly without moving backward
+            _clockSec = targetSec;
+            jumpedForward = true;
+            return realDt * _playbackRate;
+        }
+
+        double slew;
+        if (err > 0.05)
+            slew = Math.Clamp(1.0 + err * 0.50, 1.0, 1.35);
+        else if (err < -1.5)
+            slew = 0.0; // Hold gently in place if video stalled without reporting buffering; never rewind!
+        else if (err < -0.05)
+            slew = Math.Clamp(1.0 + err * 0.45, 0.45, 1.0);
+        else
+            slew = 1.0;
+
+        var stepSec = realDt * _playbackRate * slew;
+        _clockSec += stepSec;
+        return stepSec;
+    }
+}
+
+/// <summary>
 /// High-performance VSync-driven danmaku overlay using TranslateTransform (zero layout thrash),
-/// smooth playback-clock interpolation, element pooling, and collision-free lane scheduling.
+/// strictly monotonic PLL-slewed clock (zero mid-scroll rewind), element pooling, and collision-free lane scheduling.
 /// </summary>
 public sealed class DanmakuOverlay : Canvas
 {
@@ -46,10 +207,11 @@ public sealed class DanmakuOverlay : Canvas
         public DanmakuMode Mode;
         public uint RawRgb;
         public int Lane;
-        public double StartSec;
+        public double ElapsedSec;
         public double DurationSec;
         public double WidthPx;
         public double SpeedPx;
+        public double CurrentX;
     }
 
     private static readonly SolidColorBrush ShadowBrush = new(Color.FromArgb(204, 0, 0, 0));
@@ -60,18 +222,12 @@ public sealed class DanmakuOverlay : Canvas
     private readonly Stack<DanmakuNode> _pool = new();
     private readonly Dictionary<uint, SolidColorBrush> _brushes = [];
     private readonly RectangleGeometry _clipGeometry = new();
+    private readonly DanmakuClock _clock = new();
 
     private DanmakuEntry[] _comments = [];
     private DanmakuPreferences _prefs = new();
     private int _nextIndex;
-
-    // Smooth interpolated playback clock
-    private double _anchorMediaSec;
-    private long _anchorTimestamp;
-    private double _playbackRate = 1.0;
-    private bool _isPlaying;
-    private bool _isBuffering;
-    private double _lastRenderSec = -1;
+    private double _lastWidth;
     private bool _renderingHooked;
 
     public DanmakuOverlay()
@@ -91,7 +247,7 @@ public sealed class DanmakuOverlay : Canvas
         _prefs = preferences.Normalize();
         Opacity = _prefs.Opacity;
 
-        // Live-update styling on currently visible items without clearing them
+        // Live-update styling on currently visible items without clearing or rewinding them
         foreach (var node in _active)
         {
             ApplyNodeStyle(node, node.RawRgb);
@@ -103,8 +259,8 @@ public sealed class DanmakuOverlay : Canvas
             }
         }
 
-        if (Math.Abs(previousOffset - _prefs.TimeOffsetSeconds) > 0.01 && _lastRenderSec >= 0)
-            ResetCursor(_lastRenderSec);
+        if (Math.Abs(previousOffset - _prefs.TimeOffsetSeconds) > 0.01 && _clock.IsInitialized)
+            ResetCursor(_clock.ClockSec);
 
         UpdateRenderingHook();
     }
@@ -114,65 +270,41 @@ public sealed class DanmakuOverlay : Canvas
         ClearActive();
         _comments = comments;
         _nextIndex = 0;
-        _lastRenderSec = -1;
-        if (_comments.Length > 0 && _anchorTimestamp != 0)
-            ResetCursor(_anchorMediaSec);
+        if (_comments.Length > 0 && _clock.IsInitialized)
+            ResetCursor(_clock.ClockSec);
+        UpdateRenderingHook();
+    }
+
+    /// <summary>
+    /// Immediately freezes or resumes danmaku motion on user Play/Pause click (0ms visual sync).
+    /// </summary>
+    public void SetPlayingImmediate(bool isPlaying)
+    {
+        _clock.SetPlayingImmediate(isPlaying, Stopwatch.GetTimestamp());
+        UpdateRenderingHook();
+    }
+
+    /// <summary>
+    /// Explicit seek notification: clears active comments and repositions cleanly to the seek target.
+    /// </summary>
+    public void NotifySeek(double targetSec)
+    {
+        if (!double.IsFinite(targetSec) || targetSec < 0) return;
+        _clock.SeekTo(targetSec, Stopwatch.GetTimestamp());
+        ClearActive();
+        ResetCursor(targetSec);
         UpdateRenderingHook();
     }
 
     public void SyncPlayback(double mediaTimeSec, long capturedTimestamp, double playbackRate, bool isPlaying, bool isBuffering)
     {
-        if (!double.IsFinite(mediaTimeSec) || mediaTimeSec < 0) return;
-        var rate = playbackRate > 0.05 && double.IsFinite(playbackRate) ? playbackRate : 1.0;
-
-        if (_anchorTimestamp == 0)
+        var nowTs = Stopwatch.GetTimestamp();
+        var discontinuity = _clock.Sync(mediaTimeSec, capturedTimestamp, playbackRate, isPlaying, isBuffering, nowTs);
+        if (discontinuity)
         {
-            _anchorMediaSec = mediaTimeSec;
-            _anchorTimestamp = capturedTimestamp;
-            _playbackRate = rate;
-            _isPlaying = isPlaying;
-            _isBuffering = isBuffering;
-            _lastRenderSec = mediaTimeSec;
-            ResetCursor(mediaTimeSec);
-            UpdateRenderingHook();
-            return;
-        }
-
-        var currentEstimated = EstimateCurrentSec();
-        var delta = mediaTimeSec - currentEstimated;
-
-        // Detect seeks or large discontinuities (> 1.4s forward or > 0.25s backward)
-        if (delta > 1.4 || delta < -0.25)
-        {
-            _anchorMediaSec = mediaTimeSec;
-            _anchorTimestamp = capturedTimestamp;
-            _playbackRate = rate;
-            _isPlaying = isPlaying;
-            _isBuffering = isBuffering;
-            _lastRenderSec = mediaTimeSec;
             ClearActive();
             ResetCursor(mediaTimeSec);
-            UpdateRenderingHook();
-            return;
         }
-
-        if (isPlaying && !isBuffering)
-        {
-            // Gently blend toward authoritative media timestamp to avoid backward hops or micro-stutter
-            var blended = _lastRenderSec >= 0 ? Math.Max(_lastRenderSec, mediaTimeSec) : mediaTimeSec;
-            _anchorMediaSec = blended;
-            _anchorTimestamp = capturedTimestamp;
-        }
-        else if (_isPlaying && !isPlaying)
-        {
-            // Freeze cleanly at last rendered frame position on pause
-            _anchorMediaSec = _lastRenderSec >= 0 ? _lastRenderSec : mediaTimeSec;
-            _anchorTimestamp = Stopwatch.GetTimestamp();
-        }
-
-        _playbackRate = rate;
-        _isPlaying = isPlaying;
-        _isBuffering = isBuffering;
         UpdateRenderingHook();
     }
 
@@ -182,11 +314,7 @@ public sealed class DanmakuOverlay : Canvas
         ClearActive();
         _comments = [];
         _nextIndex = 0;
-        _anchorMediaSec = 0;
-        _anchorTimestamp = 0;
-        _lastRenderSec = -1;
-        _isPlaying = false;
-        _isBuffering = false;
+        _clock.Reset();
     }
 
     public void ReleasePool()
@@ -198,7 +326,7 @@ public sealed class DanmakuOverlay : Canvas
 
     private void UpdateRenderingHook()
     {
-        var shouldRun = _prefs.Enabled && _comments.Length > 0 && _isPlaying && !_isBuffering;
+        var shouldRun = _prefs.Enabled && _comments.Length > 0 && _clock.IsPlaying && !_clock.IsBuffering;
         if (shouldRun && !_renderingHooked)
         {
             CompositionTarget.Rendering += OnRendering;
@@ -219,57 +347,65 @@ public sealed class DanmakuOverlay : Canvas
 
     private void OnOverlaySizeChanged(object sender, SizeChangedEventArgs e)
     {
-        if (e.NewSize.Width <= 0 || e.NewSize.Height <= 0) return;
-        _clipGeometry.Rect = new Rect(0, 0, e.NewSize.Width, e.NewSize.Height);
+        var newWidth = e.NewSize.Width;
+        var newHeight = e.NewSize.Height;
+        if (newWidth <= 0 || newHeight <= 0) return;
+        _clipGeometry.Rect = new Rect(0, 0, newWidth, newHeight);
         if (!ReferenceEquals(Clip, _clipGeometry)) Clip = _clipGeometry;
+
+        var scaleX = _lastWidth > 0 ? newWidth / _lastWidth : 1.0;
+        _lastWidth = newWidth;
+
         foreach (var node in _active)
         {
             if (node.Mode != DanmakuMode.Scroll)
-                node.Transform.X = Math.Max(8, (e.NewSize.Width - node.WidthPx) * 0.5);
+            {
+                node.Transform.X = Math.Max(8, (newWidth - node.WidthPx) * 0.5);
+            }
+            else if (Math.Abs(scaleX - 1.0) > 0.005)
+            {
+                node.CurrentX *= scaleX;
+                node.SpeedPx *= scaleX;
+                node.Transform.X = node.CurrentX;
+            }
         }
-    }
-
-    private double EstimateCurrentSec()
-    {
-        if (_anchorTimestamp == 0) return _anchorMediaSec;
-        if (!_isPlaying || _isBuffering) return _anchorMediaSec;
-        var elapsed = Stopwatch.GetElapsedTime(_anchorTimestamp).TotalSeconds;
-        // Cap extrapolation if VLC snapshot stalls so danmaku doesn't run far ahead of frozen video
-        var cappedElapsed = Math.Clamp(elapsed, 0, 0.75);
-        return _anchorMediaSec + cappedElapsed * _playbackRate;
     }
 
     private void OnRendering(object? sender, object e)
     {
-        if (!_prefs.Enabled || !_isPlaying || _isBuffering || _comments.Length == 0) return;
+        if (!_prefs.Enabled || !_clock.IsPlaying || _clock.IsBuffering || _comments.Length == 0) return;
         var width = ActualWidth;
         var height = ActualHeight;
         if (width <= 0 || height <= 0) return;
+        if (_lastWidth <= 0) _lastWidth = width;
 
-        var now = EstimateCurrentSec();
-        if (_lastRenderSec >= 0 && now < _lastRenderSec) now = _lastRenderSec;
-        _lastRenderSec = now;
+        var stepSec = _clock.StepFrame(Stopwatch.GetTimestamp(), out var jumpedForward);
+        if (jumpedForward) ResetCursor(_clock.ClockSec);
 
-        var effectiveNow = now + _prefs.TimeOffsetSeconds;
-
-        // 1. Update positions of all active items & recycle finished ones
+        // 1. Monotonically advance all active items & recycle finished ones
         for (var i = _active.Count - 1; i >= 0; i--)
         {
             var node = _active[i];
-            var elapsed = effectiveNow - node.StartSec;
-            if (elapsed >= node.DurationSec || elapsed < -0.5)
-            {
-                RecycleNode(i);
-                continue;
-            }
+            node.ElapsedSec += stepSec;
 
             if (node.Mode == DanmakuMode.Scroll)
             {
-                node.Transform.X = width - elapsed * node.SpeedPx;
+                node.CurrentX -= stepSec * node.SpeedPx;
+                if (node.CurrentX + node.WidthPx < -12 || node.ElapsedSec >= node.DurationSec + 1.0)
+                {
+                    RecycleNode(i);
+                    continue;
+                }
+                node.Transform.X = node.CurrentX;
+            }
+            else if (node.ElapsedSec >= node.DurationSec)
+            {
+                RecycleNode(i);
             }
         }
 
         // 2. Spawn newly due comments up to density cap
+        var effectiveNow = _clock.ClockSec + _prefs.TimeOffsetSeconds;
         var maxOnScreen = _prefs.Density switch { 0 => 25, 1 => 60, 2 => 110, _ => 180 };
         var spawnedThisFrame = 0;
         var laneHeight = _prefs.Size + 10.0;
@@ -296,7 +432,7 @@ public sealed class DanmakuOverlay : Canvas
             var itemWidth = Math.Max(20, node.Root.DesiredSize.Width);
             node.WidthPx = itemWidth;
             node.Mode = entry.Mode;
-            node.StartSec = effectiveNow;
+            node.ElapsedSec = 0;
 
             if (entry.Mode == DanmakuMode.Scroll)
             {
@@ -304,7 +440,7 @@ public sealed class DanmakuOverlay : Canvas
                 var lengthBoost = Math.Clamp(1.0 + itemWidth / (width * 2.5), 1.0, 1.28);
                 var duration = baseScrollDuration / lengthBoost;
                 var speed = (width + itemWidth) / duration;
-                var lane = FindScrollLane(laneCount, width, speed, gapPx, effectiveNow);
+                var lane = FindScrollLane(laneCount, width, speed, gapPx);
                 if (lane < 0)
                 {
                     ReturnToPool(node);
@@ -314,6 +450,7 @@ public sealed class DanmakuOverlay : Canvas
                 node.Lane = lane;
                 node.DurationSec = duration;
                 node.SpeedPx = speed;
+                node.CurrentX = width;
                 node.Transform.X = width;
                 node.Transform.Y = topMargin + lane * laneHeight;
                 if (lane < _lastInScrollLane.Length) _lastInScrollLane[lane] = node;
@@ -330,7 +467,8 @@ public sealed class DanmakuOverlay : Canvas
                 node.Lane = lane;
                 node.DurationSec = pinnedDuration;
                 node.SpeedPx = 0;
-                node.Transform.X = Math.Max(8, (width - itemWidth) * 0.5);
+                node.CurrentX = Math.Max(8, (width - itemWidth) * 0.5);
+                node.Transform.X = node.CurrentX;
                 node.Transform.Y = entry.Mode == DanmakuMode.Top
                     ? topMargin + lane * laneHeight
                     : Math.Max(topMargin, height - bottomMargin - (lane + 1) * laneHeight);
@@ -342,7 +480,7 @@ public sealed class DanmakuOverlay : Canvas
         }
     }
 
-    private int FindScrollLane(int laneCount, double canvasWidth, double newSpeed, double gapPx, double effectiveNow)
+    private int FindScrollLane(int laneCount, double canvasWidth, double newSpeed, double gapPx)
     {
         var count = Math.Min(laneCount, _lastInScrollLane.Length);
         for (var lane = 0; lane < count; lane++)
@@ -350,9 +488,7 @@ public sealed class DanmakuOverlay : Canvas
             var latest = _lastInScrollLane[lane];
             if (latest is null) return lane;
 
-            var prevElapsed = effectiveNow - latest.StartSec;
-            var prevLeft = canvasWidth - prevElapsed * latest.SpeedPx;
-            var prevRight = prevLeft + latest.WidthPx;
+            var prevRight = latest.CurrentX + latest.WidthPx;
 
             // Tail of previous comment must have cleared right edge with safety gap
             if (prevRight + gapPx > canvasWidth) continue;

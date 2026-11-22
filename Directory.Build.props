@@ -5,8 +5,13 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <AnalysisLevel>latest-recommended</AnalysisLevel>
     <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
-    <Version>1.7.0</Version>
-    <AssemblyVersion>1.7.0.0</AssemblyVersion>
-    <FileVersion>1.7.0.0</FileVersion>
+    <Version>1.8.0</Version>
+    <AssemblyVersion>1.8.0.0</AssemblyVersion>
+    <FileVersion>1.8.0.0</FileVersion>
+    <Product>流光影院 (Liuguang Cinema)</Product>
+    <Company>Liuguang Cinema Contributors</Company>
+    <Authors>Liuguang Cinema Contributors</Authors>
+    <Copyright>Copyright (c) Liuguang Cinema Contributors. MIT License.</Copyright>
+    <RepositoryUrl>https://github.com/binchen6/Liuguang-Cinema</RepositoryUrl>
   </PropertyGroup>
 </Project>

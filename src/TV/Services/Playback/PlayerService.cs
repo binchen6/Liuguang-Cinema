@@ -23,7 +23,6 @@ public sealed class PlayerService : IDisposable
     private Task _commandTail = Task.CompletedTask;
     private LibVLC? _libVLC;
     private MediaPlayer? _mediaPlayer;
-    private bool _coreInitialized;
     private Media? _currentMedia;
     private long _pendingStartPosition;
     private long? _pendingSeekPosition;
@@ -45,17 +44,39 @@ public sealed class PlayerService : IDisposable
     private string? _cropGeometry;
     private PlayerSnapshot _snapshot = new(VLCState.NothingSpecial, false, 0, 0, false, 100, [], [], -1, -1, null, 1);
 
+    private readonly object _controlSync = new();
+    private int _controlPumpScheduled;
+    private int _pendingPauseState = -1; // -1 none, 0 play, 1 pause
+    private long _pendingImmediateSeekMs = -1;
+    private int _pendingVolume = -1;
+    private float _pendingRate = -1f;
+    private long _pendingSubtitleDelayMs = long.MinValue;
+    private long _pendingAudioDelayMs = long.MinValue;
+    private bool _pendingGeometryUpdate;
+
+    private static readonly object VlcInitSync = new();
+    private static volatile bool _vlcRuntimeInitialized;
+
     public PlayerService()
     {
         // Defer LibVLC native initialization until EnsureInitializedAsync(swapChainOptions)
         // or first headless access, eliminating the redundant double-create startup cost & memory footprint.
     }
 
-    private void EnsureVlcRuntimeInitialized()
+    internal static void EnsureVlcRuntimeInitialized()
     {
-        if (_coreInitialized) return;
-        Core.Initialize();
-        _coreInitialized = true;
+        if (_vlcRuntimeInitialized) return;
+        lock (VlcInitSync)
+        {
+            if (_vlcRuntimeInitialized) return;
+            // Always prefer the bundled libvlc runtime over any system-installed VLC to guarantee version compatibility across PCs.
+            var bundledDir = Path.Combine(AppContext.BaseDirectory, "libvlc", "win-x64");
+            if (Directory.Exists(bundledDir) && File.Exists(Path.Combine(bundledDir, "libvlc.dll")))
+                Core.Initialize(bundledDir);
+            else
+                Core.Initialize();
+            _vlcRuntimeInitialized = true;
+        }
     }
 
     private (LibVLC libVLC, MediaPlayer player) CreateCore(string[]? swapChainOptions)
@@ -235,24 +256,28 @@ public sealed class PlayerService : IDisposable
         }
     }
 
-    public void TogglePause() => RunFireAndForget(() =>
+    public void TogglePause() => SetPause(_snapshot.IsPlaying);
+
+    /// <summary>
+    /// Deterministic, high-priority pause/resume command that coalesces past queued volume/slider ticks
+    /// and updates LastSnapshot immediately so UI & danmaku respond with minimal latency.
+    /// </summary>
+    public void SetPause(bool paused)
     {
-        if (_currentMedia is null || _mediaPlayer is null) return;
-        if (_mediaPlayer.IsPlaying) _mediaPlayer.Pause();
-        else _mediaPlayer.Play();
-        PlaybackChanged?.Invoke(this, EventArgs.Empty);
-    });
+        lock (_controlSync) _pendingPauseState = paused ? 1 : 0;
+        ScheduleControlPump();
+    }
 
     internal int CurrentVideoHeight => _videoFormat?.Height ?? 0;
 
-    public Task<PlayerSnapshot> ReadSnapshotAsync(CancellationToken token) => RunNativeAsync(() =>
+    public Task<PlayerSnapshot> ReadSnapshotAsync(CancellationToken token) => RunNativeCoreAsync(() =>
     {
         if (_mediaPlayer is null) return _snapshot;
         ApplyPendingPositionCore();
         ApplyPendingTracksCore();
         var state = _mediaPlayer.State;
         var video = ReadVideoFormatCore(state);
-        var readTracks = ++_snapshotReads <= 4 || _snapshotReads % 12 == 0;
+        var readTracks = ++_snapshotReads <= 4 || _snapshotReads % 20 == 0;
         var audio = readTracks ? DescribeTracks(_mediaPlayer.AudioTrackDescription) : _snapshot.AudioTracks;
         var subtitles = readTracks ? DescribeTracks(_mediaPlayer.SpuDescription) : _snapshot.SubtitleTracks;
         _snapshot = new PlayerSnapshot(state, _mediaPlayer.IsPlaying, Math.Max(0, _mediaPlayer.Time), Math.Max(0, _mediaPlayer.Length),
@@ -309,22 +334,154 @@ public sealed class PlayerService : IDisposable
         return new string(chars).Trim();
     }
 
-    public void Seek(long positionMs) => RunFireAndForget(() =>
+    public void Seek(long positionMs)
     {
-        if (_mediaPlayer is null) return;
-        if (_mediaPlayer.Length > 0 && _mediaPlayer.IsSeekable)
+        lock (_controlSync) _pendingImmediateSeekMs = Math.Max(0, positionMs);
+        ScheduleControlPump();
+    }
+
+    private void ClearPendingControls()
+    {
+        lock (_controlSync)
         {
-            _pendingSeekPosition = null;
-            var target = Math.Clamp(positionMs, 0, _mediaPlayer.Length);
-            _mediaPlayer.Time = target;
-            _positionApplied = true;
-            _snapshot = _snapshot with { TimeMs = target, CapturedAtTimestamp = Stopwatch.GetTimestamp() };
+            _pendingPauseState = -1;
+            _pendingImmediateSeekMs = -1;
+            _pendingVolume = -1;
+            _pendingRate = -1f;
+            _pendingSubtitleDelayMs = long.MinValue;
+            _pendingAudioDelayMs = long.MinValue;
+            _pendingGeometryUpdate = false;
         }
-        else if (CurrentRequest?.Kind == PlaybackKind.Vod) _pendingSeekPosition = positionMs;
-    });
+    }
+
+    private void ScheduleControlPump()
+    {
+        if (_disposed || IsStopping) return;
+        if (Interlocked.CompareExchange(ref _controlPumpScheduled, 1, 0) != 0) return;
+        _ = Task.Run(DrainControlsLoopAsync);
+    }
+
+    private async Task DrainControlsLoopAsync()
+    {
+        try
+        {
+            while (!_disposed && !IsStopping)
+            {
+                int pauseState;
+                long seekMs;
+                int volume;
+                float rate;
+                long subDelay;
+                long audDelay;
+                bool geometry;
+                lock (_controlSync)
+                {
+                    pauseState = _pendingPauseState;
+                    seekMs = _pendingImmediateSeekMs;
+                    volume = _pendingVolume;
+                    rate = _pendingRate;
+                    subDelay = _pendingSubtitleDelayMs;
+                    audDelay = _pendingAudioDelayMs;
+                    geometry = _pendingGeometryUpdate;
+
+                    _pendingPauseState = -1;
+                    _pendingImmediateSeekMs = -1;
+                    _pendingVolume = -1;
+                    _pendingRate = -1f;
+                    _pendingSubtitleDelayMs = long.MinValue;
+                    _pendingAudioDelayMs = long.MinValue;
+                    _pendingGeometryUpdate = false;
+                }
+
+                if (pauseState < 0 && seekMs < 0 && volume < 0 && rate <= 0f &&
+                    subDelay == long.MinValue && audDelay == long.MinValue && !geometry)
+                {
+                    break;
+                }
+
+                await _nativeGate.WaitAsync().ConfigureAwait(false);
+                try
+                {
+                    if (_disposed || IsStopping || _mediaPlayer is null) break;
+
+                    // 1. Highest priority: deterministic play / pause
+                    if (pauseState >= 0 && _currentMedia is not null)
+                    {
+                        var shouldPause = pauseState == 1;
+                        if (shouldPause)
+                        {
+                            _mediaPlayer.SetPause(true);
+                        }
+                        else
+                        {
+                            if (_mediaPlayer.State == VLCState.Paused) _mediaPlayer.SetPause(false);
+                            else _mediaPlayer.Play();
+                        }
+                        _snapshot = _snapshot with
+                        {
+                            IsPlaying = !shouldPause,
+                            State = shouldPause ? VLCState.Paused : VLCState.Playing,
+                            CapturedAtTimestamp = Stopwatch.GetTimestamp()
+                        };
+                        PlaybackChanged?.Invoke(this, EventArgs.Empty);
+                    }
+
+                    // 2. Seek
+                    if (seekMs >= 0)
+                    {
+                        if (_mediaPlayer.Length > 0 && _mediaPlayer.IsSeekable)
+                        {
+                            _pendingSeekPosition = null;
+                            var target = Math.Clamp(seekMs, 0, _mediaPlayer.Length);
+                            _mediaPlayer.Time = target;
+                            _positionApplied = true;
+                            _snapshot = _snapshot with { TimeMs = target, CapturedAtTimestamp = Stopwatch.GetTimestamp() };
+                        }
+                        else if (CurrentRequest?.Kind == PlaybackKind.Vod)
+                        {
+                            _pendingSeekPosition = seekMs;
+                        }
+                    }
+
+                    // 3. Continuous / secondary controls
+                    if (rate > 0f)
+                    {
+                        _mediaPlayer.SetRate(rate);
+                        _snapshot = _snapshot with { Rate = rate };
+                    }
+                    if (volume >= 0) _mediaPlayer.Volume = volume;
+                    if (subDelay != long.MinValue) _mediaPlayer.SetSpuDelay(subDelay * 1000L);
+                    if (audDelay != long.MinValue) _mediaPlayer.SetAudioDelay(audDelay * 1000L);
+                    if (geometry) ApplyGeometryCore(_mediaPlayer);
+                }
+                catch (Exception ex)
+                {
+                    Diagnostics.Log($"LibVLC control failed: {ex.GetType().Name} {ex.Message}");
+                }
+                finally
+                {
+                    _nativeGate.Release();
+                }
+            }
+        }
+        finally
+        {
+            Interlocked.Exchange(ref _controlPumpScheduled, 0);
+            // Re-check once after releasing flag so a concurrent enqueue is never lost.
+            bool hasMore;
+            lock (_controlSync)
+            {
+                hasMore = _pendingPauseState >= 0 || _pendingImmediateSeekMs >= 0 || _pendingVolume >= 0 ||
+                    _pendingRate > 0f || _pendingSubtitleDelayMs != long.MinValue ||
+                    _pendingAudioDelayMs != long.MinValue || _pendingGeometryUpdate;
+            }
+            if (hasMore && !_disposed && !IsStopping) ScheduleControlPump();
+        }
+    }
 
     private void StopCore()
     {
+        ClearPendingControls();
         if (_currentMedia is null) return;
         if (_mediaPlayer is not null)
         {
@@ -425,19 +582,28 @@ public sealed class PlayerService : IDisposable
     internal Task<bool> AddSubtitleAsync(Uri file) => RunNativeAsync(() =>
         _mediaPlayer is not null && _mediaPlayer.AddSlave(MediaSlaveType.Subtitle, file.AbsoluteUri, true), CancellationToken.None);
 
-    internal void SetRate(float rate) => RunFireAndForget(() => _mediaPlayer?.SetRate(rate));
+    internal void SetRate(float rate)
+    {
+        if (rate <= 0f || !float.IsFinite(rate)) return;
+        lock (_controlSync) _pendingRate = rate;
+        ScheduleControlPump();
+    }
+
     internal void SetVolume(int volume)
     {
         _volume = Math.Clamp(volume, 0, 100);
-        RunFireAndForget(() => { if (_mediaPlayer is not null) _mediaPlayer.Volume = _volume; });
+        lock (_controlSync) _pendingVolume = _volume;
+        ScheduleControlPump();
     }
-    internal void SetBufferingPause(bool paused) => RunFireAndForget(() => _mediaPlayer?.SetPause(paused));
+
+    internal void SetBufferingPause(bool paused) => SetPause(paused);
 
     internal void SetVideoGeometry(string? aspectRatio, string? cropGeometry)
     {
         _aspectRatio = aspectRatio;
         _cropGeometry = cropGeometry;
-        RunFireAndForget(() => { if (_mediaPlayer is not null) ApplyGeometryCore(_mediaPlayer); });
+        lock (_controlSync) _pendingGeometryUpdate = true;
+        ScheduleControlPump();
     }
 
     private void ApplyGeometryCore(MediaPlayer player)
@@ -446,8 +612,17 @@ public sealed class PlayerService : IDisposable
         player.CropGeometry = _cropGeometry;
     }
 
-    internal void SetSubtitleDelayMs(long delayMs) => RunFireAndForget(() => _mediaPlayer?.SetSpuDelay(delayMs * 1000L));
-    internal void SetAudioDelayMs(long delayMs) => RunFireAndForget(() => _mediaPlayer?.SetAudioDelay(delayMs * 1000L));
+    internal void SetSubtitleDelayMs(long delayMs)
+    {
+        lock (_controlSync) _pendingSubtitleDelayMs = delayMs;
+        ScheduleControlPump();
+    }
+
+    internal void SetAudioDelayMs(long delayMs)
+    {
+        lock (_controlSync) _pendingAudioDelayMs = delayMs;
+        ScheduleControlPump();
+    }
     internal void NextFrame() => RunFireAndForget(() => _mediaPlayer?.NextFrame());
     internal Task<bool> TakeSnapshotAsync(string filePath, CancellationToken token = default) => RunNativeAsync(() =>
         _mediaPlayer is not null && _currentMedia is not null && _mediaPlayer.TakeSnapshot(0, filePath, 0, 0), token);

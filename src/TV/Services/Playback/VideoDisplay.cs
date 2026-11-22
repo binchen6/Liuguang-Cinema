@@ -15,8 +15,9 @@ internal static class VideoDisplay
             using var display = DisplayInformation.CreateForWindowId(window);
             return display.GetAdvancedColorInfo().CurrentAdvancedColorKind == DisplayAdvancedColorKind.HighDynamicRange;
         }
-        catch (Exception ex) when (ex is COMException or InvalidOperationException or NotSupportedException or ArgumentException)
+        catch (Exception ex)
         {
+            Diagnostics.Log($"HDR display query unavailable: {ex.GetType().Name}");
             return false;
         }
     }
@@ -35,6 +36,7 @@ internal static class VideoDisplay
 
     public static bool TryEnableHdrOutput(nint pointer)
     {
+        if (pointer == 0) return false;
         try
         {
             // VideoView supplies its own composition swap chain. Give VLC 10-bit buffers
@@ -51,9 +53,9 @@ internal static class VideoDisplay
 
             swapChain.ResizeBuffers(0, description.Width, description.Height, description.Format, description.Flags);
         }
-        catch (Exception ex) when (ex is SharpDX.SharpDXException or COMException)
+        catch (Exception ex)
         {
-            Diagnostics.Log($"HDR composition surface unavailable (0x{ex.HResult:X8})");
+            Diagnostics.Log($"HDR composition surface unavailable ({ex.GetType().Name} 0x{ex.HResult:X8})");
         }
         return false;
     }

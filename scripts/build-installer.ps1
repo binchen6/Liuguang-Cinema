@@ -4,7 +4,13 @@ param(
     [string]$Configuration = "Release",
     [switch]$MavenOffline,
     [switch]$NoRestore,
-    [string]$ReleaseDirectory
+    [switch]$SkipPortableZip,
+    [string]$ReleaseDirectory,
+    [string]$CertThumbprint = $env:TV_SIGN_THUMBPRINT,
+    [string]$PfxPath = $env:TV_SIGN_PFX,
+    [string]$PfxPassword = $env:TV_SIGN_PASSWORD,
+    [string]$SignToolPath = $env:TV_SIGNTOOL_PATH,
+    [string]$TimestampUrl = "http://timestamp.digicert.com"
 )
 
 $ErrorActionPreference = "Stop"
@@ -25,17 +31,39 @@ function Assert-ReleaseIntegrity([string]$Path) {
     }
 }
 
+function Resolve-SignTool([string]$ExplicitPath) {
+    if ($ExplicitPath -and (Test-Path -LiteralPath $ExplicitPath)) { return (Resolve-Path -LiteralPath $ExplicitPath).Path }
+    $cmd = Get-Command signtool.exe -ErrorAction SilentlyContinue
+    if ($cmd) { return $cmd.Source }
+    $kits = "${env:ProgramFiles(x86)}\Windows Kits\10\bin"
+    if (Test-Path -LiteralPath $kits) {
+        $found = Get-ChildItem -LiteralPath $kits -Recurse -Filter signtool.exe -ErrorAction SilentlyContinue |
+            Where-Object { $_.FullName -match '\\x64\\signtool\.exe$' } |
+            Sort-Object FullName -Descending | Select-Object -First 1
+        if ($found) { return $found.FullName }
+    }
+    return $null
+}
+
+# Structural non-regression guard: installer must keep instant-launch configuration
+$issPath = Join-Path $root "installer/TV.iss"
+$issRaw = Get-Content -LiteralPath $issPath -Raw
+if ($issRaw -notmatch '(?m)^InternalCompressLevel=none\s*$' -or $issRaw -notmatch '(?m)^SolidCompression=no\s*$') {
+    throw "Installer fast-launch guard failed: installer/TV.iss must define InternalCompressLevel=none and SolidCompression=no."
+}
+
 Assert-ReleaseIntegrity $release
 $dotnet = Join-Path $root ".dotnet/dotnet.exe"
 if (-not (Test-Path $dotnet)) { $dotnet = (Get-Command dotnet -ErrorAction Stop).Source }
 $publishId = [Guid]::NewGuid().ToString('N').Substring(0, 8)
 $publish = Join-Path $root "artifacts/publish-$publishId"
-$prerequisites = Join-Path $root "artifacts/prerequisites"
 $version = ([xml](Get-Content (Join-Path $root 'Directory.Build.props') -Raw)).Project.PropertyGroup.Version
 if ($version -notmatch '^\d+\.\d+\.\d+$') { throw "Invalid application version: $version" }
 $installerName = "TV-Setup-$version-x64"
 $installer = Join-Path $release "$installerName.exe"
-New-Item -ItemType Directory -Force -Path $publish, $prerequisites | Out-Null
+$portableName = "TV-$version-win-x64-portable"
+$portableZip = Join-Path $release "$portableName.zip"
+New-Item -ItemType Directory -Force -Path $publish | Out-Null
 if (-not $env:ProgramFiles) { $env:ProgramFiles = "C:\Program Files" }
 if (-not ${env:ProgramFiles(x86)}) { ${env:ProgramFiles(x86)} = "C:\Program Files (x86)" }
 if (-not $env:ProgramData) { $env:ProgramData = "C:\ProgramData" }
@@ -43,13 +71,19 @@ if (-not $env:LOCALAPPDATA -or -not (Test-Path $env:LOCALAPPDATA)) {
     $env:LOCALAPPDATA = [Environment]::GetFolderPath("LocalApplicationData")
 }
 
-$jdk17 = Join-Path $env:USERPROFILE ".jdks/jdk-17"
-if (Test-Path (Join-Path $jdk17 "bin/jlink.exe")) { $javaHome = Get-Item $jdk17 }
-else {
-    $javaHome = Get-ChildItem "$env:ProgramFiles\Microsoft\jdk-*" -Directory -ErrorAction SilentlyContinue |
-        Where-Object { Test-Path (Join-Path $_.FullName "bin/jlink.exe") } |
-        Sort-Object Name -Descending | Select-Object -First 1
+# Prefer Microsoft Build of OpenJDK (binaries are Microsoft-signed, improving Windows Smart App Control compatibility)
+$jdkCandidates = @()
+if (Test-Path "$env:ProgramFiles\Microsoft") {
+    $jdkCandidates += Get-ChildItem "$env:ProgramFiles\Microsoft\jdk-17*" -Directory -ErrorAction SilentlyContinue
 }
+$jdk17 = Join-Path $env:USERPROFILE ".jdks/jdk-17"
+if (Test-Path $jdk17) { $jdkCandidates += Get-Item $jdk17 }
+if (Test-Path "$env:ProgramFiles\Microsoft") {
+    $jdkCandidates += Get-ChildItem "$env:ProgramFiles\Microsoft\jdk-*" -Directory -ErrorAction SilentlyContinue
+}
+$javaHome = $jdkCandidates |
+    Where-Object { Test-Path (Join-Path $_.FullName "bin/jlink.exe") } |
+    Select-Object -First 1
 if (-not $javaHome) { throw "A JDK with jlink is required to build the Java engine and runtime." }
 $env:JAVA_HOME = $javaHome.FullName
 $env:Path = "$env:JAVA_HOME\bin;$env:Path"
@@ -87,14 +121,49 @@ $modules = "java.base,java.datatransfer,java.xml,java.prefs,java.desktop,java.lo
 & "$env:JAVA_HOME\bin\jlink.exe" --add-modules $modules --compress=2 --no-header-files --no-man-pages --strip-debug --output $javaOutput
 if ($LASTEXITCODE -ne 0) { throw "jlink failed with exit code $LASTEXITCODE" }
 
-$webview = Join-Path $prerequisites "MicrosoftEdgeWebView2Setup.exe"
-if (-not (Test-Path $webview)) {
-    Invoke-WebRequest -Uri "https://go.microsoft.com/fwlink/p/?LinkId=2124703" -OutFile $webview -UseBasicParsing
+# Remove unused JDK CLI utilities that are never invoked by the app
+foreach ($unusedTool in "jrunscript.exe", "keytool.exe") {
+    $toolPath = Join-Path $javaOutput "bin\$unusedTool"
+    if (Test-Path -LiteralPath $toolPath) { Remove-Item -LiteralPath $toolPath -Force }
 }
-$vcredist = Join-Path $prerequisites "vc_redist.x64.exe"
-if (-not (Test-Path $vcredist)) {
-    Invoke-WebRequest -Uri "https://aka.ms/vs/17/release/vc_redist.x64.exe" -OutFile $vcredist -UseBasicParsing
+
+# Restore original Microsoft-signed binaries from JAVA_HOME\bin onto jlink output
+# (jlink extracts unsigned PE files from .jmod archives, which triggers Windows Smart App Control!)
+$javaBinSrc = Join-Path $env:JAVA_HOME "bin"
+$javaBinDst = Join-Path $javaOutput "bin"
+$restoredSignedJava = 0
+Get-ChildItem -LiteralPath $javaBinDst -Recurse -File -Include *.exe,*.dll | ForEach-Object {
+    $rel = $_.FullName.Substring($javaBinDst.Length + 1)
+    $srcFile = Join-Path $javaBinSrc $rel
+    if (Test-Path -LiteralPath $srcFile) {
+        $sig = Get-AuthenticodeSignature -LiteralPath $srcFile
+        if ($sig.Status -eq 'Valid') {
+            Copy-Item -LiteralPath $srcFile -Destination $_.FullName -Force
+            $restoredSignedJava++
+        }
+    }
 }
+Write-Host "Restored $restoredSignedJava Authenticode-signed Java runtime binaries from $($env:JAVA_HOME)" -ForegroundColor Cyan
+
+# App-local Visual C++ x64 Runtime DLLs (Microsoft-signed, ~1.5 MB total):
+# Replaces the 24.45 MB nested vc_redist.x64.exe — enables instant installer launch, zero UAC prompt,
+# and universal compatibility on clean Windows 10/11 PCs (including Portable ZIP).
+$crtDlls = @("vcruntime140.dll", "vcruntime140_1.dll", "msvcp140.dll", "msvcp140_1.dll", "msvcp140_2.dll", "concrt140.dll")
+$system32 = Join-Path $env:SystemRoot "System32"
+$copiedCrt = 0
+foreach ($crt in $crtDlls) {
+    $src = Join-Path $system32 $crt
+    if (-not (Test-Path -LiteralPath $src)) {
+        throw "Required Microsoft VC++ Runtime DLL missing on build host: $src"
+    }
+    $sig = Get-AuthenticodeSignature -LiteralPath $src
+    if ($sig.Status -ne 'Valid') {
+        throw "VC++ Runtime DLL failed Authenticode verification: $src ($($sig.Status))"
+    }
+    Copy-Item -LiteralPath $src -Destination (Join-Path $publish $crt) -Force
+    $copiedCrt++
+}
+Write-Host "Bundled $copiedCrt Microsoft-signed app-local VC++ CRT DLLs." -ForegroundColor Cyan
 
 $publishPath = (Resolve-Path -LiteralPath $publish).Path.TrimEnd('\') + '\'
 function Remove-PublishDirectory([string]$path) {
@@ -111,7 +180,10 @@ $prunePatterns = @(
     "Microsoft.Windows.Private.Workloads*", "Microsoft.Windows.SemanticSearch*", "Microsoft.Graphics.Imaging*",
     "Microsoft.Windows.Media.Capture*", "Microsoft.Windows.Widgets*", "Microsoft.Windows.AppNotifications*",
     "Microsoft.Windows.PushNotifications*", "Microsoft.Security.Authentication.OAuth*",
-    "PushNotificationsLongRunningTask.ProxyStub.dll", "createdump.exe", "mscordbi.dll", "mscordaccore*", "Microsoft.DiaSymReader.Native.amd64.dll"
+    "PushNotificationsLongRunningTask.ProxyStub.dll", "createdump.exe", "mscordbi.dll", "mscordaccore*",
+    "Microsoft.DiaSymReader.Native.amd64.dll",
+    # Unused ANGLE OpenGL ES native libs (app uses CPU SkiaSharp only)
+    "libGLESv2.dll", "libEGL.dll"
 )
 Get-ChildItem $publish -Recurse -File -Filter "*.pdb" -ErrorAction SilentlyContinue | Remove-Item -Force
 foreach ($pattern in $prunePatterns) {
@@ -127,9 +199,29 @@ foreach ($architecture in "win-x86", "win-arm64") {
     $path = Join-Path $publish "libvlc/$architecture"
     Remove-PublishDirectory $path
 }
-foreach ($name in "services_discovery", "lua", "visualization", "logger", "meta_engine", "stream_extractor") {
+foreach ($name in "services_discovery", "lua", "visualization", "logger", "meta_engine", "stream_extractor", "video_splitter") {
     $path = Join-Path $vlc "plugins/$name"
     Remove-PublishDirectory $path
+}
+# Prune unused disc/capture/broadcast/encoder LibVLC plugins while retaining 100% of HTTP/HLS/DASH/RTSP/file playback,
+# GPU hardware decoding (d3d11va/dxva2/qsv), AV1 (dav1d), all subtitle renderers, and AI audio extraction plugins.
+$pruneVlcAccess = @(
+    "libaccess_srt_plugin.dll", "librist_plugin.dll", "libdcp_plugin.dll",
+    "liblibbluray_plugin.dll", "libbluray-j2se-*.jar", "libsftp_plugin.dll",
+    "libcdda_plugin.dll", "libdtv_plugin.dll", "libvcd_plugin.dll", "libvdr_plugin.dll",
+    "libnfs_plugin.dll", "libdvdnav_plugin.dll", "libdvdread_plugin.dll",
+    "libdshow_plugin.dll", "libvnc_plugin.dll", "libsatip_plugin.dll", "libscreen_plugin.dll"
+)
+foreach ($pattern in $pruneVlcAccess) {
+    Get-ChildItem (Join-Path $vlc "plugins/access") -File -Filter $pattern -ErrorAction SilentlyContinue | Remove-Item -Force
+}
+$pruneVlcCodec = @(
+    "libx264_plugin.dll", "libx26410b_plugin.dll", "libx265_plugin.dll",
+    "libaom_plugin.dll", "libzvbi_plugin.dll", "libfluidsynth_plugin.dll",
+    "libtwolame_plugin.dll", "libschroedinger_plugin.dll", "libtheora_plugin.dll"
+)
+foreach ($pattern in $pruneVlcCodec) {
+    Get-ChildItem (Join-Path $vlc "plugins/codec") -File -Filter $pattern -ErrorAction SilentlyContinue | Remove-Item -Force
 }
 # Keep only the 6 minimal LibVLC plugins (~380 KB) required for fast headless AI subtitle audio extraction
 $keepVlcPlugins = @{
@@ -146,8 +238,8 @@ foreach ($folder in $keepVlcPlugins.Keys) {
 $lua = Join-Path $vlc "lua"
 Remove-PublishDirectory $lua
 Get-ChildItem $vlc -File -Filter "*.lib" -ErrorAction SilentlyContinue | Remove-Item -Force
-foreach ($native in "libvlc.dll", "libvlccore.dll", "plugins", "TV.exe", "runtime/catvod-engine.jar", "runtime/java/bin/java.exe") {
-    if ($native -eq "TV.exe") { $path = Join-Path $publish "TV.exe" }
+foreach ($native in "libvlc.dll", "libvlccore.dll", "plugins", "TV.exe", "vcruntime140.dll", "msvcp140.dll", "runtime/catvod-engine.jar", "runtime/java/bin/java.exe") {
+    if ($native -in @("TV.exe", "vcruntime140.dll", "msvcp140.dll")) { $path = Join-Path $publish $native }
     elseif ($native.StartsWith("runtime/")) { $path = Join-Path $publish $native }
     else { $path = Join-Path $vlc $native }
     if (-not (Test-Path $path)) { throw "Publish asset is missing: $path" }
@@ -161,6 +253,35 @@ if ((Get-FileHash $builtXbf).Hash -ne (Get-FileHash $publishedXbf).Hash) { throw
 $builtPri = Join-Path $currentOutput "TV.pri"
 $publishedPri = Join-Path $publish "TV.pri"
 if ((Get-FileHash $builtPri).Hash -ne (Get-FileHash $publishedPri).Hash) { throw "Published resource index is stale; clean rebuild required." }
+
+# Optional Dual-Layer Authenticode Signing (signs all unsigned inner EXEs/DLLs + Inno uninstaller + final Setup EXE)
+$shouldSign = -not [string]::IsNullOrWhiteSpace($CertThumbprint) -or -not [string]::IsNullOrWhiteSpace($PfxPath)
+$resolvedSignTool = $null
+$isccSignArgs = @()
+if ($shouldSign) {
+    $resolvedSignTool = Resolve-SignTool $SignToolPath
+    if (-not $resolvedSignTool) { throw "Code signing requested, but signtool.exe was not found. Install Windows SDK Signing Tools or pass -SignToolPath." }
+    $baseSignArgs = @("sign", "/fd", "SHA256", "/tr", $TimestampUrl, "/td", "SHA256")
+    if (-not [string]::IsNullOrWhiteSpace($CertThumbprint)) {
+        $baseSignArgs += @("/sha1", $CertThumbprint)
+    } else {
+        if (-not (Test-Path -LiteralPath $PfxPath)) { throw "Signing PFX file not found: $PfxPath" }
+        $baseSignArgs += @("/f", (Resolve-Path -LiteralPath $PfxPath).Path)
+        if (-not [string]::IsNullOrWhiteSpace($PfxPassword)) { $baseSignArgs += @("/p", $PfxPassword) }
+    }
+
+    $unsignedInner = @(Get-ChildItem -LiteralPath $publish -Recurse -File -Include *.exe,*.dll |
+        Where-Object { (Get-AuthenticodeSignature -LiteralPath $_.FullName).Status -ne 'Valid' })
+    if ($unsignedInner.Count -gt 0) {
+        Write-Host "Signing $($unsignedInner.Count) unsigned payload binaries..." -ForegroundColor Cyan
+        foreach ($bin in $unsignedInner) {
+            & $resolvedSignTool @baseSignArgs $bin.FullName
+            if ($LASTEXITCODE -ne 0) { throw "signtool failed on $($bin.FullName) with exit code $LASTEXITCODE" }
+        }
+    }
+    $signCmdParts = @("`"$resolvedSignTool`"") + ($baseSignArgs | ForEach-Object { if ($_ -match '\s') { "`"$_`"" } else { $_ } }) + @('$f')
+    $isccSignArgs = @("/DEnableSignTool=1", "/Ssigntool=$($signCmdParts -join ' ')")
+}
 
 $isccCandidates = @(
     "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe",
@@ -199,10 +320,12 @@ foreach ($packagePath in ($packagePaths | Sort-Object -Unique)) {
         break
     }
 }
+
 $setupStage = Join-Path $root "artifacts/installer-$publishId"
 New-Item -ItemType Directory -Path $setupStage | Out-Null
 $setupOutput = Join-Path $setupStage "$installerName.exe"
-& $iscc "/DMyAppVersion=$version" "/DPublishRoot=$publish" "/O$setupStage" "/F$installerName" (Join-Path $root "installer/TV.iss")
+$isccArgs = @("/DMyAppVersion=$version", "/DPublishRoot=$publish", "/O$setupStage", "/F$installerName") + $isccSignArgs + @($issPath)
+& $iscc @isccArgs
 if ($LASTEXITCODE -ne 0) { throw "Inno Setup failed with exit code $LASTEXITCODE" }
 try {
     Assert-ReleaseIntegrity $setupOutput
@@ -211,6 +334,14 @@ try {
 } finally {
     if (Test-Path -LiteralPath $setupOutput -PathType Leaf) { Remove-Item -LiteralPath $setupOutput }
 }
+if ($shouldSign) {
+    $finalSig = Get-AuthenticodeSignature -LiteralPath $installer
+    if ($finalSig.Status -ne 'Valid') {
+        throw "Final installer Authenticode verification failed: $($finalSig.Status)"
+    }
+    Write-Host "Installer Authenticode signature: VALID ($($finalSig.SignerCertificate.Subject))" -ForegroundColor Green
+}
+
 if ($release -eq $defaultRelease) {
     $legacyOutput = (New-Item -ItemType Directory -Force -Path (Join-Path $root 'installer/Output')).FullName
     Assert-ReleaseIntegrity $legacyOutput
@@ -222,6 +353,18 @@ if ($release -eq $defaultRelease) {
 $file = Get-Item $installer
 $hash = Get-FileHash $file.FullName -Algorithm SHA256
 Write-Host "Installer created: $($file.FullName)" -ForegroundColor Green
-Write-Host "Size: $($file.Length) bytes; SHA256: $($hash.Hash)" -ForegroundColor Green
+Write-Host ("Size: {0:N0} bytes ({1:N2} MB); SHA256: {2}" -f $file.Length, ($file.Length / 1MB), $hash.Hash) -ForegroundColor Green
 "$($hash.Hash.ToLowerInvariant()) *$installerName.exe" | Set-Content "$installer.sha256" -Encoding ascii
+
+if (-not $SkipPortableZip) {
+    if (Test-Path -LiteralPath $portableZip) { Remove-Item -LiteralPath $portableZip -Force }
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    [System.IO.Compression.ZipFile]::CreateFromDirectory($publish, $portableZip, [System.IO.Compression.CompressionLevel]::Fastest, $false)
+    Assert-ReleaseIntegrity $portableZip
+    $zipFile = Get-Item $portableZip
+    $zipHash = Get-FileHash $zipFile.FullName -Algorithm SHA256
+    "$($zipHash.Hash.ToLowerInvariant()) *$portableName.zip" | Set-Content "$portableZip.sha256" -Encoding ascii
+    Write-Host ("Portable ZIP created: {0} ({1:N2} MB)" -f $zipFile.FullName, ($zipFile.Length / 1MB)) -ForegroundColor Green
+}
+
 Write-Host "Publish directory: $publish"

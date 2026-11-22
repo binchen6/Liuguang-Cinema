@@ -138,16 +138,29 @@ public sealed partial class VodPage : Page
         if (sender is FrameworkElement element) MotionService.SetCardHover(element, null, null, false);
     }
 
+    private sealed record CardParts(FrameworkElement? Overlay, FrameworkElement? Badge);
+    private readonly System.Runtime.CompilerServices.ConditionalWeakTable<FrameworkElement, CardParts> _cardParts = new();
+
+    private CardParts GetCardParts(FrameworkElement card)
+    {
+        if (_cardParts.TryGetValue(card, out var parts) && parts.Overlay is not null) return parts;
+        parts = new CardParts(FindDescendant(card, "PlayOverlay"), FindDescendant(card, "PlayBadge"));
+        if (parts.Overlay is not null) _cardParts.AddOrUpdate(card, parts);
+        return parts;
+    }
+
     private void OnCardIn(object sender, PointerRoutedEventArgs e)
     {
         if (sender is not FrameworkElement element) return;
-        MotionService.SetCardHover(element, FindDescendant(element, "PlayOverlay"), FindDescendant(element, "PlayBadge"), true);
+        var parts = GetCardParts(element);
+        MotionService.SetCardHover(element, parts.Overlay, parts.Badge, true);
     }
 
     private void OnCardOut(object sender, PointerRoutedEventArgs e)
     {
         if (sender is not FrameworkElement element) return;
-        MotionService.SetCardHover(element, FindDescendant(element, "PlayOverlay"), FindDescendant(element, "PlayBadge"), false);
+        var parts = GetCardParts(element);
+        MotionService.SetCardHover(element, parts.Overlay, parts.Badge, false);
     }
 
     private void OnCardPressed(object sender, PointerRoutedEventArgs e)

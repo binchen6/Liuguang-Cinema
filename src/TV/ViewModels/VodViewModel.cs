@@ -588,9 +588,11 @@ public sealed partial class VodViewModel : ObservableObject
 
     private void AppendBrowseCards(IEnumerable<VodCardViewModel> newCards)
     {
+        var added = new List<VodCardViewModel>();
         if (HasCategoryFilters)
         {
-            foreach (var card in newCards) Items.Add(card);
+            foreach (var card in newCards) { Items.Add(card); added.Add(card); }
+            _services.Images.Prefetch(added.Select(c => c.Item.BestPicture), maxCount: 16);
             return;
         }
         var year = YearFilter.Trim();
@@ -598,8 +600,12 @@ public sealed partial class VodViewModel : ObservableObject
         {
             if (Services.Vod.SearchScoring.MatchesType(card.Item, TypeFilter) &&
                 (year.Length == 0 || card.Item.Year.Contains(year, StringComparison.Ordinal)))
+            {
                 Items.Add(card);
+                added.Add(card);
+            }
         }
+        if (added.Count > 0) _services.Images.Prefetch(added.Select(c => c.Item.BestPicture), maxCount: 16);
     }
 
     private void ApplyBrowseFilters()
@@ -897,6 +903,8 @@ public sealed partial class VodViewModel : ObservableObject
         foreach (var card in cards) Items.Add(card);
         foreach (var card in Items.Take(8)) GalleryItems.Add(card);
         OnPropertyChanged(nameof(ShowGallery));
+        if (Items.Count > 0)
+            _services.Images.Prefetch(Items.Select(c => c.Item.BestPicture), maxCount: 20);
     }
 
     private CancellationToken BeginRequest()

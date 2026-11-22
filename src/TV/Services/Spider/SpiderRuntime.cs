@@ -147,6 +147,7 @@ public sealed class SpiderRuntime : IDisposable
         if (_process is { HasExited: false }) return;
         _process?.Dispose();
         _process = null;
+        AppPaths.EnsureCreated();
         var jar = FindJar();
         var start = new ProcessStartInfo
         {
@@ -161,6 +162,10 @@ public sealed class SpiderRuntime : IDisposable
             StandardErrorEncoding = Encoding.UTF8,
             WorkingDirectory = AppPaths.Root
         };
+        // Strip host-global JVM option overrides that could break the bundled Java 17 runtime on other PCs.
+        start.Environment.Remove("_JAVA_OPTIONS");
+        start.Environment.Remove("JAVA_TOOL_OPTIONS");
+        start.Environment.Remove("JDK_JAVA_OPTIONS");
         foreach (var argument in new[] { "-Xms16m", "-Xmx256m", "-XX:MaxMetaspaceSize=128m", "-XX:+UseSerialGC", "-XX:TieredStopAtLevel=1", "-Dfile.encoding=UTF-8", "-jar", jar }) start.ArgumentList.Add(argument);
         var process = Process.Start(start) ?? throw new InvalidOperationException("无法启动爬虫运行时。");
         process.BeginErrorReadLine();
@@ -184,6 +189,16 @@ public sealed class SpiderRuntime : IDisposable
         }
         var jdks = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".jdks");
         if (Directory.Exists(jdks)) candidates.AddRange(Directory.GetDirectories(jdks).Select(dir => Path.Combine(dir, "bin", "java.exe")).Where(File.Exists));
+        var programFiles = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);
+        if (!string.IsNullOrWhiteSpace(programFiles))
+        {
+            foreach (var vendor in new[] { "Microsoft", "Eclipse Adoptium", "Java" })
+            {
+                var vendorDir = Path.Combine(programFiles, vendor);
+                if (Directory.Exists(vendorDir))
+                    candidates.AddRange(Directory.GetDirectories(vendorDir).Select(dir => Path.Combine(dir, "bin", "java.exe")).Where(File.Exists));
+            }
+        }
         candidates.Add("java");
 
         string? fallback = null;
@@ -204,11 +219,25 @@ public sealed class SpiderRuntime : IDisposable
     {
         try
         {
-            var start = new ProcessStartInfo { FileName = javaExe, Arguments = "-version", UseShellExecute = false, CreateNoWindow = true, RedirectStandardError = true, RedirectStandardOutput = true };
+            var start = new ProcessStartInfo
+            {
+                FileName = javaExe,
+                Arguments = "-version",
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                RedirectStandardError = true,
+                RedirectStandardOutput = true
+            };
+            start.Environment.Remove("_JAVA_OPTIONS");
+            start.Environment.Remove("JAVA_TOOL_OPTIONS");
+            start.Environment.Remove("JDK_JAVA_OPTIONS");
             using var process = Process.Start(start);
             if (process is null) return -1;
+            var errTask = process.StandardError.ReadToEndAsync();
+            var outTask = process.StandardOutput.ReadToEndAsync();
             if (!process.WaitForExit(3000)) { try { process.Kill(); } catch { } return -1; }
-            var text = process.StandardError.ReadToEnd() + process.StandardOutput.ReadToEnd();
+            var text = (errTask.IsCompletedSuccessfully ? errTask.Result : string.Empty) +
+                       (outTask.IsCompletedSuccessfully ? outTask.Result : string.Empty);
             var match = Regex.Match(text, "version \"(\\d+)(?:\\.(\\d+))?");
             if (!match.Success) return -1;
             var major = int.Parse(match.Groups[1].Value);

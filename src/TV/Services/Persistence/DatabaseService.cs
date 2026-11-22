@@ -56,7 +56,15 @@ public sealed class DatabaseService
         finally { _initLock.Release(); }
     }
 
-    public async Task<string?> GetSettingAsync(string key, CancellationToken cancellationToken = default)
+    public Task<string?> GetSettingAsync(string key, CancellationToken cancellationToken = default)
+    {
+        if (_initialized) return Task.FromResult(_settings.GetValueOrDefault(key));
+        return GetSettingSlowAsync(key, cancellationToken);
+    }
+
+    public string? TryGetCachedSetting(string key) => _initialized ? _settings.GetValueOrDefault(key) : null;
+
+    private async Task<string?> GetSettingSlowAsync(string key, CancellationToken cancellationToken)
     {
         await InitializeAsync(cancellationToken).ConfigureAwait(false);
         return _settings.GetValueOrDefault(key);

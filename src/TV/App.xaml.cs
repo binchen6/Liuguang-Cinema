@@ -1,5 +1,6 @@
 using Microsoft.UI.Xaml;
 using TV.Services;
+using TV.Services.Persistence;
 
 namespace TV;
 
@@ -10,6 +11,11 @@ public sealed partial class App : Application
         InitializeComponent();
         UnhandledException += OnUnhandledException;
         AppDomain.CurrentDomain.UnhandledException += (_, args) => Diagnostics.Log(args.ExceptionObject?.ToString() ?? "Unknown unhandled exception");
+        TaskScheduler.UnobservedTaskException += (_, args) =>
+        {
+            Diagnostics.Log($"未观察的后台任务异常: {args.Exception?.GetBaseException().GetType().Name} {args.Exception?.GetBaseException().Message}");
+            args.SetObserved();
+        };
     }
 
     public static AppServices Services { get; private set; } = null!;
@@ -41,7 +47,8 @@ public sealed partial class App : Application
     {
         try
         {
-            var path = Path.Combine(TV.Services.Persistence.AppPaths.Root, "last-error.log");
+            AppPaths.EnsureCreated();
+            var path = Path.Combine(AppPaths.Root, "last-error.log");
             File.AppendAllText(path, $"[{DateTimeOffset.Now:O}] {e.Exception}\n");
         }
         catch { }

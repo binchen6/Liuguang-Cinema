@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.Diagnostics;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using LibVLCSharp.Shared;
@@ -54,6 +55,10 @@ public sealed partial class PlayerViewModel : ObservableObject
     private string? _lastGeneratedAiSubtitlePath;
     private bool _externalSubtitleSpeedBaked;
     private long _lastAppliedDynamicSpuDelay = long.MinValue;
+    private bool _pauseOverrideActive;
+    private bool _pauseDesiredPlaying;
+    private long _pauseOverrideUntilTs;
+    private CancellationTokenSource? _subtitleSpeedDebounceCts;
 
     public PlayerViewModel(AppServices services, DispatcherQueue dispatcher)
     {
@@ -113,6 +118,7 @@ public sealed partial class PlayerViewModel : ObservableObject
     public event EventHandler? DanmakuCleared;
     public event EventHandler<PlayerSnapshot>? SnapshotUpdated;
     public event EventHandler<long>? SeekPerformed;
+    public event EventHandler<bool>? PlaybackStateChanged;
     public TV.Services.Playback.PlayerService Service => _services.Player;
     [ObservableProperty] private bool _loopCurrentEpisode;
     [ObservableProperty] private int _aspectModeIndex;
@@ -208,6 +214,8 @@ public sealed partial class PlayerViewModel : ObservableObject
         _lastGeneratedAiSubtitlePath = null;
         _externalSubtitleSpeedBaked = false;
         _lastAppliedDynamicSpuDelay = long.MinValue;
+        _pauseOverrideActive = false;
+        _subtitleSpeedDebounceCts?.Cancel();
         SubtitleSpeed = 1.0;
         RequiredLoginProvider = null;
         QualityMessage = string.Empty;
@@ -352,9 +360,20 @@ public sealed partial class PlayerViewModel : ObservableObject
     [RelayCommand]
     private void TogglePause()
     {
-        _manualPaused = _services.Player.LastSnapshot.IsPlaying;
+        if (_request is null) return;
+        var desiredPlaying = !IsPlaying;
+        _manualPaused = !desiredPlaying;
         _bufferingPaused = false;
-        _services.Player.TogglePause();
+        _pauseDesiredPlaying = desiredPlaying;
+        _pauseOverrideActive = true;
+        _pauseOverrideUntilTs = Stopwatch.GetTimestamp() + (long)(Stopwatch.Frequency * 0.65);
+
+        // Optimistic 0ms UI + Danmaku sync before LibVLC native lock finishes
+        IsPlaying = desiredPlaying;
+        PlayPauseGlyph = desiredPlaying ? "\uE769" : "\uE768";
+        PlaybackStateChanged?.Invoke(this, desiredPlaying);
+
+        _services.Player.SetPause(!desiredPlaying);
     }
 
     [RelayCommand]
@@ -373,7 +392,9 @@ public sealed partial class PlayerViewModel : ObservableObject
             await _services.StopPlayerAsync();
             ReleaseMedia(_resolvedMedia);
             _resolvedMedia = null;
+            _pauseOverrideActive = false;
             IsPlaying = false;
+            PlayPauseGlyph = "\uE768";
             IsBuffering = false;
             StatusMessage = "已停止播放";
         }
@@ -408,7 +429,10 @@ public sealed partial class PlayerViewModel : ObservableObject
                 ReleaseMedia(_resolvedMedia);
                 _resolvedMedia = null;
             }
+            _pauseOverrideActive = false;
+            _subtitleSpeedDebounceCts?.Cancel();
             IsPlaying = false;
+            PlayPauseGlyph = "\uE768";
             IsBuffering = false;
             RequiredLoginProvider = null;
             StatusMessage = string.Empty;
@@ -476,13 +500,52 @@ public sealed partial class PlayerViewModel : ObservableObject
         ApplyEffectiveSubtitleDelay(_services.Player.LastSnapshot.TimeMs);
     }
 
-    public async Task SetSubtitleSpeedAsync(double speed)
+    /// <summary>
+    /// Live slider preview: applies instant dynamic SPU delay and debounces external .srt retime reload.
+    /// </summary>
+    public void SetSubtitleSpeedLive(double speed)
     {
         var clamped = Math.Clamp(Math.Round(speed, 3), 0.50, 1.50);
         if (Math.Abs(clamped - SubtitleSpeed) < 0.0005) return;
         SubtitleSpeed = clamped;
+        _externalSubtitleSpeedBaked = false;
         _lastAppliedDynamicSpuDelay = long.MinValue;
+        ApplyEffectiveSubtitleDelay(_services.Player.LastSnapshot.TimeMs);
 
+        if (string.IsNullOrWhiteSpace(_activeExternalSubtitlePath) || !File.Exists(_activeExternalSubtitlePath))
+            return;
+
+        var prev = Interlocked.Exchange(ref _subtitleSpeedDebounceCts, new CancellationTokenSource());
+        prev?.Cancel();
+        prev?.Dispose();
+        var cts = _subtitleSpeedDebounceCts;
+        _ = DebouncedBakeSubtitleSpeedAsync(clamped, cts.Token);
+    }
+
+    private async Task DebouncedBakeSubtitleSpeedAsync(double speed, CancellationToken token)
+    {
+        try
+        {
+            await Task.Delay(200, token);
+            if (!token.IsCancellationRequested && Math.Abs(SubtitleSpeed - speed) < 0.0005)
+                await BakeExternalSubtitleSpeedAsync(speed);
+        }
+        catch (OperationCanceledException) { }
+    }
+
+    public async Task SetSubtitleSpeedAsync(double speed)
+    {
+        var clamped = Math.Clamp(Math.Round(speed, 3), 0.50, 1.50);
+        _subtitleSpeedDebounceCts?.Cancel();
+        if (Math.Abs(clamped - SubtitleSpeed) < 0.0005 && (_externalSubtitleSpeedBaked || string.IsNullOrWhiteSpace(_activeExternalSubtitlePath)))
+            return;
+        SubtitleSpeed = clamped;
+        _lastAppliedDynamicSpuDelay = long.MinValue;
+        await BakeExternalSubtitleSpeedAsync(clamped);
+    }
+
+    private async Task BakeExternalSubtitleSpeedAsync(double clamped)
+    {
         if (!string.IsNullOrWhiteSpace(_activeExternalSubtitlePath) && File.Exists(_activeExternalSubtitlePath))
         {
             try
@@ -561,11 +624,7 @@ public sealed partial class PlayerViewModel : ObservableObject
 
     public void StepFrame()
     {
-        if (IsPlaying)
-        {
-            _manualPaused = true;
-            _services.Player.TogglePause();
-        }
+        if (IsPlaying) TogglePause();
         _services.Player.NextFrame();
     }
 
@@ -1071,6 +1130,9 @@ public sealed partial class PlayerViewModel : ObservableObject
         if (Timing.IntroEndMs <= 0) return;
         _introSkipped = true;
         _services.Player.Seek(Timing.IntroEndMs);
+        PositionMs = Timing.IntroEndMs;
+        PositionText = Format(Timing.IntroEndMs);
+        SeekPerformed?.Invoke(this, Timing.IntroEndMs);
     }
 
     [RelayCommand]
@@ -1091,6 +1153,7 @@ public sealed partial class PlayerViewModel : ObservableObject
         {
             _introSkipped = true;
             _services.Player.Seek(Timing.IntroEndMs);
+            SeekPerformed?.Invoke(this, Timing.IntroEndMs);
             TimingMessage = $"已跳过片头至 {Format(Timing.IntroEndMs)}";
         }
         if (Timing.OutroStartMs > 0 && !_outroSkipped && duration >= Timing.OutroStartMs && position >= Timing.OutroStartMs)
@@ -1126,7 +1189,24 @@ public sealed partial class PlayerViewModel : ObservableObject
             using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(2));
             var snapshot = await _services.Player.ReadSnapshotAsync(deadline.Token);
             if (_request is null || _loadCts.IsCancellationRequested) return;
-            IsPlaying = snapshot.IsPlaying;
+            var effectivePlaying = snapshot.IsPlaying;
+            if (_pauseOverrideActive)
+            {
+                if (snapshot.IsPlaying == _pauseDesiredPlaying || Stopwatch.GetTimestamp() >= _pauseOverrideUntilTs)
+                {
+                    _pauseOverrideActive = false;
+                }
+                else
+                {
+                    effectivePlaying = _pauseDesiredPlaying;
+                    snapshot = snapshot with
+                    {
+                        IsPlaying = effectivePlaying,
+                        State = effectivePlaying ? VLCState.Playing : VLCState.Paused
+                    };
+                }
+            }
+            IsPlaying = effectivePlaying;
             PlayPauseGlyph = IsPlaying ? "\uE769" : "\uE768";
             if (snapshot.State == VLCState.Playing)
             {

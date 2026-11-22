@@ -247,8 +247,10 @@ public sealed partial class CastPage : Page
     private void OnPreviewToggle(object sender, RoutedEventArgs args)
     {
         if (_player is not { } player) return;
-        if (player.PlaybackSession.PlaybackState == MediaPlaybackState.Playing) player.Pause();
+        var playing = player.PlaybackSession.PlaybackState == MediaPlaybackState.Playing;
+        if (playing) player.Pause();
         else player.Play();
+        PreviewPlayIcon.Glyph = playing ? "\uE768" : "\uE769";
     }
 
     private void OnPreviewPositionChanged(object sender, RangeBaseValueChangedEventArgs args)

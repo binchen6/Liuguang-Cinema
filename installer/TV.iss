@@ -1,6 +1,6 @@
 #define MyAppName "流光影院"
 #ifndef MyAppVersion
-  #define MyAppVersion "1.1.9"
+  #define MyAppVersion "1.8.0"
 #endif
 #ifndef MyAppId
   #define MyAppId "{{C5F4C5D7-89F2-4D33-A0FC-34DC04A7A60D}"
@@ -8,7 +8,8 @@
 #ifndef PublishRoot
   #define PublishRoot "..\artifacts\publish"
 #endif
-#define MyAppPublisher "TV"
+#define MyAppPublisher "Liuguang Cinema Contributors"
+#define MyAppURL "https://github.com/binchen6/Liuguang-Cinema"
 #define MyAppExeName "TV.exe"
 #ifndef UninstallRegKey
   #define UninstallRegKey "yes"
@@ -18,15 +19,26 @@
 AppId={#MyAppId}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
+AppVerName={#MyAppName} {#MyAppVersion}
 AppPublisher={#MyAppPublisher}
+AppPublisherURL={#MyAppURL}
+AppSupportURL={#MyAppURL}/issues
+AppUpdatesURL={#MyAppURL}/releases
 DefaultDirName={localappdata}\Programs\流光影院
 DefaultGroupName={#MyAppName}
 AllowNoIcons=yes
 PrivilegesRequired=lowest
 CreateUninstallRegKey={#UninstallRegKey}
 OutputBaseFilename=TV-Setup-x64
-Compression=lzma2/normal
-SolidCompression=yes
+; Instant-launch installer tuning (non-regression enforced by scripts/Test-InstallerLaunchSpeed.ps1):
+; - InternalCompressLevel=none: zero-overhead SetupLdr unpacking (<10ms)
+; - SolidCompression=no: avoids whole-archive sequential scan/seek on launch
+; - lzma2/fast + 4MB dictionary: fast decompression & lean download size
+InternalCompressLevel=none
+SolidCompression=no
+Compression=lzma2/fast
+LZMADictionarySize=4096
+LZMANumFastBytes=32
 LZMAUseSeparateProcess=yes
 WizardStyle=modern
 ArchitecturesAllowed=x64compatible
@@ -34,11 +46,19 @@ ArchitecturesInstallIn64BitMode=x64compatible
 UninstallDisplayIcon={app}\{#MyAppExeName}
 SetupIconFile=..\src\TV\Assets\App.ico
 VersionInfoVersion={#MyAppVersion}.0
+VersionInfoCompany={#MyAppPublisher}
+VersionInfoProductName={#MyAppName} (Liuguang Cinema)
+VersionInfoDescription={#MyAppName}安装程序
+VersionInfoCopyright=Copyright (c) {#MyAppPublisher}
 MinVersion=10.0.17763
 CloseApplications=yes
 CloseApplicationsFilter=TV.exe,TV.dll,java.exe,catvod-engine.jar
 RestartApplications=no
-SetupLogging=yes
+SetupLogging=no
+#ifdef EnableSignTool
+SignTool=signtool
+SignedUninstaller=yes
+#endif
 
 [Languages]
 Name: "chinesesimp"; MessagesFile: "compiler:Languages\ChineseSimplified.isl"
@@ -47,9 +67,10 @@ Name: "chinesesimp"; MessagesFile: "compiler:Languages\ChineseSimplified.isl"
 Name: "desktopicon"; Description: "创建桌面快捷方式"; GroupDescription: "附加任务："; Flags: unchecked
 
 [Files]
-Source: "..\artifacts\prerequisites\vc_redist.x64.exe"; Flags: dontcopy
-Source: "..\artifacts\prerequisites\MicrosoftEdgeWebView2Setup.exe"; Flags: dontcopy solidbreak
-Source: "{#PublishRoot}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs solidbreak
+; Already-compressed payloads stored without re-compression for faster install & lower CPU overhead
+Source: "{#PublishRoot}\runtime\catvod-engine.jar"; DestDir: "{app}\runtime"; Flags: ignoreversion nocompression
+Source: "{#PublishRoot}\runtime\java\lib\modules"; DestDir: "{app}\runtime\java\lib"; Flags: ignoreversion nocompression
+Source: "{#PublishRoot}\*"; DestDir: "{app}"; Excludes: "runtime\catvod-engine.jar,runtime\java\lib\modules"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Registry]
 Root: HKCU; Subkey: "Software\Classes\TV.Video"; ValueType: string; ValueData: "流光影院视频"; Flags: uninsdeletekey
@@ -141,54 +162,7 @@ begin
   Log(Result);
 end;
 
-function VCRedistNeeded: Boolean;
-var
-  Installed: Cardinal;
-begin
-  Result := not RegQueryDWordValue(HKLM64, 'SOFTWARE\Microsoft\VisualStudio\14.0\VC\Runtimes\x64', 'Installed', Installed) or (Installed <> 1);
-end;
-
-function WebView2Present(): Boolean;
-var
-  ClientKey, Version: String;
-begin
-  ClientKey := 'SOFTWARE\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}';
-  Result := (RegQueryStringValue(HKLM32, ClientKey, 'pv', Version) and (Version <> '') and (Version <> '0.0.0.0')) or
-    (RegQueryStringValue(HKCU, ClientKey, 'pv', Version) and (Version <> '') and (Version <> '0.0.0.0'));
-end;
-
 function PrepareToInstall(var NeedsRestart: Boolean): String;
-var
-  Code: Integer;
 begin
   Result := CheckInstallDirectory;
-  if Result <> '' then exit;
-  if VCRedistNeeded then
-  begin
-    ExtractTemporaryFile('vc_redist.x64.exe');
-    if not ShellExec('runas', ExpandConstant('{tmp}\vc_redist.x64.exe'), '/install /quiet /norestart', '', SW_HIDE, ewWaitUntilTerminated, Code) then
-    begin
-      Result := '无法启动 Visual C++ 运行库安装程序。';
-      exit;
-    end;
-    if Code = 3010 then
-    begin
-      NeedsRestart := True;
-      Result := 'Visual C++ 运行库需要重启 Windows。';
-      exit;
-    end;
-    if VCRedistNeeded then
-    begin
-      Result := 'Visual C++ 运行库未安装成功（' + IntToStr(Code) + '）。';
-      exit;
-    end;
-  end;
-  if not WebView2Present() then
-  begin
-    ExtractTemporaryFile('MicrosoftEdgeWebView2Setup.exe');
-    if not Exec(ExpandConstant('{tmp}\MicrosoftEdgeWebView2Setup.exe'), '/silent /install', '', SW_HIDE, ewWaitUntilTerminated, Code) then
-      Result := '无法启动 WebView2 安装程序。'
-    else if not WebView2Present() then
-      Result := 'WebView2 安装未完成（' + IntToStr(Code) + '）。请检查网络连接。';
-  end;
 end;

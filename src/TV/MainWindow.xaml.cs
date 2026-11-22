@@ -42,11 +42,20 @@ public sealed partial class MainWindow : Window
         }
         else
         {
-            SystemBackdrop = new MicaBackdrop();
+            try
+            {
+                if (Microsoft.UI.Composition.SystemBackdrops.MicaController.IsSupported())
+                    SystemBackdrop = new MicaBackdrop();
+            }
+            catch (Exception ex) { Diagnostics.Log($"Mica 背景不可用，已降级纯色背景: {ex.GetType().Name}"); }
         }
         ExtendsContentIntoTitleBar = true;
-        if (AppWindowTitleBar.IsCustomizationSupported())
-            AppWindow.TitleBar.PreferredHeightOption = TitleBarHeightOption.Tall;
+        try
+        {
+            if (AppWindowTitleBar.IsCustomizationSupported())
+                AppWindow.TitleBar.PreferredHeightOption = TitleBarHeightOption.Tall;
+        }
+        catch (Exception ex) { Diagnostics.Log($"标题栏高度定制不可用: {ex.GetType().Name}"); }
         RestorePlacement();
         AppWindow.Changed += (_, _) => CapturePlacement();
         Title = "流光影院";
@@ -201,7 +210,7 @@ public sealed partial class MainWindow : Window
             ? PageTransitionKind.Immersive
             : goingBack
                 ? PageTransitionKind.DrillOut
-                : tag is "detail" or "search" or "cloud"
+                : tag is "detail" or "search"
                     ? PageTransitionKind.DrillIn
                     : PageTransitionKind.TopLevel;
         Type? pageType = tag switch
@@ -232,9 +241,10 @@ public sealed partial class MainWindow : Window
     }
 
     private bool _syncingNav;
-    private static readonly string[] PrimaryTags = { "vod", "live", "library", "cast" };
+    private static readonly string[] PrimaryTags = { "vod", "live", "library", "cloud", "cast" };
     private static readonly SolidColorBrush TransparentBrush = new(Windows.UI.Color.FromArgb(0, 0, 0, 0));
     private static readonly Windows.UI.ViewManagement.AccessibilitySettings Accessibility = new();
+    private readonly Dictionary<ListViewItem, (UIElement? Plate, UIElement? Indicator)> _navVisualCache = [];
     private double _cachedWidePaneWidth;
 
     private void SyncNavSelection(string tag)
@@ -267,9 +277,14 @@ public sealed partial class MainWindow : Window
         {
             var active = item.Tag as string == tag;
             if (active) activeTarget = item;
-            if (FindTemplateChild(item, "SelectionPlate") is UIElement plate) plate.Opacity = active ? 1 : 0;
+            if (!_navVisualCache.TryGetValue(item, out var cached) || cached.Plate is null)
+            {
+                cached = (FindTemplateChild(item, "SelectionPlate"), FindTemplateChild(item, "Indicator"));
+                if (cached.Plate is not null) _navVisualCache[item] = cached;
+            }
+            if (cached.Plate is { } plate) plate.Opacity = active ? 1 : 0;
             // 侧栏使用全局弹簧 FloatingNavIndicator，隐藏各子项静态指示条避免双条重影
-            if (FindTemplateChild(item, "Indicator") is UIElement indicator) indicator.Opacity = 0;
+            if (cached.Indicator is { } indicator) indicator.Opacity = 0;
         }
         ScheduleIndicatorGlide(activeTarget);
     }
@@ -318,6 +333,7 @@ public sealed partial class MainWindow : Window
     }
 
     private void OnSettingsClick(object sender, RoutedEventArgs e) => ViewModel.NavigateCommand.Execute("settings");
+    private void OnSearchNavClick(object sender, RoutedEventArgs e) => OpenSearch();
 
     private bool _narrowPane;
     private void UpdatePaneLayout()
@@ -345,7 +361,7 @@ public sealed partial class MainWindow : Window
         {
             if (_cachedWidePaneWidth <= 0)
             {
-                var labels = new FrameworkElement[] { BrandText, NavLabelVod, NavLabelLive, NavLabelLibrary, NavLabelCast, NavLabelSettings };
+                var labels = new FrameworkElement[] { BrandText, NavLabelVod, NavLabelLive, NavLabelLibrary, NavLabelCloud, NavLabelCast, NavLabelSettings };
                 var available = new Windows.Foundation.Size(double.PositiveInfinity, double.PositiveInfinity);
                 var maxText = 0d;
                 foreach (var label in labels)
@@ -361,9 +377,13 @@ public sealed partial class MainWindow : Window
             PaneColumn.Width = new GridLength(_cachedWidePaneWidth);
         }
         var labelVisibility = narrow ? Visibility.Collapsed : Visibility.Visible;
-        BrandText.Visibility = NavLabelVod.Visibility = NavLabelLive.Visibility = NavLabelLibrary.Visibility = NavLabelCast.Visibility = NavLabelSettings.Visibility = labelVisibility;
+        BrandText.Visibility = NavLabelVod.Visibility = NavLabelLive.Visibility = NavLabelLibrary.Visibility = NavLabelCloud.Visibility = NavLabelCast.Visibility = NavLabelSettings.Visibility = labelVisibility;
+        NavSearchLabel.Visibility = NavSearchHint.Visibility = labelVisibility;
+        NavSearchButton.Margin = narrow ? new Thickness(18, 4, 18, 6) : new Thickness(10, 4, 10, 6);
+        NavSearchButton.Padding = narrow ? new Thickness(0) : new Thickness(12, 0, 12, 0);
+        NavSearchButton.HorizontalContentAlignment = narrow ? HorizontalAlignment.Center : HorizontalAlignment.Stretch;
         var alignment = narrow ? HorizontalAlignment.Center : HorizontalAlignment.Left;
-        NavContentVod.HorizontalAlignment = NavContentLive.HorizontalAlignment = NavContentLibrary.HorizontalAlignment = NavContentCast.HorizontalAlignment = NavContentSettings.HorizontalAlignment = alignment;
+        NavContentVod.HorizontalAlignment = NavContentLive.HorizontalAlignment = NavContentLibrary.HorizontalAlignment = NavContentCloud.HorizontalAlignment = NavContentCast.HorizontalAlignment = NavContentSettings.HorizontalAlignment = alignment;
         SettingsButton.HorizontalContentAlignment = narrow ? HorizontalAlignment.Center : HorizontalAlignment.Left;
         SettingsButton.Padding = narrow ? new Thickness(0) : new Thickness(17, 0, 14, 0);
         BrandBlock.Margin = narrow ? new Thickness(0, 0, 0, 0) : new Thickness(20, 0, 0, 0);
@@ -425,8 +445,8 @@ public sealed partial class MainWindow : Window
 
     private void UpdateBackButton()
     {
-        // 主导航页（点播/直播/媒体库/投屏）与自带返回键的播放器页不显示标题栏返回键。
-        var canGoBack = _currentTag is not ("vod" or "live" or "library" or "cast" or "player") && _back.Count > 0;
+        // 主导航页（点播/直播/媒体库/云盘/投屏）与自带返回键的播放器页不显示标题栏返回键。
+        var canGoBack = _currentTag is not ("vod" or "live" or "library" or "cloud" or "cast" or "player") && _back.Count > 0;
         MotionService.SetFloatingVisible(BackButton, canGoBack, offsetY: 0, offsetX: -8, hiddenScale: 0.90f);
         ScheduleTitleBarInput();
     }
@@ -488,7 +508,7 @@ public sealed partial class MainWindow : Window
                 InputNonClientPointerSource.GetForWindowId(AppWindow.Id).SetRegionRects(NonClientRegionKind.Passthrough, regions);
                 _titleInputRegions = regions;
             }
-            catch (System.Runtime.InteropServices.COMException ex) { Diagnostics.Log($"标题栏输入区域不可用 (0x{ex.HResult:X8})"); }
+            catch (Exception ex) { Diagnostics.Log($"标题栏输入区域不可用 ({ex.GetType().Name} 0x{ex.HResult:X8})"); }
         });
     }
 

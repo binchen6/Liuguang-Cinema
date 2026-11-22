@@ -47,6 +47,11 @@ public sealed partial class PlayerPage : Page
     private Flyout? _timingFlyout;
     private long? _manualDanDanPlayEpisodeId;
     private int _volumeBeforeMute = 85;
+    private bool _danmakuPrefsLoaded;
+    private bool _seekDragging;
+    private bool _seekHandlersWired;
+    private readonly PointerEventHandler _seekPressedHandler;
+    private readonly PointerEventHandler _seekReleasedHandler;
 
     [System.Runtime.InteropServices.DllImport("user32.dll")] private static extern nint SetCursor(nint cursor);
     [System.Runtime.InteropServices.DllImport("user32.dll")] private static extern nint LoadCursor(nint instance, nint cursorName);
@@ -67,6 +72,8 @@ public sealed partial class PlayerPage : Page
     public PlayerPage()
     {
         InitializeComponent();
+        _seekPressedHandler = OnSeekPressed;
+        _seekReleasedHandler = OnSeekReleased;
         _hideTimer = DispatcherQueue.CreateTimer();
         _hideTimer.Interval = TimeSpan.FromSeconds(5);
         _hideTimer.IsRepeating = false;
@@ -95,8 +102,18 @@ public sealed partial class PlayerPage : Page
         ViewModel.SnapshotUpdated += OnSnapshotUpdated;
         ViewModel.SeekPerformed -= OnSeekPerformed;
         ViewModel.SeekPerformed += OnSeekPerformed;
+        ViewModel.PlaybackStateChanged -= OnPlaybackStateChanged;
+        ViewModel.PlaybackStateChanged += OnPlaybackStateChanged;
         ViewModel.SourceRecoveryOffered -= OnSourceRecoveryOffered;
         ViewModel.SourceRecoveryOffered += OnSourceRecoveryOffered;
+
+        if (!_seekHandlersWired)
+        {
+            SeekSlider.AddHandler(UIElement.PointerPressedEvent, _seekPressedHandler, handledEventsToo: true);
+            SeekSlider.AddHandler(UIElement.PointerReleasedEvent, _seekReleasedHandler, handledEventsToo: true);
+            SeekSlider.AddHandler(UIElement.PointerCaptureLostEvent, _seekReleasedHandler, handledEventsToo: true);
+            _seekHandlersWired = true;
+        }
 
         Diagnostics.Log($"Player page loaded, output ready={ViewModel.Service.IsVideoOutputReady}");
         if (RateFlyout.Items.Count == 0) BuildFlyouts();
@@ -172,7 +189,16 @@ public sealed partial class PlayerPage : Page
         ViewModel.DanmakuCleared -= OnDanmakuCleared;
         ViewModel.SnapshotUpdated -= OnSnapshotUpdated;
         ViewModel.SeekPerformed -= OnSeekPerformed;
+        ViewModel.PlaybackStateChanged -= OnPlaybackStateChanged;
         ViewModel.SourceRecoveryOffered -= OnSourceRecoveryOffered;
+        if (_seekHandlersWired)
+        {
+            SeekSlider.RemoveHandler(UIElement.PointerPressedEvent, _seekPressedHandler);
+            SeekSlider.RemoveHandler(UIElement.PointerReleasedEvent, _seekReleasedHandler);
+            SeekSlider.RemoveHandler(UIElement.PointerCaptureLostEvent, _seekReleasedHandler);
+            _seekHandlersWired = false;
+        }
+        _seekDragging = false;
         _sourceDialog?.Hide();
         _sourceDialog = null;
         _onlineSubtitleDialog?.Hide();
@@ -213,7 +239,33 @@ public sealed partial class PlayerPage : Page
 
     private void OnSeekPerformed(object? sender, long targetMs)
     {
-        DanmakuLayer.SyncPlayback(targetMs / 1000d, Stopwatch.GetTimestamp(), ViewModel.Rate, ViewModel.IsPlaying, ViewModel.IsBuffering);
+        DanmakuLayer.NotifySeek(targetMs / 1000d);
+    }
+
+    private void OnPlaybackStateChanged(object? sender, bool isPlaying)
+    {
+        DanmakuLayer.SetPlayingImmediate(isPlaying);
+        UpdateCenterPlayVisibility();
+        if (!isPlaying)
+        {
+            _hideTimer.Stop();
+            if (!_controlsVisible)
+            {
+                _controlsVisible = true;
+                SetChromeVisible(true);
+            }
+        }
+        else if (_controlsVisible)
+        {
+            _hideTimer.Stop();
+            _hideTimer.Start();
+        }
+    }
+
+    private void OnPlayPauseClick(object sender, RoutedEventArgs e)
+    {
+        ViewModel.TogglePauseCommand.Execute(null);
+        ShowControls();
     }
 
     private void ShowOsd(string message)
@@ -551,11 +603,11 @@ public sealed partial class PlayerPage : Page
                 }
             };
 
-            speedSlider.ValueChanged += async (_, args) =>
+            speedSlider.ValueChanged += (_, args) =>
             {
                 var spd = Math.Round(args.NewValue) / 100.0;
                 speedLabel.Text = $"字幕速度：{spd:0.00}x";
-                await ViewModel.SetSubtitleSpeedAsync(spd);
+                ViewModel.SetSubtitleSpeedLive(spd);
             };
 
             var resetTimingBtn = new Button { Content = "重置偏移与速度", HorizontalAlignment = HorizontalAlignment.Left };
@@ -700,11 +752,7 @@ public sealed partial class PlayerPage : Page
             };
 
             _subtitleFlyout = flyout;
-            DispatcherQueue.TryEnqueue(() =>
-            {
-                if (IsLoaded && _subtitleFlyout == flyout)
-                    flyout.ShowAt(target);
-            });
+            if (IsLoaded) flyout.ShowAt(target);
         }
         catch (Exception ex) { ViewModel.QualityMessage = "字幕面板打开失败：" + ex.Message; }
     }
@@ -847,10 +895,15 @@ public sealed partial class PlayerPage : Page
 
     private async Task OpenDanmakuSettingsAsync(FrameworkElement target)
     {
+        if (_danmakuFlyout is not null)
+        {
+            _danmakuFlyout.Hide();
+            return;
+        }
         _hideTimer.Stop();
         try
         {
-            await ReadDanmakuPreferencesAsync();
+            if (!_danmakuPrefsLoaded) await ReadDanmakuPreferencesAsync();
             if (!IsLoaded) return;
 
             var enabled = new ToggleSwitch { Header = "显示弹幕", IsOn = _danmaku.Enabled };
@@ -1105,11 +1158,7 @@ public sealed partial class PlayerPage : Page
             };
 
             _danmakuFlyout = flyout;
-            DispatcherQueue.TryEnqueue(() =>
-            {
-                if (IsLoaded && _danmakuFlyout == flyout)
-                    flyout.ShowAt(target);
-            });
+            if (IsLoaded) flyout.ShowAt(target);
         }
         catch (Exception ex) { ViewModel.QualityMessage = ex.Message; }
     }
@@ -1136,6 +1185,7 @@ public sealed partial class PlayerPage : Page
             _danmaku = (JsonSerializer.Deserialize<DanmakuPreferences>(saved) ?? new()).Normalize();
         else
             _danmaku = _danmaku.Normalize();
+        _danmakuPrefsLoaded = true;
         DanmakuLayer.SetPreferences(_danmaku);
     }
 
@@ -1360,24 +1410,29 @@ public sealed partial class PlayerPage : Page
 
     private void OnTapped(object sender, TappedRoutedEventArgs e)
     {
+        if (e.Handled) return;
         if (e.OriginalSource is FrameworkElement element && IsInsideControls(element)) return;
         if (_controlsVisible) HideControlsNow(); else ShowControls();
     }
 
     private void OnDoubleTapped(object sender, DoubleTappedRoutedEventArgs e)
     {
+        if (e.Handled) return;
         if (e.OriginalSource is FrameworkElement element && IsInsideControls(element)) return;
         // 双击画面只切换控制层显隐；全屏必须显式点「全屏」按钮或按 F，避免误触全屏。
         if (_controlsVisible) HideControlsNow(); else ShowControls();
         e.Handled = true;
     }
 
-    private static bool IsInsideControls(FrameworkElement element)
+    private bool IsInsideControls(FrameworkElement element)
     {
         DependencyObject? current = element;
         while (current is not null)
         {
-            if (current is Button or Slider or ListView) return true;
+            if (ReferenceEquals(current, TopChromeBar) || ReferenceEquals(current, BottomChromeBar) ||
+                ReferenceEquals(current, AiSubtitleBanner) || ReferenceEquals(current, CenterPlayButton) ||
+                current is ButtonBase or Slider or Selector or TextBox or NumberBox or ToggleSwitch)
+                return true;
             current = VisualTreeHelper.GetParent(current);
         }
         return false;
@@ -1584,15 +1639,16 @@ public sealed partial class PlayerPage : Page
     {
         try
         {
-            await ReadDanmakuPreferencesAsync();
+            if (!_danmakuPrefsLoaded) await ReadDanmakuPreferencesAsync();
+            // Instant 0ms visual toggle — persist asynchronously via debounced timer
             _danmaku = _danmaku with { Enabled = !_danmaku.Enabled };
-            await PersistDanmakuPreferencesAsync();
             UpdateDanmakuToggle();
             DanmakuLayer.SetPreferences(_danmaku);
             ShowOsd(_danmaku.Enabled ? "弹幕已开启" : "弹幕已关闭");
+            QueueSaveDanmakuPreferences();
+            ShowControls();
             if (IsLoaded && _danmaku.Enabled && _rawComments.Length == 0)
                 await ReloadDanmakuAsync(false);
-            ShowControls();
         }
         catch (Exception ex) { ViewModel.QualityMessage = ex.Message; }
     }
@@ -1625,11 +1681,28 @@ public sealed partial class PlayerPage : Page
         ShowOsd(ViewModel.Volume == 0 ? "已静音" : $"音量 {ViewModel.Volume}%");
     }
 
-    private void OnSeekPressed(object sender, PointerRoutedEventArgs e) => ViewModel.BeginSeek();
+    private void OnSeekPressed(object sender, PointerRoutedEventArgs e)
+    {
+        _seekDragging = true;
+        _hideTimer.Stop();
+        ViewModel.BeginSeek();
+    }
 
     private void OnSeekReleased(object sender, PointerRoutedEventArgs e)
     {
-        if (sender is Slider slider) ViewModel.EndSeek(slider.Value);
+        if (!_seekDragging) return;
+        _seekDragging = false;
+        ViewModel.EndSeek(SeekSlider.Value);
+        ShowControls();
+    }
+
+    private void OnSeekValueChanged(object sender, RangeBaseValueChangedEventArgs e)
+    {
+        if (!_seekDragging) return;
+        var span = TimeSpan.FromMilliseconds(Math.Max(0, e.NewValue));
+        ViewModel.PositionText = span.TotalHours >= 1
+            ? span.ToString(@"h\:mm\:ss", System.Globalization.CultureInfo.InvariantCulture)
+            : span.ToString(@"mm\:ss", System.Globalization.CultureInfo.InvariantCulture);
     }
 
     private void StepRate(int delta)
@@ -1648,7 +1721,7 @@ public sealed partial class PlayerPage : Page
         {
             case VirtualKey.Space:
                 ViewModel.TogglePauseCommand.Execute(null);
-                ShowOsd(ViewModel.IsPlaying ? "已暂停" : "继续播放");
+                ShowOsd(ViewModel.IsPlaying ? "继续播放" : "已暂停");
                 ShowControls();
                 e.Handled = true;
                 break;

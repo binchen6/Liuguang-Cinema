@@ -288,6 +288,8 @@ public sealed partial class SearchViewModel(AppServices services, Action<VodCard
             }
             Rows.Insert(low, card);
         }
+        if (visible.Length > 0)
+            services.Images.Prefetch(visible.Take(12).Select(c => c.Item.BestPicture), maxCount: 12);
     }
 
     private bool TryMergeVisibleWork(WorkKey key, VodCardViewModel card)

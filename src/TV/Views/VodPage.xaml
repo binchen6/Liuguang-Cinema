@@ -139,7 +139,7 @@
                 </ItemsControl>
             </ScrollViewer>
             <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="12" HorizontalAlignment="Right" VerticalAlignment="Center">
-                <controls:AnchoredChoice Header="站点" ItemsSource="{Binding Sites}"
+                <controls:AnchoredChoice Header="站点" ItemsSource="{Binding Sites}" MaxWidth="200"
                                          DisplayMemberPath="DisplayName" SelectedItem="{Binding SelectedSite, Mode=TwoWay}"
                                          PlaceholderText="选择站点" />
                 <Button Style="{StaticResource SecondaryButtonStyle}" VerticalAlignment="Center"

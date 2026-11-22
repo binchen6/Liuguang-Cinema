@@ -93,7 +93,7 @@
         <!-- 页头 -->
         <StackPanel Spacing="{StaticResource SpaceTiny}">
             <TextBlock Text="设置" Style="{StaticResource PageTitleText}" />
-            <TextBlock Text="片源、播放、网盘、网络与外观设置，按分区切换查看。" Style="{StaticResource SecondaryText}" />
+            <TextBlock Text="片源、播放、弹幕与 AI、网盘、网络与外观设置，按分区切换查看。" Style="{StaticResource SecondaryText}" />
         </StackPanel>
 
         <!-- 左侧分区导航 + 右侧内容 -->
@@ -201,6 +201,9 @@
                               VerticalScrollMode="Enabled" VerticalScrollBarVisibility="Auto"
                               Padding="{StaticResource SettingsScrollPadding}">
                     <Grid HorizontalAlignment="Stretch">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" MaxWidth="920" />
+                        </Grid.ColumnDefinitions>
                         <!-- ============ 片源 ============ -->
                         <StackPanel x:Name="SourcePane" Spacing="16">
                             <StackPanel Spacing="4">
@@ -747,129 +750,152 @@
                         </StackPanel>
 
                         <!-- ============ 存储 ============ -->
-                        <StackPanel x:Name="StoragePane" Spacing="{StaticResource SpaceMedium}" Visibility="Collapsed">
-                            <TextBlock Text="存储" Style="{StaticResource SectionTitleText}" />
-                            <TextBlock Text="清理缓存不会删除收藏、播放记录与网盘凭据。" Style="{StaticResource SecondaryText}" />
-                            <Border Height="1" Background="{ThemeResource DividerBrush}" />
-                            <Grid ColumnSpacing="{StaticResource SpaceSmall}">
-                                <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-                                <TextBlock Text="{Binding StorageSummary}" Style="{StaticResource SecondaryText}" TextWrapping="Wrap" VerticalAlignment="Center" />
-                                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="{StaticResource SpaceMini}" VerticalAlignment="Center">
-                                    <Button Content="刷新统计" Command="{Binding RefreshStorageCommand}" Style="{StaticResource GhostButtonStyle}" />
-                                    <Button Content="打开目录" Command="{Binding OpenDataFolderCommand}" Style="{StaticResource SecondaryButtonStyle}" AutomationProperties.Name="打开数据目录" />
-                                </StackPanel>
-                            </Grid>
-                            <TextBlock Text="默认下载目录" Style="{StaticResource LabelText}" />
-                            <Grid ColumnSpacing="{StaticResource SpaceSmall}">
-                                <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-                                <TextBox Text="{Binding DownloadFolder, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                                         PlaceholderText="视频库\流光影院" AutomationProperties.Name="默认下载目录" />
-                                <Button Grid.Column="1" Content="浏览" Command="{Binding SelectDownloadFolderCommand}"
-                                        Style="{StaticResource SecondaryButtonStyle}" VerticalAlignment="Center" />
-                            </Grid>
-                            <TextBlock Text="批量下载保存到这里；单集另存仍可自行选择位置。清理缓存不会删除已下载视频。"
-                                       Style="{StaticResource MetaText}" TextWrapping="Wrap" />
-                            <Border Height="1" Background="{ThemeResource DividerBrush}" />
-                            <TextBlock Text="分项清理" Style="{StaticResource LabelText}" />
-                            <Grid MinHeight="{StaticResource SettingsRowMinHeight}" ColumnSpacing="{StaticResource SpaceLarge}">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="Auto" />
-                                    <ColumnDefinition Width="*" />
-                                    <ColumnDefinition Width="Auto" />
-                                </Grid.ColumnDefinitions>
-                                <TextBlock Text="图片缓存" Style="{StaticResource LabelText}" Width="{StaticResource SettingsFormLabelWidth}" VerticalAlignment="Center" />
-                                <TextBlock Grid.Column="1" Text="海报与剧照缩略图缓存" Style="{StaticResource MetaText}" VerticalAlignment="Center" />
-                                <Button Grid.Column="2" Content="清除" Command="{Binding ClearImagesCommand}"
-                                        Style="{StaticResource SecondaryButtonStyle}" VerticalAlignment="Center" />
-                            </Grid>
-                            <Grid MinHeight="{StaticResource SettingsRowMinHeight}" ColumnSpacing="{StaticResource SpaceLarge}">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="Auto" />
-                                    <ColumnDefinition Width="*" />
-                                    <ColumnDefinition Width="Auto" />
-                                </Grid.ColumnDefinitions>
-                                <TextBlock Text="元数据缓存" Style="{StaticResource LabelText}" Width="{StaticResource SettingsFormLabelWidth}" VerticalAlignment="Center" />
-                                <TextBlock Grid.Column="1" Text="站点详情与搜索元数据" Style="{StaticResource MetaText}" VerticalAlignment="Center" />
-                                <Button Grid.Column="2" Content="清除" Command="{Binding ClearMetadataCommand}"
-                                        Style="{StaticResource SecondaryButtonStyle}" VerticalAlignment="Center" />
-                            </Grid>
-                            <Grid MinHeight="{StaticResource SettingsRowMinHeight}" ColumnSpacing="{StaticResource SpaceLarge}">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="Auto" />
-                                    <ColumnDefinition Width="*" />
-                                    <ColumnDefinition Width="Auto" />
-                                </Grid.ColumnDefinitions>
-                                <TextBlock Text="播放记录" Style="{StaticResource LabelText}" Width="{StaticResource SettingsFormLabelWidth}" VerticalAlignment="Center" />
-                                <TextBlock Grid.Column="1" Text="继续观看与历史记录" Style="{StaticResource MetaText}" VerticalAlignment="Center" />
-                                <Button Grid.Column="2" Content="清除" Click="OnClearHistoryClick"
-                                        Style="{StaticResource SecondaryButtonStyle}" VerticalAlignment="Center" />
-                            </Grid>
-                            <Grid MinHeight="{StaticResource SettingsRowMinHeight}" ColumnSpacing="{StaticResource SpaceLarge}">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="Auto" />
-                                    <ColumnDefinition Width="*" />
-                                    <ColumnDefinition Width="Auto" />
-                                </Grid.ColumnDefinitions>
-                                <TextBlock Text="收藏" Style="{StaticResource LabelText}" Width="{StaticResource SettingsFormLabelWidth}" VerticalAlignment="Center" />
-                                <TextBlock Grid.Column="1" Text="跨站点收藏列表" Style="{StaticResource MetaText}" VerticalAlignment="Center" />
-                                <Button Grid.Column="2" Content="清除" Click="OnClearFavoritesClick"
-                                        Style="{StaticResource SecondaryButtonStyle}" VerticalAlignment="Center" />
-                            </Grid>
-                            <Border Height="1" Background="{ThemeResource DividerBrush}" />
-                            <TextBlock Text="高级清理" Style="{StaticResource LabelText}" />
-                            <TextBlock Text="先扫描再选择。应用缓存默认勾选；已下载媒体、其它软件临时文件与回收站需要单独确认。"
-                                       Style="{StaticResource SecondaryText}" TextWrapping="Wrap" />
-                            <StackPanel Orientation="Horizontal" Spacing="{StaticResource SpaceMini}">
-                                <Button Content="扫描可清理项" Command="{Binding ScanCleanupCommand}" Style="{StaticResource SecondaryButtonStyle}"
-                                        AutomationProperties.Name="扫描可清理项" />
-                                <Button Content="清理选中项" Click="OnCleanSelectedClick" Style="{StaticResource PrimaryButtonStyle}"
-                                        AutomationProperties.Name="清理选中项" />
-                                <ProgressRing Width="24" Height="24" IsActive="{Binding IsCleaning}"
-                                              Visibility="{Binding IsCleaning, Converter={StaticResource BoolToVisibility}}" />
+                        <StackPanel x:Name="StoragePane" Spacing="16" Visibility="Collapsed">
+                            <StackPanel Spacing="4">
+                                <TextBlock Text="存储与清理" Style="{StaticResource SectionTitleText}" />
+                                <TextBlock Text="管理下载目录与缓存；常规清理不会删除收藏、播放记录与已加密凭据。" Style="{StaticResource SecondaryText}" />
                             </StackPanel>
-                            <TextBlock Text="{Binding CleanupSummary}" Style="{StaticResource MetaText}" TextWrapping="Wrap"
-                                       Visibility="{Binding CleanupSummary, Converter={StaticResource StringToVisibility}}" />
-                            <ItemsControl ItemsSource="{Binding CleanupCategories}"
-                                          Visibility="{Binding HasCleanupResults, Converter={StaticResource BoolToVisibility}}">
-                                <ItemsControl.ItemTemplate>
-                                    <DataTemplate>
-                                        <CheckBox IsChecked="{Binding Selected, Mode=TwoWay}" MinHeight="64" Padding="0,8"
-                                                  HorizontalContentAlignment="Stretch">
-                                            <StackPanel Spacing="{StaticResource SpaceTiny}">
-                                                <Grid ColumnSpacing="{StaticResource SpaceSmall}">
-                                                    <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-                                                    <TextBlock Text="{Binding Name}" Style="{StaticResource LabelText}" />
-                                                    <TextBlock Grid.Column="1" Text="{Binding Size}" Style="{StaticResource MetaText}" />
-                                                </Grid>
-                                                <TextBlock Text="{Binding Description}" Style="{StaticResource MetaText}" TextWrapping="Wrap" />
-                                            </StackPanel>
-                                        </CheckBox>
-                                    </DataTemplate>
-                                </ItemsControl.ItemTemplate>
-                            </ItemsControl>
-                            <Border Height="1" Background="{ThemeResource DividerBrush}" />
-                            <TextBlock Text="全部缓存" Style="{StaticResource LabelText}" />
-                            <Grid MinHeight="{StaticResource SettingsRowMinHeight}" ColumnSpacing="{StaticResource SpaceLarge}">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="Auto" />
-                                    <ColumnDefinition Width="*" />
-                                </Grid.ColumnDefinitions>
-                                <TextBlock Text="缓存清理" Style="{StaticResource LabelText}" Width="{StaticResource SettingsFormLabelWidth}" VerticalAlignment="Center" />
-                                <DropDownButton Grid.Column="1" Content="清理" HorizontalAlignment="Left"
-                                                VerticalAlignment="Center"
-                                                MinHeight="{StaticResource SecondaryButtonHeight}"
-                                                AutomationProperties.Name="清理">
-                                    <DropDownButton.Flyout>
-                                        <MenuFlyout Placement="BottomEdgeAlignedLeft">
-                                            <MenuFlyoutItem Text="全部缓存" Command="{Binding ClearCachesCommand}" />
-                                            <MenuFlyoutItem Text="图片缓存" Command="{Binding ClearImagesCommand}" />
-                                            <MenuFlyoutItem Text="元数据缓存" Command="{Binding ClearMetadataCommand}" />
-                                        </MenuFlyout>
-                                    </DropDownButton.Flyout>
-                                </DropDownButton>
-                            </Grid>
-                            <TextBlock Text="全部缓存包含图片缓存与元数据缓存；播放记录与收藏需要单独确认清理。"
-                                       Style="{StaticResource MetaText}" TextWrapping="Wrap" />
+
+                            <!-- 卡片 1：存储概览与默认下载目录 -->
+                            <Border Style="{StaticResource SettingsCardStyle}">
+                                <StackPanel Spacing="12">
+                                    <Grid ColumnSpacing="{StaticResource SpaceSmall}">
+                                        <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                        <StackPanel Spacing="2" VerticalAlignment="Center">
+                                            <TextBlock Text="数据目录与占用统计" Style="{StaticResource LabelText}" />
+                                            <TextBlock Text="{Binding StorageSummary}" Style="{StaticResource MetaText}" TextWrapping="Wrap" />
+                                        </StackPanel>
+                                        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="{StaticResource SpaceMini}" VerticalAlignment="Center">
+                                            <Button Content="刷新统计" Command="{Binding RefreshStorageCommand}" Style="{StaticResource GhostButtonStyle}" />
+                                            <Button Content="打开目录" Command="{Binding OpenDataFolderCommand}" Style="{StaticResource SecondaryButtonStyle}" AutomationProperties.Name="打开数据目录" />
+                                        </StackPanel>
+                                    </Grid>
+                                    <Border Height="1" Background="{ThemeResource DividerBrush}" />
+                                    <StackPanel Spacing="8">
+                                        <TextBlock Text="默认下载目录" Style="{StaticResource LabelText}" />
+                                        <Grid ColumnSpacing="{StaticResource SpaceSmall}">
+                                            <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                            <TextBox Text="{Binding DownloadFolder, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                     PlaceholderText="视频库\流光影院" AutomationProperties.Name="默认下载目录" />
+                                            <Button Grid.Column="1" Content="浏览" Command="{Binding SelectDownloadFolderCommand}"
+                                                    Style="{StaticResource SecondaryButtonStyle}" VerticalAlignment="Center" />
+                                        </Grid>
+                                        <TextBlock Text="批量下载保存到这里；单集另存仍可自行选择位置。清理缓存不会删除已下载视频。"
+                                                   Style="{StaticResource MetaText}" TextWrapping="Wrap" />
+                                    </StackPanel>
+                                </StackPanel>
+                            </Border>
+
+                            <!-- 卡片 2：分项清理与一键清缓存 -->
+                            <Border Style="{StaticResource SettingsCardStyle}">
+                                <StackPanel Spacing="6">
+                                    <Grid ColumnSpacing="{StaticResource SpaceSmall}" Margin="0,0,0,4">
+                                        <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                        <StackPanel Spacing="2" VerticalAlignment="Center">
+                                            <TextBlock Text="分项快捷清理" Style="{StaticResource LabelText}" />
+                                            <TextBlock Text="全部缓存包含图片与元数据缓存；播放记录与收藏需确认后清除。" Style="{StaticResource MetaText}" TextWrapping="Wrap" />
+                                        </StackPanel>
+                                        <DropDownButton Grid.Column="1" Content="清理" VerticalAlignment="Center"
+                                                        MinHeight="{StaticResource SecondaryButtonHeight}"
+                                                        AutomationProperties.Name="清理">
+                                            <DropDownButton.Flyout>
+                                                <MenuFlyout Placement="BottomEdgeAlignedRight">
+                                                    <MenuFlyoutItem Text="全部缓存" Command="{Binding ClearCachesCommand}" />
+                                                    <MenuFlyoutItem Text="图片缓存" Command="{Binding ClearImagesCommand}" />
+                                                    <MenuFlyoutItem Text="元数据缓存" Command="{Binding ClearMetadataCommand}" />
+                                                </MenuFlyout>
+                                            </DropDownButton.Flyout>
+                                        </DropDownButton>
+                                    </Grid>
+                                    <Border Height="1" Background="{ThemeResource DividerBrush}" />
+                                    <Grid MinHeight="{StaticResource SettingsRowMinHeight}" ColumnSpacing="{StaticResource SpaceLarge}">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Text="图片缓存" Style="{StaticResource LabelText}" Width="{StaticResource SettingsFormLabelWidth}" VerticalAlignment="Center" />
+                                        <TextBlock Grid.Column="1" Text="海报与剧照缩略图缓存" Style="{StaticResource MetaText}" VerticalAlignment="Center" />
+                                        <Button Grid.Column="2" Content="清除" Command="{Binding ClearImagesCommand}"
+                                                Style="{StaticResource SecondaryButtonStyle}" VerticalAlignment="Center" />
+                                    </Grid>
+                                    <Border Height="1" Background="{ThemeResource DividerBrush}" />
+                                    <Grid MinHeight="{StaticResource SettingsRowMinHeight}" ColumnSpacing="{StaticResource SpaceLarge}">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Text="元数据缓存" Style="{StaticResource LabelText}" Width="{StaticResource SettingsFormLabelWidth}" VerticalAlignment="Center" />
+                                        <TextBlock Grid.Column="1" Text="站点详情与搜索元数据" Style="{StaticResource MetaText}" VerticalAlignment="Center" />
+                                        <Button Grid.Column="2" Content="清除" Command="{Binding ClearMetadataCommand}"
+                                                Style="{StaticResource SecondaryButtonStyle}" VerticalAlignment="Center" />
+                                    </Grid>
+                                    <Border Height="1" Background="{ThemeResource DividerBrush}" />
+                                    <Grid MinHeight="{StaticResource SettingsRowMinHeight}" ColumnSpacing="{StaticResource SpaceLarge}">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Text="播放记录" Style="{StaticResource LabelText}" Width="{StaticResource SettingsFormLabelWidth}" VerticalAlignment="Center" />
+                                        <TextBlock Grid.Column="1" Text="继续观看与历史记录" Style="{StaticResource MetaText}" VerticalAlignment="Center" />
+                                        <Button Grid.Column="2" Content="清除" Click="OnClearHistoryClick"
+                                                Style="{StaticResource SecondaryButtonStyle}" VerticalAlignment="Center" />
+                                    </Grid>
+                                    <Border Height="1" Background="{ThemeResource DividerBrush}" />
+                                    <Grid MinHeight="{StaticResource SettingsRowMinHeight}" ColumnSpacing="{StaticResource SpaceLarge}">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Text="收藏" Style="{StaticResource LabelText}" Width="{StaticResource SettingsFormLabelWidth}" VerticalAlignment="Center" />
+                                        <TextBlock Grid.Column="1" Text="跨站点收藏列表" Style="{StaticResource MetaText}" VerticalAlignment="Center" />
+                                        <Button Grid.Column="2" Content="清除" Click="OnClearFavoritesClick"
+                                                Style="{StaticResource SecondaryButtonStyle}" VerticalAlignment="Center" />
+                                    </Grid>
+                                </StackPanel>
+                            </Border>
+
+                            <!-- 卡片 3：高级扫描清理 -->
+                            <Border Style="{StaticResource SettingsCardStyle}">
+                                <StackPanel Spacing="12">
+                                    <StackPanel Spacing="2">
+                                        <TextBlock Text="高级扫描清理" Style="{StaticResource LabelText}" />
+                                        <TextBlock Text="先扫描再选择。应用缓存与 AI 字幕临时文件默认勾选；已下载媒体、临时目录与回收站需单独确认。"
+                                                   Style="{StaticResource MetaText}" TextWrapping="Wrap" />
+                                    </StackPanel>
+                                    <StackPanel Orientation="Horizontal" Spacing="{StaticResource SpaceMini}">
+                                        <Button Content="扫描可清理项" Command="{Binding ScanCleanupCommand}" Style="{StaticResource SecondaryButtonStyle}"
+                                                AutomationProperties.Name="扫描可清理项" />
+                                        <Button Content="清理选中项" Click="OnCleanSelectedClick" Style="{StaticResource PrimaryButtonStyle}"
+                                                AutomationProperties.Name="清理选中项" />
+                                        <ProgressRing Width="24" Height="24" IsActive="{Binding IsCleaning}"
+                                                      Visibility="{Binding IsCleaning, Converter={StaticResource BoolToVisibility}}" />
+                                    </StackPanel>
+                                    <TextBlock Text="{Binding CleanupSummary}" Style="{StaticResource MetaText}" TextWrapping="Wrap"
+                                               Visibility="{Binding CleanupSummary, Converter={StaticResource StringToVisibility}}" />
+                                    <ItemsControl ItemsSource="{Binding CleanupCategories}"
+                                                  Visibility="{Binding HasCleanupResults, Converter={StaticResource BoolToVisibility}}">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate>
+                                                <CheckBox IsChecked="{Binding Selected, Mode=TwoWay}" MinHeight="64" Padding="0,8"
+                                                          HorizontalContentAlignment="Stretch">
+                                                    <StackPanel Spacing="{StaticResource SpaceTiny}">
+                                                        <Grid ColumnSpacing="{StaticResource SpaceSmall}">
+                                                            <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                                            <TextBlock Text="{Binding Name}" Style="{StaticResource LabelText}" />
+                                                            <TextBlock Grid.Column="1" Text="{Binding Size}" Style="{StaticResource MetaText}" />
+                                                        </Grid>
+                                                        <TextBlock Text="{Binding Description}" Style="{StaticResource MetaText}" TextWrapping="Wrap" />
+                                                    </StackPanel>
+                                                </CheckBox>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                </StackPanel>
+                            </Border>
                         </StackPanel>
 
                         <!-- ============ 关于 ============ -->
@@ -901,7 +927,7 @@
                                     <Grid MinHeight="{StaticResource SettingsRowMinHeight}" ColumnSpacing="{StaticResource SpaceLarge}">
                                         <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
                                         <TextBlock Text="数据安全" Style="{StaticResource LabelText}" Width="{StaticResource SettingsFormLabelWidth}" VerticalAlignment="Center" />
-                                        <TextBlock Grid.Column="1" Text="网盘凭据经 DPAPI 加密保存，日志不输出敏感内容。"
+                                        <TextBlock Grid.Column="1" Text="网盘凭据、百炼 API Key 与弹幕凭证均经当前用户 DPAPI 加密保存，日志自动脱敏。"
                                                    Style="{StaticResource SecondaryText}" VerticalAlignment="Center" TextWrapping="Wrap" />
                                     </Grid>
                                 </StackPanel>

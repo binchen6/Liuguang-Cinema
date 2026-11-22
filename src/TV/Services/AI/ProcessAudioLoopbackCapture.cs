@@ -100,6 +100,20 @@ internal sealed class ProcessAudioLoopbackCapture : IDisposable
                 {
                     // 100ms buffer in 100-nanosecond units
                     var hr = client.Initialize(0 /* AUDCLNT_SHAREMODE_SHARED */, flags, 1_000_000, 0, formatPtr, 0);
+                    if (hr < 0 && isProcessLoopback)
+                    {
+                        // Some drivers reject process-loopback PCM format; cleanly fall back to default render loopback.
+                        Diagnostics.Log($"Process loopback Initialize failed (0x{hr:X8}), falling back to default render loopback");
+                        Marshal.ReleaseComObject(client);
+                        client = ActivateDefaultRenderLoopback() ?? throw new InvalidOperationException("无法初始化默认音频捕获设备。");
+                        if (ownFormatPtr && formatPtr != 0) { Marshal.FreeCoTaskMem(formatPtr); formatPtr = 0; }
+                        Marshal.ThrowExceptionForHR(client.GetMixFormat(out formatPtr));
+                        ownFormatPtr = true;
+                        fmt = Marshal.PtrToStructure<WaveFormatEx>(formatPtr);
+                        isFloat = DetectFloatFormat(formatPtr, fmt);
+                        flags = AudclntStreamflagsLoopback | AudclntStreamflagsEventCallback;
+                        hr = client.Initialize(0, flags, 1_000_000, 0, formatPtr, 0);
+                    }
                     Marshal.ThrowExceptionForHR(hr);
                     Marshal.ThrowExceptionForHR(client.SetEventHandle(readyEvent));
 
@@ -165,7 +179,8 @@ internal sealed class ProcessAudioLoopbackCapture : IDisposable
         }
         finally
         {
-            if (hrInit >= 0) CoUninitialize();
+            // Only uninitialize if CoInitializeEx returned S_OK (0) or S_FALSE (1), not RPC_E_CHANGED_MODE.
+            if (hrInit is 0 or 1) CoUninitialize();
         }
     }
 
@@ -294,6 +309,18 @@ internal sealed class ProcessAudioLoopbackCapture : IDisposable
         {
             var samples = (short*)ptr + frameIndex * channels;
             for (var c = 0; c < channels; c++) sum += samples[c] / 32768f;
+            return sum / channels;
+        }
+        if (bits == 24)
+        {
+            var raw = (byte*)ptr + frameIndex * channels * 3;
+            for (var c = 0; c < channels; c++)
+            {
+                var off = c * 3;
+                var val = (raw[off] | (raw[off + 1] << 8) | (raw[off + 2] << 16));
+                if ((val & 0x800000) != 0) val |= unchecked((int)0xFF000000);
+                sum += val / 8388608f;
+            }
             return sum / channels;
         }
         if (bits == 32)

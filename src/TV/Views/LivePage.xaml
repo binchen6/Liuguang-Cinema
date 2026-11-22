@@ -179,7 +179,7 @@
                                             BorderBrush="{ThemeResource SubtleBorderBrush}" BorderThickness="1">
                                         <Grid>
                                             <FontIcon Glyph="&#xE7F4;" FontSize="18" Foreground="{ThemeResource SecondaryTextBrush}" HorizontalAlignment="Center" VerticalAlignment="Center" />
-                                            <Image Source="{Binding Logo}" Stretch="Uniform" />
+                                            <Image controls:PosterImage.CachedSource="{Binding Logo}" Stretch="Uniform" />
                                         </Grid>
                                     </Border>
                                     <StackPanel Grid.Column="1" Spacing="{StaticResource SpaceTiny}" VerticalAlignment="Center">
