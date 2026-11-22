@@ -53,9 +53,7 @@ public sealed class AppServices : IDisposable
         CloudLogin = new CloudLoginCoordinator(Cloud, Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread());
         var bilibili = new BilibiliVodProvider(http, Cloud, bilibiliAccount);
         _bilibili = new Lazy<BilibiliVodProvider>(() => bilibili);
-        NativeVod = new NativeVodProviderRouter([new WoggNativeProvider(http, Cloud), new HttpSpiderProvider(http),
-            new HtmlVodProvider(http), bilibili, new ChangZhangVodProvider(http),
-            new PanSouVodProvider(http, Cloud), new PanTaVodProvider(http, Cloud), new KanqiuVodProvider(http), new MyDriveVodProvider(Cloud)]);
+        NativeVod = NativeVodProviderRouter.CreateDefault(http, Cloud, bilibili);
         Vod = new VodClientRouter(Cms, new SpiderVodClient(SpiderRuntime), NativeVod);
         Live = new LiveService(http);
         Epg = new EpgService(http);

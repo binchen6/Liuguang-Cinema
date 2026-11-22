@@ -12,7 +12,6 @@ public sealed partial class LibraryPage : Page
 
     private async void OnLoaded(object sender, Microsoft.UI.Xaml.RoutedEventArgs e)
     {
-        MotionService.Reveal(this);
         if (SegmentList.SelectedIndex != ViewModel.SelectedTab)
             SegmentList.SelectedIndex = Math.Clamp(ViewModel.SelectedTab, 0, 3);
         await ViewModel.LoadCommand.ExecuteAsync(null);
@@ -21,7 +20,11 @@ public sealed partial class LibraryPage : Page
     /// <summary>分段控件选中项同步到 ViewModel.SelectedTab（ListView 的 SelectedIndex 不可绑定）。</summary>
     private void OnSegmentSelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        if (SegmentList.SelectedIndex >= 0) ViewModel.SelectedTab = SegmentList.SelectedIndex;
+        if (SegmentList.SelectedIndex >= 0 && ViewModel.SelectedTab != SegmentList.SelectedIndex)
+        {
+            ViewModel.SelectedTab = SegmentList.SelectedIndex;
+            MotionService.EnterSection(ContentHost, offsetY: 10);
+        }
     }
 
     private void OnHistoryClick(object sender, ItemClickEventArgs e) => ViewModel.OpenHistoryCommand.Execute(e.ClickedItem as HistoryEntry);
@@ -41,7 +44,7 @@ public sealed partial class LibraryPage : Page
     private void OnPageSizeChanged(object sender, SizeChangedEventArgs e)
     {
         var narrow = e.NewSize.Width < 760;
-        RootLayout.Padding = e.NewSize.Width < 560 ? new Thickness(16, 16, 16, 20) : new Thickness(32, 24, 32, 32);
+        RootLayout.Padding = e.NewSize.Width < 560 ? new Thickness(16, 8, 16, 20) : new Thickness(32, 10, 32, 28);
         HeaderSubtitle.Visibility = e.NewSize.Width < 560 ? Visibility.Collapsed : Visibility.Visible;
         HeaderGrid.RowSpacing = narrow ? 12 : 0;
         SearchBox.Width = narrow ? double.NaN : 240;

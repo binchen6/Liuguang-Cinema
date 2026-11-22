@@ -95,7 +95,8 @@ public sealed class SourceHttpClient : IDisposable
         IEnumerable<KeyValuePair<string, string>> formFields,
         IReadOnlyDictionary<string, string>? headers = null,
         int maxBytes = 4 * 1024 * 1024,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        bool followRedirects = false)
     {
         if (!Uri.TryCreate(url, UriKind.Absolute, out var uri) || uri.Scheme is not ("http" or "https"))
             throw new ArgumentException("仅支持有效的 HTTP/HTTPS 地址。", nameof(url));
@@ -103,7 +104,8 @@ public sealed class SourceHttpClient : IDisposable
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeout.CancelAfter(TimeSpan.FromSeconds(20));
         using var content = new FormUrlEncodedContent(formFields);
-        using var response = await SendWithSessionAsync(_mediaClient.Value, HttpMethod.Post, uri, headers, content, timeout.Token).ConfigureAwait(false);
+        var client = followRedirects ? _client : _mediaClient.Value;
+        using var response = await SendWithSessionAsync(client, HttpMethod.Post, uri, headers, content, timeout.Token).ConfigureAwait(false);
         var setCookies = ReadSetCookies(response);
         var hasCf = response.Headers.TryGetValues("cf-mitigated", out var cfValues) &&
             cfValues.Any(v => v.Contains("challenge", StringComparison.OrdinalIgnoreCase));

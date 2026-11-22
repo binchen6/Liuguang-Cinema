@@ -4,10 +4,10 @@ public static class SpiderCatalog
 {
     private static readonly HashSet<string> Available = new(StringComparer.OrdinalIgnoreCase)
     {
-        "AiDj", "Ali", "AList", "Alllive", "AppYsV2", "Bili", "BpanSo", "Dm84", "Doll", "Douban", "DouDou", "Eighteen", "FirstAid", "Hanime",
-        "Jable", "JavDb", "Jianpian", "JPJ", "JustLive", "Kanqiu", "Kugou", "Libvio", "Local", "Miss", "NewCz", "NiNi", "Nmyswv", "PanSearch",
-        "Kugou", "LiveGz", "Music", "PanSou", "Push", "ShortDrama", "SixV", "Sssp", "Star", "UpYun", "Wogg", "Xb6v", "XiaoZhiTiao", "XPath", "XPathFilter",
-        "XPathMac", "XPathMacFilter", "Ying", "Yingshiche", "YiSo", "Ysj", "YueTing", "Zhaozy", "Quark", "UC", "Cloud"
+        "AiDj", "Ali", "AList", "Alllive", "AppYsV2", "Bili", "BpanSo", "Dm84", "Doll", "Douban", "Doubao", "DouDou", "Eighteen", "FirstAid", "Hanime",
+        "Jable", "JavDb", "Jianpian", "JPJ", "JustLive", "Kanqiu", "KkSs", "Kugou", "Libvio", "Local", "Miss", "NewCz", "NiNi", "Nmyswv", "PanSearch",
+        "Kugou", "LiveGz", "Music", "PanSou", "Push", "ShortDrama", "SixV", "Sssp", "Star", "UpYun", "UuSs", "Wogg", "Xb6v", "XiaoZhiTiao", "XPath", "XPathFilter",
+        "XPathMac", "XPathMacFilter", "YGP", "Ying", "Yingshiche", "YiSo", "YpanSo", "Ysj", "YueTing", "Zhaozy", "Quark", "UC", "Cloud"
     };
 
     public static bool IsAvailable(string api, System.Text.Json.JsonElement ext = default)

@@ -14,6 +14,7 @@
 
 ## 版本说明
 
+- [1.6.0](releases/release-1.6.0.md)：全站 UX/UI 深度重构、WinUI Composition 可打断物理动效引擎与 12+ 站点原生还原及全量回归。
 - [1.5.0](releases/release-1.5.0.md)：VSync 流畅弹幕与完整设置、播放器性能与单播放器内存优化、网盘分块/HLS 预读重构、玩偶 403 修复与站点验证码鉴权。
 - [1.4.1](releases/release-1.4.1.md)：全项目人工审查、播放生命周期、界面、性能与安全治理。
 - [1.4.0](releases/release-1.4.0.md)：预读、播放、清理和性能收尾。

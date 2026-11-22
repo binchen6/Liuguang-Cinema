@@ -89,9 +89,7 @@ async Task<Row> ProbeSiteAsync(SourceSite site)
     using var cloud = new CloudDriveService(database, dns);
     using var bilibili = new BilibiliAccountService(database, dns);
     using var runtime = new SpiderRuntime(database);
-    var native = new NativeVodProviderRouter([new WoggNativeProvider(http, cloud), new HttpSpiderProvider(http),
-        new HtmlVodProvider(http), new BilibiliVodProvider(http, cloud, bilibili), new ChangZhangVodProvider(http),
-        new PanSouVodProvider(http, cloud), new PanTaVodProvider(http, cloud), new KanqiuVodProvider(http), new MyDriveVodProvider(cloud)]);
+    var native = NativeVodProviderRouter.CreateDefault(http, cloud, new BilibiliVodProvider(http, cloud, bilibili));
     var router = new VodClientRouter(new CmsClient(http), new SpiderVodClient(runtime), native);
     var implementation = native.TryGet(site, out var provider) ? provider.GetType().Name :
         !site.IsSupported ? "无公开实现" : site.Type == 3 ? "Java CatVod" : "CMS";

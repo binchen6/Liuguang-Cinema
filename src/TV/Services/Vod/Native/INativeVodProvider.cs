@@ -32,7 +32,30 @@ public sealed class NativeVodProviderRouter
     private readonly IReadOnlyList<INativeVodProvider> _providers;
     public NativeVodProviderRouter(IEnumerable<INativeVodProvider> providers) => _providers = providers.ToArray();
 
-    public static bool IsSearchOnly(SourceSite site) => PanSouVodProvider.Supports(site) || PanTaVodProvider.Supports(site);
+    public static NativeVodProviderRouter CreateDefault(
+        Http.SourceHttpClient http,
+        Cloud.CloudDriveService cloud,
+        BilibiliVodProvider bilibili) =>
+        new([
+            new WoggNativeProvider(http, cloud),
+            new HttpSpiderProvider(http),
+            new HtmlVodProvider(http),
+            bilibili,
+            new ChangZhangVodProvider(http),
+            new DoubanVodProvider(http),
+            new YgpVodProvider(http),
+            new Xb6vVodProvider(http),
+            new LibvioVodProvider(http),
+            new PanSouVodProvider(http, cloud),
+            new PanTaVodProvider(http, cloud),
+            new PanSearchVodProvider(http, cloud),
+            new KanqiuVodProvider(http),
+            new PushVodProvider(cloud),
+            new MyDriveVodProvider(cloud)
+        ]);
+
+    public static bool IsSearchOnly(SourceSite site) =>
+        PanSouVodProvider.Supports(site) || PanTaVodProvider.Supports(site) || PanSearchVodProvider.Supports(site);
     public bool TryGet(SourceSite site, out INativeVodProvider provider)
     {
         provider = _providers.FirstOrDefault(item => item.CanHandle(site))!;

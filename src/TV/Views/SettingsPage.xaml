@@ -5,12 +5,12 @@
       Background="Transparent" Loaded="OnLoaded">
     <Page.Resources>
         <!-- 设置页尺寸：左侧分区导航、表单标签列、内容最大宽度 -->
-        <x:Double x:Key="SettingsNavWidth">160</x:Double>
-        <x:Double x:Key="SettingsFormLabelWidth">100</x:Double>
-        <x:Double x:Key="SettingsFormControlWidth">240</x:Double>
-        <x:Double x:Key="SettingsContentMaxWidth">960</x:Double>
-        <x:Double x:Key="SettingsRowMinHeight">56</x:Double>
-        <Thickness x:Key="SettingsScrollPadding">24</Thickness>
+        <x:Double x:Key="SettingsNavWidth">172</x:Double>
+        <x:Double x:Key="SettingsFormLabelWidth">124</x:Double>
+        <x:Double x:Key="SettingsFormControlWidth">300</x:Double>
+        <x:Double x:Key="SettingsContentMaxWidth">820</x:Double>
+        <x:Double x:Key="SettingsRowMinHeight">52</x:Double>
+        <Thickness x:Key="SettingsScrollPadding">4,0,20,24</Thickness>
 
         <!-- 左侧分区导航项：48 高、选中态＝暖金底 + 金色指示条；点击/展开切换右侧内容 -->
         <Style x:Key="SettingsNavSectionStyle" TargetType="Expander">
@@ -190,372 +190,384 @@
                               HorizontalScrollMode="Disabled" HorizontalScrollBarVisibility="Disabled"
                               VerticalScrollMode="Enabled" VerticalScrollBarVisibility="Auto"
                               Padding="{StaticResource SettingsScrollPadding}">
-                    <Grid MaxWidth="{StaticResource SettingsContentMaxWidth}" HorizontalAlignment="Left">
+                    <Grid HorizontalAlignment="Stretch">
                         <!-- ============ 片源 ============ -->
-                        <StackPanel x:Name="SourcePane" Spacing="{StaticResource SpaceMedium}">
-                            <TextBlock Text="片源与接口" Style="{StaticResource SectionTitleText}" />
-                            <TextBlock Text="导入接口仓库、刷新内置接口，并确认当前生效的来源。" Style="{StaticResource SecondaryText}" />
-                            <Border Height="1" Background="{ThemeResource DividerBrush}" />
-                            <StackPanel Orientation="Horizontal" Spacing="{StaticResource SpaceSmall}">
-                                <Button Content="导入仓库" Style="{StaticResource PrimaryButtonStyle}">
-                                    <Button.Flyout>
-                                        <Flyout Placement="BottomEdgeAlignedLeft">
-                                            <StackPanel Width="320" Spacing="{StaticResource SpaceSmall}"
-                                                        AutomationProperties.Name="仓库链接">
-                                                <TextBox Header="仓库链接"
-                                                         Text="{Binding NewSourceUrl, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                                                         PlaceholderText="https://" InputScope="Url" />
-                                                <Button Content="导入" Command="{Binding AddSourceCommand}"
-                                                        Style="{StaticResource PrimaryButtonStyle}"
-                                                        HorizontalAlignment="Right" />
-                                                <TextBlock Text="{Binding StatusMessage}" Style="{StaticResource MetaText}"
-                                                           TextWrapping="Wrap"
-                                                           Visibility="{Binding StatusMessage, Converter={StaticResource StringToVisibility}}" />
-                                            </StackPanel>
-                                        </Flyout>
-                                    </Button.Flyout>
-                                </Button>
-                                <Button Content="刷新接口" Command="{Binding ReloadCommand}"
-                                        Height="{StaticResource PrimaryButtonHeight}" MinHeight="{StaticResource PrimaryButtonHeight}"
-                                        Style="{StaticResource SecondaryButtonStyle}" VerticalAlignment="Center" />
+                        <StackPanel x:Name="SourcePane" Spacing="16">
+                            <StackPanel Spacing="4">
+                                <TextBlock Text="片源与接口" Style="{StaticResource SectionTitleText}" />
+                                <TextBlock Text="导入接口仓库、刷新内置接口，并确认当前生效的来源。" Style="{StaticResource SecondaryText}" />
                             </StackPanel>
-                            <TextBlock Text="已导入仓库" Style="{StaticResource LabelText}" Margin="0,8,0,0" />
-                            <ItemsControl ItemsSource="{Binding ImportedRepositories}">
-                                <ItemsControl.ItemTemplate>
-                                    <DataTemplate>
-                                        <Border BorderBrush="{ThemeResource DividerBrush}" BorderThickness="0,0,0,1"
-                                                Padding="0,10">
-                                            <Grid ColumnSpacing="{StaticResource SpaceMedium}">
-                                                <Grid.ColumnDefinitions>
-                                                    <ColumnDefinition Width="*" />
-                                                    <ColumnDefinition Width="Auto" />
-                                                </Grid.ColumnDefinitions>
-                                                <StackPanel Spacing="{StaticResource SpaceTiny}">
-                                                    <TextBlock Text="{Binding Url}" Style="{StaticResource BodyText}"
-                                                               TextTrimming="CharacterEllipsis"
-                                                               ToolTipService.ToolTip="{Binding Url}" />
-                                                    <TextBlock Text="{Binding Summary}" Style="{StaticResource MetaText}"
-                                                               TextTrimming="CharacterEllipsis" />
-                                                </StackPanel>
-                                                <Button Grid.Column="1" Style="{StaticResource IconButtonStyle}"
-                                                        Tag="{Binding}" Click="OnRemoveSourceClick"
-                                                        ToolTipService.ToolTip="删除仓库"
-                                                        AutomationProperties.Name="删除仓库">
-                                                    <FontIcon Glyph="&#xE74D;" FontSize="16" />
-                                                </Button>
-                                            </Grid>
-                                        </Border>
-                                    </DataTemplate>
-                                </ItemsControl.ItemTemplate>
-                            </ItemsControl>
-                            <Border Height="1" Background="{ThemeResource DividerBrush}" />
-                            <Grid MinHeight="{StaticResource SettingsRowMinHeight}" ColumnSpacing="{StaticResource SpaceLarge}">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="Auto" />
-                                    <ColumnDefinition Width="*" />
-                                </Grid.ColumnDefinitions>
-                                <TextBlock Text="自动刷新接口" Style="{StaticResource LabelText}" Width="{StaticResource SettingsFormLabelWidth}" VerticalAlignment="Center" />
-                                <ToggleSwitch Grid.Column="1" IsOn="{Binding AutoRefreshSources, Mode=TwoWay}"
-                                              OnContent="" OffContent="" HorizontalAlignment="Left" VerticalAlignment="Center" />
-                            </Grid>
-                            <Grid MinHeight="{StaticResource SettingsRowMinHeight}" ColumnSpacing="{StaticResource SpaceLarge}">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="Auto" />
-                                    <ColumnDefinition Width="*" />
-                                </Grid.ColumnDefinitions>
-                                <TextBlock Text="当前生效来源" Style="{StaticResource LabelText}" Width="{StaticResource SettingsFormLabelWidth}" VerticalAlignment="Center" />
-                                <TextBlock Grid.Column="1" Text="{Binding ActiveSource}" Style="{StaticResource MetaText}"
-                                           VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
-                            </Grid>
-                            <StackPanel Spacing="{StaticResource SpaceTiny}">
-                                <TextBlock Text="{Binding SourceSummary}" Style="{StaticResource SecondaryText}" TextWrapping="Wrap" />
-                                <TextBlock Text="{Binding LastSourceRefresh}" Style="{StaticResource MetaText}" />
-                            </StackPanel>
+                            <Border Style="{StaticResource SettingsCardStyle}">
+                                <StackPanel Spacing="14">
+                                    <Grid ColumnSpacing="12">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel Spacing="2" VerticalAlignment="Center">
+                                            <TextBlock Text="接口仓库管理" Style="{StaticResource LabelText}" />
+                                            <TextBlock Text="{Binding SourceSummary}" Style="{StaticResource MetaText}" TextWrapping="Wrap" />
+                                        </StackPanel>
+                                        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                                            <Button Content="导入仓库" Style="{StaticResource PrimaryButtonStyle}">
+                                                <Button.Flyout>
+                                                    <Flyout Placement="BottomEdgeAlignedRight">
+                                                        <StackPanel Width="320" Spacing="{StaticResource SpaceSmall}"
+                                                                    AutomationProperties.Name="仓库链接">
+                                                            <TextBox Header="仓库链接"
+                                                                     Text="{Binding NewSourceUrl, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                                     PlaceholderText="https://" InputScope="Url" />
+                                                            <Button Content="导入" Command="{Binding AddSourceCommand}"
+                                                                    Style="{StaticResource PrimaryButtonStyle}"
+                                                                    HorizontalAlignment="Right" />
+                                                            <TextBlock Text="{Binding StatusMessage}" Style="{StaticResource MetaText}"
+                                                                       TextWrapping="Wrap"
+                                                                       Visibility="{Binding StatusMessage, Converter={StaticResource StringToVisibility}}" />
+                                                        </StackPanel>
+                                                    </Flyout>
+                                                </Button.Flyout>
+                                            </Button>
+                                            <Button Content="刷新接口" Command="{Binding ReloadCommand}"
+                                                    Height="{StaticResource PrimaryButtonHeight}" MinHeight="{StaticResource PrimaryButtonHeight}"
+                                                    Style="{StaticResource SecondaryButtonStyle}" VerticalAlignment="Center" />
+                                        </StackPanel>
+                                    </Grid>
+                                    <Border Height="1" Background="{ThemeResource DividerBrush}" />
+                                    <StackPanel Spacing="6">
+                                        <TextBlock Text="已导入仓库" Style="{StaticResource LabelText}" />
+                                        <ItemsControl ItemsSource="{Binding ImportedRepositories}">
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate>
+                                                    <Border BorderBrush="{ThemeResource DividerBrush}" BorderThickness="0,0,0,1"
+                                                            Padding="0,10">
+                                                        <Grid ColumnSpacing="{StaticResource SpaceMedium}">
+                                                            <Grid.ColumnDefinitions>
+                                                                <ColumnDefinition Width="*" />
+                                                                <ColumnDefinition Width="Auto" />
+                                                            </Grid.ColumnDefinitions>
+                                                            <StackPanel Spacing="{StaticResource SpaceTiny}">
+                                                                <TextBlock Text="{Binding Url}" Style="{StaticResource BodyText}"
+                                                                           TextTrimming="CharacterEllipsis"
+                                                                           ToolTipService.ToolTip="{Binding Url}" />
+                                                                <TextBlock Text="{Binding Summary}" Style="{StaticResource MetaText}"
+                                                                           TextTrimming="CharacterEllipsis" />
+                                                            </StackPanel>
+                                                            <Button Grid.Column="1" Style="{StaticResource IconButtonStyle}"
+                                                                    Tag="{Binding}" Click="OnRemoveSourceClick"
+                                                                    ToolTipService.ToolTip="删除仓库"
+                                                                    AutomationProperties.Name="删除仓库">
+                                                                <FontIcon Glyph="&#xE74D;" FontSize="16" />
+                                                            </Button>
+                                                        </Grid>
+                                                    </Border>
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                    </StackPanel>
+                                </StackPanel>
+                            </Border>
+                            <Border Style="{StaticResource SettingsCardStyle}">
+                                <StackPanel Spacing="8">
+                                    <Grid MinHeight="{StaticResource SettingsRowMinHeight}" ColumnSpacing="{StaticResource SpaceLarge}">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel VerticalAlignment="Center" Spacing="2">
+                                            <TextBlock Text="自动刷新接口" Style="{StaticResource LabelText}" />
+                                            <TextBlock Text="启动时自动检查并更新片源配置" Style="{StaticResource MetaText}" />
+                                        </StackPanel>
+                                        <ToggleSwitch Grid.Column="1" IsOn="{Binding AutoRefreshSources, Mode=TwoWay}"
+                                                      OnContent="" OffContent="" MinWidth="0" HorizontalAlignment="Right" VerticalAlignment="Center" />
+                                    </Grid>
+                                    <Border Height="1" Background="{ThemeResource DividerBrush}" />
+                                    <Grid MinHeight="{StaticResource SettingsRowMinHeight}" ColumnSpacing="{StaticResource SpaceLarge}">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="*" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Text="当前生效来源" Style="{StaticResource LabelText}" Width="{StaticResource SettingsFormLabelWidth}" VerticalAlignment="Center" />
+                                        <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="2">
+                                            <TextBlock Text="{Binding ActiveSource}" Style="{StaticResource BodyText}" TextTrimming="CharacterEllipsis" />
+                                            <TextBlock Text="{Binding LastSourceRefresh}" Style="{StaticResource MetaText}" />
+                                        </StackPanel>
+                                    </Grid>
+                                </StackPanel>
+                            </Border>
                         </StackPanel>
 
                         <!-- ============ 播放 ============ -->
-                        <StackPanel x:Name="PlaybackPane" Spacing="{StaticResource SpaceMedium}"
-                                    Visibility="Collapsed">
-                            <TextBlock Text="播放" Style="{StaticResource SectionTitleText}" />
-                            <TextBlock Text="解码、连播与缓存策略；修改即时保存。" Style="{StaticResource SecondaryText}" />
-                            <Border Height="1" Background="{ThemeResource DividerBrush}" />
-                            <Grid MinHeight="{StaticResource SettingsRowMinHeight}" ColumnSpacing="{StaticResource SpaceLarge}">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="Auto" />
-                                    <ColumnDefinition Width="*" />
-                                </Grid.ColumnDefinitions>
-                                <TextBlock Text="硬件解码" Style="{StaticResource LabelText}" Width="{StaticResource SettingsFormLabelWidth}" VerticalAlignment="Center" />
-                                <ToggleSwitch Grid.Column="1" IsOn="{Binding HardwareDecoding, Mode=TwoWay}"
-                                              OnContent="" OffContent="" HorizontalAlignment="Left" VerticalAlignment="Center" />
-                            </Grid>
-                            <Grid MinHeight="{StaticResource SettingsRowMinHeight}" ColumnSpacing="{StaticResource SpaceLarge}">
-                                <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
-                                <TextBlock Text="弱网自动画质" Style="{StaticResource LabelText}" Width="{StaticResource SettingsFormLabelWidth}" VerticalAlignment="Center" />
-                                <ToggleSwitch Grid.Column="1" IsOn="{Binding AdaptiveQuality, Mode=TwoWay}" OnContent="" OffContent="" HorizontalAlignment="Left" VerticalAlignment="Center" />
-                            </Grid>
-                            <Grid MinHeight="{StaticResource SettingsRowMinHeight}" ColumnSpacing="{StaticResource SpaceLarge}">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="Auto" />
-                                    <ColumnDefinition Width="*" />
-                                </Grid.ColumnDefinitions>
-                                <TextBlock Text="自动连播" Style="{StaticResource LabelText}" Width="{StaticResource SettingsFormLabelWidth}" VerticalAlignment="Center" />
-                                <ToggleSwitch Grid.Column="1" IsOn="{Binding AutoNext, Mode=TwoWay}"
-                                              OnContent="" OffContent="" HorizontalAlignment="Left" VerticalAlignment="Center" />
-                            </Grid>
-                            <Grid MinHeight="{StaticResource SettingsRowMinHeight}" ColumnSpacing="{StaticResource SpaceLarge}">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="Auto" />
-                                    <ColumnDefinition Width="*" />
-                                </Grid.ColumnDefinitions>
-                                <TextBlock Text="续播" Style="{StaticResource LabelText}" Width="{StaticResource SettingsFormLabelWidth}" VerticalAlignment="Center" />
-                                <ToggleSwitch Grid.Column="1" IsOn="{Binding ResumePlayback, Mode=TwoWay}"
-                                              OnContent="" OffContent="" HorizontalAlignment="Left" VerticalAlignment="Center" />
-                            </Grid>
-                            <Border Height="1" Background="{ThemeResource DividerBrush}" />
-                            <TextBlock Text="缓存与音量" Style="{StaticResource LabelText}" />
-                            <Grid MinHeight="{StaticResource SettingsRowMinHeight}" ColumnSpacing="{StaticResource SpaceLarge}">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="Auto" />
-                                    <ColumnDefinition Width="*" />
-                                </Grid.ColumnDefinitions>
-                                <TextBlock Text="点播缓存 (ms)" Style="{StaticResource LabelText}" Width="{StaticResource SettingsFormLabelWidth}" VerticalAlignment="Center" />
-                                <NumberBox Grid.Column="1" MinWidth="160" MaxWidth="{StaticResource SettingsFormControlWidth}"
-                                           Minimum="1200" Maximum="12000" SpinButtonPlacementMode="Inline"
-                                           Value="{Binding NetworkCache, Mode=TwoWay}" HorizontalAlignment="Left" />
-                            </Grid>
-                            <Grid MinHeight="{StaticResource SettingsRowMinHeight}" ColumnSpacing="{StaticResource SpaceLarge}">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="Auto" />
-                                    <ColumnDefinition Width="*" />
-                                </Grid.ColumnDefinitions>
-                                <TextBlock Text="直播缓存 (ms)" Style="{StaticResource LabelText}" Width="{StaticResource SettingsFormLabelWidth}" VerticalAlignment="Center" />
-                                <NumberBox Grid.Column="1" MinWidth="160" MaxWidth="{StaticResource SettingsFormControlWidth}"
-                                           Minimum="500" Maximum="8000" SpinButtonPlacementMode="Inline"
-                                           Value="{Binding LiveCache, Mode=TwoWay}" HorizontalAlignment="Left" />
-                            </Grid>
-                            <Grid MinHeight="{StaticResource SettingsRowMinHeight}" ColumnSpacing="{StaticResource SpaceLarge}">
-                                <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
-                                <TextBlock Text="默认音量" Style="{StaticResource LabelText}" Width="{StaticResource SettingsFormLabelWidth}" VerticalAlignment="Center" />
-                                <NumberBox Grid.Column="1" MinWidth="160" MaxWidth="{StaticResource SettingsFormControlWidth}" Minimum="0" Maximum="100"
-                                           SpinButtonPlacementMode="Inline" Value="{Binding DefaultVolume, Mode=TwoWay}" HorizontalAlignment="Left" />
-                            </Grid>
-                            <Grid MinHeight="{StaticResource SettingsRowMinHeight}" ColumnSpacing="{StaticResource SpaceLarge}">
-                                <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
-                                <TextBlock Text="默认画质" Style="{StaticResource LabelText}" Width="{StaticResource SettingsFormLabelWidth}" VerticalAlignment="Center" />
-                                <controls:AnchoredChoice Grid.Column="1" Header="默认画质" Options="自动|原画|1080p|720p|420p" SelectedIndex="{Binding DefaultQualityIndex, Mode=TwoWay}" HorizontalAlignment="Left" />
-                            </Grid>
-                            <Grid MinHeight="{StaticResource SettingsRowMinHeight}" ColumnSpacing="{StaticResource SpaceLarge}">
-                                <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
-                                <TextBlock Text="失败自动切线" Style="{StaticResource LabelText}" Width="{StaticResource SettingsFormLabelWidth}" VerticalAlignment="Center" />
-                                <ToggleSwitch Grid.Column="1" IsOn="{Binding AutoSwitchLine, Mode=TwoWay}" OnContent="" OffContent="" HorizontalAlignment="Left" VerticalAlignment="Center" />
-                            </Grid>
+                        <StackPanel x:Name="PlaybackPane" Spacing="16" Visibility="Collapsed">
+                            <StackPanel Spacing="4">
+                                <TextBlock Text="播放" Style="{StaticResource SectionTitleText}" />
+                                <TextBlock Text="解码、连播与缓存策略；修改即时保存。" Style="{StaticResource SecondaryText}" />
+                            </StackPanel>
+                            <Border Style="{StaticResource SettingsCardStyle}">
+                                <StackPanel Spacing="4">
+                                    <Grid MinHeight="{StaticResource SettingsRowMinHeight}" ColumnSpacing="{StaticResource SpaceLarge}">
+                                        <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                        <TextBlock Text="硬件解码" Style="{StaticResource LabelText}" VerticalAlignment="Center" />
+                                        <ToggleSwitch Grid.Column="1" IsOn="{Binding HardwareDecoding, Mode=TwoWay}" OnContent="" OffContent="" MinWidth="0" HorizontalAlignment="Right" VerticalAlignment="Center" />
+                                    </Grid>
+                                    <Border Height="1" Background="{ThemeResource DividerBrush}" />
+                                    <Grid MinHeight="{StaticResource SettingsRowMinHeight}" ColumnSpacing="{StaticResource SpaceLarge}">
+                                        <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                        <TextBlock Text="弱网自动画质" Style="{StaticResource LabelText}" VerticalAlignment="Center" />
+                                        <ToggleSwitch Grid.Column="1" IsOn="{Binding AdaptiveQuality, Mode=TwoWay}" OnContent="" OffContent="" MinWidth="0" HorizontalAlignment="Right" VerticalAlignment="Center" />
+                                    </Grid>
+                                    <Border Height="1" Background="{ThemeResource DividerBrush}" />
+                                    <Grid MinHeight="{StaticResource SettingsRowMinHeight}" ColumnSpacing="{StaticResource SpaceLarge}">
+                                        <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                        <TextBlock Text="自动连播" Style="{StaticResource LabelText}" VerticalAlignment="Center" />
+                                        <ToggleSwitch Grid.Column="1" IsOn="{Binding AutoNext, Mode=TwoWay}" OnContent="" OffContent="" MinWidth="0" HorizontalAlignment="Right" VerticalAlignment="Center" />
+                                    </Grid>
+                                    <Border Height="1" Background="{ThemeResource DividerBrush}" />
+                                    <Grid MinHeight="{StaticResource SettingsRowMinHeight}" ColumnSpacing="{StaticResource SpaceLarge}">
+                                        <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                        <TextBlock Text="续播" Style="{StaticResource LabelText}" VerticalAlignment="Center" />
+                                        <ToggleSwitch Grid.Column="1" IsOn="{Binding ResumePlayback, Mode=TwoWay}" OnContent="" OffContent="" MinWidth="0" HorizontalAlignment="Right" VerticalAlignment="Center" />
+                                    </Grid>
+                                    <Border Height="1" Background="{ThemeResource DividerBrush}" />
+                                    <Grid MinHeight="{StaticResource SettingsRowMinHeight}" ColumnSpacing="{StaticResource SpaceLarge}">
+                                        <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                        <TextBlock Text="失败自动切线" Style="{StaticResource LabelText}" VerticalAlignment="Center" />
+                                        <ToggleSwitch Grid.Column="1" IsOn="{Binding AutoSwitchLine, Mode=TwoWay}" OnContent="" OffContent="" MinWidth="0" HorizontalAlignment="Right" VerticalAlignment="Center" />
+                                    </Grid>
+                                </StackPanel>
+                            </Border>
+                            <Border Style="{StaticResource SettingsCardStyle}">
+                                <StackPanel Spacing="8">
+                                    <TextBlock Text="缓存与画质" Style="{StaticResource LabelText}" />
+                                    <Grid MinHeight="{StaticResource SettingsRowMinHeight}" ColumnSpacing="{StaticResource SpaceLarge}">
+                                        <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                                        <TextBlock Text="点播缓存 (ms)" Style="{StaticResource LabelText}" Width="{StaticResource SettingsFormLabelWidth}" VerticalAlignment="Center" />
+                                        <NumberBox Grid.Column="1" MinWidth="160" MaxWidth="{StaticResource SettingsFormControlWidth}" Minimum="1200" Maximum="12000" SpinButtonPlacementMode="Inline" Value="{Binding NetworkCache, Mode=TwoWay}" HorizontalAlignment="Left" />
+                                    </Grid>
+                                    <Grid MinHeight="{StaticResource SettingsRowMinHeight}" ColumnSpacing="{StaticResource SpaceLarge}">
+                                        <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                                        <TextBlock Text="直播缓存 (ms)" Style="{StaticResource LabelText}" Width="{StaticResource SettingsFormLabelWidth}" VerticalAlignment="Center" />
+                                        <NumberBox Grid.Column="1" MinWidth="160" MaxWidth="{StaticResource SettingsFormControlWidth}" Minimum="500" Maximum="8000" SpinButtonPlacementMode="Inline" Value="{Binding LiveCache, Mode=TwoWay}" HorizontalAlignment="Left" />
+                                    </Grid>
+                                    <Grid MinHeight="{StaticResource SettingsRowMinHeight}" ColumnSpacing="{StaticResource SpaceLarge}">
+                                        <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                                        <TextBlock Text="默认音量" Style="{StaticResource LabelText}" Width="{StaticResource SettingsFormLabelWidth}" VerticalAlignment="Center" />
+                                        <NumberBox Grid.Column="1" MinWidth="160" MaxWidth="{StaticResource SettingsFormControlWidth}" Minimum="0" Maximum="100" SpinButtonPlacementMode="Inline" Value="{Binding DefaultVolume, Mode=TwoWay}" HorizontalAlignment="Left" />
+                                    </Grid>
+                                    <Grid MinHeight="{StaticResource SettingsRowMinHeight}" ColumnSpacing="{StaticResource SpaceLarge}">
+                                        <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                                        <TextBlock Text="默认画质" Style="{StaticResource LabelText}" Width="{StaticResource SettingsFormLabelWidth}" VerticalAlignment="Center" />
+                                        <controls:AnchoredChoice Grid.Column="1" Header="默认画质" Options="自动|原画|1080p|720p|420p" SelectedIndex="{Binding DefaultQualityIndex, Mode=TwoWay}" HorizontalAlignment="Left" />
+                                    </Grid>
+                                </StackPanel>
+                            </Border>
                         </StackPanel>
 
                         <!-- ============ 网盘 ============ -->
-                        <StackPanel x:Name="CloudPane" Spacing="{StaticResource SpaceMedium}" Visibility="Collapsed">
-                            <TextBlock Text="网盘" Style="{StaticResource SectionTitleText}" />
-                            <TextBlock Text="阿里、夸克、UC 与百度网盘；凭据使用当前用户 DPAPI 加密保存。" Style="{StaticResource SecondaryText}" />
-                            <Border Height="1" Background="{ThemeResource DividerBrush}" />
-                            <Grid ColumnSpacing="{StaticResource SpaceSmall}">
-                                <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-                                <StackPanel Spacing="{StaticResource SpaceTiny}">
-                                    <TextBlock Text="账号与状态" Style="{StaticResource LabelText}" />
-                                    <TextBlock Text="四个网盘共用同一套扫码、验证和播放恢复流程。" Style="{StaticResource MetaText}" />
+                        <StackPanel x:Name="CloudPane" Spacing="16" Visibility="Collapsed">
+                            <StackPanel Spacing="4">
+                                <TextBlock Text="网盘" Style="{StaticResource SectionTitleText}" />
+                                <TextBlock Text="阿里、夸克、UC 与百度网盘；凭据使用当前用户 DPAPI 加密保存。" Style="{StaticResource SecondaryText}" />
+                            </StackPanel>
+                            <Border Style="{StaticResource SettingsCardStyle}">
+                                <StackPanel Spacing="12">
+                                    <Grid ColumnSpacing="{StaticResource SpaceSmall}">
+                                        <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                        <StackPanel Spacing="{StaticResource SpaceTiny}">
+                                            <TextBlock Text="账号与状态" Style="{StaticResource LabelText}" />
+                                            <TextBlock Text="四个网盘共用同一套扫码、验证和播放恢复流程。" Style="{StaticResource MetaText}" />
+                                        </StackPanel>
+                                        <Button Grid.Column="1" Content="打开我的云盘" Command="{Binding OpenCloudDriveCommand}"
+                                                Style="{StaticResource SecondaryButtonStyle}" AutomationProperties.Name="打开我的云盘" />
+                                    </Grid>
+                                    <Border Height="1" Background="{ThemeResource DividerBrush}" />
+                                    <ItemsControl ItemsSource="{Binding CloudAccounts}">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate>
+                                                <Border BorderBrush="{ThemeResource DividerBrush}" BorderThickness="0,0,0,1" Padding="0,8">
+                                                    <Grid MinHeight="52" ColumnSpacing="{StaticResource SpaceSmall}">
+                                                        <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                                        <StackPanel VerticalAlignment="Center" Spacing="{StaticResource SpaceTiny}">
+                                                            <TextBlock Text="{Binding Name}" Style="{StaticResource LabelText}" />
+                                                            <TextBlock Text="{Binding Status}" Style="{StaticResource MetaText}" />
+                                                        </StackPanel>
+                                                        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="{StaticResource SpaceMini}" VerticalAlignment="Center">
+                                                            <Button Content="扫码" Tag="{Binding Provider}" Click="OnCloudQrClick" Style="{StaticResource SecondaryButtonStyle}"
+                                                                    AutomationProperties.Name="{Binding LoginAutomationName}" />
+                                                            <Button Content="验证" Command="{Binding DataContext.VerifyCloudCommand, ElementName=PageRoot}" CommandParameter="{Binding Provider}"
+                                                                    Style="{StaticResource GhostButtonStyle}" AutomationProperties.Name="验证网盘登录" />
+                                                            <Button Content="退出" Tag="{Binding Provider}" Click="OnLogoutCloudClick" Style="{StaticResource GhostButtonStyle}"
+                                                                    AutomationProperties.Name="退出网盘登录" />
+                                                        </StackPanel>
+                                                    </Grid>
+                                                </Border>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
                                 </StackPanel>
-                                <Button Grid.Column="1" Content="打开我的云盘" Command="{Binding OpenCloudDriveCommand}"
-                                        Style="{StaticResource SecondaryButtonStyle}" AutomationProperties.Name="打开我的云盘" />
-                            </Grid>
-                            <ItemsControl ItemsSource="{Binding CloudAccounts}">
-                                <ItemsControl.ItemTemplate>
-                                    <DataTemplate>
-                                        <Grid MinHeight="72" ColumnSpacing="{StaticResource SpaceSmall}" Padding="0,8">
-                                            <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-                                            <StackPanel VerticalAlignment="Center" Spacing="{StaticResource SpaceTiny}">
-                                                <TextBlock Text="{Binding Name}" Style="{StaticResource LabelText}" />
-                                                <TextBlock Text="{Binding Status}" Style="{StaticResource MetaText}" />
-                                            </StackPanel>
-                                            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="{StaticResource SpaceMini}" VerticalAlignment="Center">
-                                                <Button Content="扫码" Tag="{Binding Provider}" Click="OnCloudQrClick" Style="{StaticResource SecondaryButtonStyle}"
-                                                        AutomationProperties.Name="{Binding LoginAutomationName}" />
-                                                <Button Content="验证" Command="{Binding DataContext.VerifyCloudCommand, ElementName=PageRoot}" CommandParameter="{Binding Provider}"
-                                                        Style="{StaticResource GhostButtonStyle}" AutomationProperties.Name="验证网盘登录" />
-                                                <Button Content="退出" Tag="{Binding Provider}" Click="OnLogoutCloudClick" Style="{StaticResource GhostButtonStyle}"
-                                                        AutomationProperties.Name="退出网盘登录" />
-                                            </StackPanel>
-                                        </Grid>
-                                    </DataTemplate>
-                                </ItemsControl.ItemTemplate>
-                            </ItemsControl>
-                            <Border Height="1" Background="{ThemeResource DividerBrush}" />
-                            <TextBlock Text="手动输入凭据" Style="{StaticResource LabelText}" />
-                            <Grid MinHeight="{StaticResource SettingsRowMinHeight}" ColumnSpacing="{StaticResource SpaceLarge}">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="Auto" />
-                                    <ColumnDefinition Width="*" />
-                                </Grid.ColumnDefinitions>
-                                <TextBlock Text="阿里 Token" Style="{StaticResource LabelText}" Width="{StaticResource SettingsFormLabelWidth}" VerticalAlignment="Center" />
-                                <PasswordBox Grid.Column="1" MinWidth="160" MaxWidth="{StaticResource SettingsFormControlWidth}"
-                                             MinHeight="{StaticResource SecondaryButtonHeight}"
-                                             PlaceholderText="粘贴 Token" HorizontalAlignment="Left"
-                                             Password="{Binding AliToken, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
-                            </Grid>
-                            <Grid MinHeight="{StaticResource SettingsRowMinHeight}" ColumnSpacing="{StaticResource SpaceLarge}">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="Auto" />
-                                    <ColumnDefinition Width="*" />
-                                </Grid.ColumnDefinitions>
-                                <TextBlock Text="夸克 Cookie" Style="{StaticResource LabelText}" Width="{StaticResource SettingsFormLabelWidth}" VerticalAlignment="Center" />
-                                <PasswordBox Grid.Column="1" MinWidth="160" MaxWidth="{StaticResource SettingsFormControlWidth}"
-                                             MinHeight="{StaticResource SecondaryButtonHeight}"
-                                             PlaceholderText="粘贴 Cookie" HorizontalAlignment="Left"
-                                             Password="{Binding QuarkCookie, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
-                            </Grid>
-                            <Grid MinHeight="{StaticResource SettingsRowMinHeight}" ColumnSpacing="{StaticResource SpaceLarge}">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="Auto" />
-                                    <ColumnDefinition Width="*" />
-                                </Grid.ColumnDefinitions>
-                                <TextBlock Text="UC Cookie" Style="{StaticResource LabelText}" Width="{StaticResource SettingsFormLabelWidth}" VerticalAlignment="Center" />
-                                <PasswordBox Grid.Column="1" MinWidth="160" MaxWidth="{StaticResource SettingsFormControlWidth}"
-                                             MinHeight="{StaticResource SecondaryButtonHeight}"
-                                             PlaceholderText="粘贴 Cookie" HorizontalAlignment="Left"
-                                             Password="{Binding UcCookie, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
-                            </Grid>
-                            <Grid MinHeight="{StaticResource SettingsRowMinHeight}" ColumnSpacing="{StaticResource SpaceLarge}">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="Auto" />
-                                    <ColumnDefinition Width="*" />
-                                </Grid.ColumnDefinitions>
-                                <TextBlock Text="百度 Cookie" Style="{StaticResource LabelText}" Width="{StaticResource SettingsFormLabelWidth}" VerticalAlignment="Center" />
-                                <PasswordBox Grid.Column="1" MinWidth="160" MaxWidth="{StaticResource SettingsFormControlWidth}"
-                                             MinHeight="{StaticResource SecondaryButtonHeight}" PlaceholderText="已保存凭据时留空即可"
-                                             Password="{Binding BaiduCookie, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" HorizontalAlignment="Left" />
-                            </Grid>
-                            <Button Content="加密保存" Command="{Binding SaveCloudCommand}"
-                                    Style="{StaticResource PrimaryButtonStyle}" HorizontalAlignment="Left" />
-                            <Border Height="1" Background="{ThemeResource DividerBrush}" />
-                            <Grid ColumnSpacing="{StaticResource SpaceSmall}">
-                                <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-                                <StackPanel Spacing="{StaticResource SpaceTiny}">
-                                    <TextBlock Text="安全播放加速" Style="{StaticResource LabelText}" />
-                                    <TextBlock Text="严格校验字节范围；限流时自动退避并降为单连接。" Style="{StaticResource MetaText}" TextWrapping="Wrap" />
+                            </Border>
+                            <Border Style="{StaticResource SettingsCardStyle}">
+                                <StackPanel Spacing="10">
+                                    <TextBlock Text="手动输入凭据" Style="{StaticResource LabelText}" />
+                                    <Grid MinHeight="{StaticResource SettingsRowMinHeight}" ColumnSpacing="{StaticResource SpaceLarge}">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="*" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Text="阿里 Token" Style="{StaticResource LabelText}" Width="{StaticResource SettingsFormLabelWidth}" VerticalAlignment="Center" />
+                                        <PasswordBox Grid.Column="1" MinWidth="220" MaxWidth="{StaticResource SettingsFormControlWidth}"
+                                                     PlaceholderText="粘贴 Token" HorizontalAlignment="Left"
+                                                     Password="{Binding AliToken, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                                    </Grid>
+                                    <Grid MinHeight="{StaticResource SettingsRowMinHeight}" ColumnSpacing="{StaticResource SpaceLarge}">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="*" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Text="夸克 Cookie" Style="{StaticResource LabelText}" Width="{StaticResource SettingsFormLabelWidth}" VerticalAlignment="Center" />
+                                        <PasswordBox Grid.Column="1" MinWidth="220" MaxWidth="{StaticResource SettingsFormControlWidth}"
+                                                     PlaceholderText="粘贴 Cookie" HorizontalAlignment="Left"
+                                                     Password="{Binding QuarkCookie, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                                    </Grid>
+                                    <Grid MinHeight="{StaticResource SettingsRowMinHeight}" ColumnSpacing="{StaticResource SpaceLarge}">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="*" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Text="UC Cookie" Style="{StaticResource LabelText}" Width="{StaticResource SettingsFormLabelWidth}" VerticalAlignment="Center" />
+                                        <PasswordBox Grid.Column="1" MinWidth="220" MaxWidth="{StaticResource SettingsFormControlWidth}"
+                                                     PlaceholderText="粘贴 Cookie" HorizontalAlignment="Left"
+                                                     Password="{Binding UcCookie, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                                    </Grid>
+                                    <Grid MinHeight="{StaticResource SettingsRowMinHeight}" ColumnSpacing="{StaticResource SpaceLarge}">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="*" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Text="百度 Cookie" Style="{StaticResource LabelText}" Width="{StaticResource SettingsFormLabelWidth}" VerticalAlignment="Center" />
+                                        <PasswordBox Grid.Column="1" MinWidth="220" MaxWidth="{StaticResource SettingsFormControlWidth}"
+                                                     PlaceholderText="已保存凭据时留空即可"
+                                                     Password="{Binding BaiduCookie, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" HorizontalAlignment="Left" />
+                                    </Grid>
+                                    <Button Content="加密保存" Command="{Binding SaveCloudCommand}"
+                                            Style="{StaticResource PrimaryButtonStyle}" HorizontalAlignment="Left" Margin="0,4,0,0" />
                                 </StackPanel>
-                                <Button Grid.Column="1" Content="恢复默认" Command="{Binding ResetCloudAccelerationCommand}" Style="{StaticResource GhostButtonStyle}" />
-                            </Grid>
-                            <Grid MinHeight="{StaticResource SettingsRowMinHeight}" ColumnSpacing="{StaticResource SpaceLarge}">
-                                <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
-                                <TextBlock Text="启用预读加速" Style="{StaticResource LabelText}" Width="{StaticResource SettingsFormLabelWidth}" VerticalAlignment="Center" />
-                                <ToggleSwitch Grid.Column="1" IsOn="{Binding CloudAcceleration, Mode=TwoWay}" OnContent="" OffContent="" HorizontalAlignment="Left" VerticalAlignment="Center" />
-                            </Grid>
-                            <Grid MinHeight="{StaticResource SettingsRowMinHeight}" ColumnSpacing="{StaticResource SpaceLarge}">
-                                <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
-                                <TextBlock Text="连接数" Style="{StaticResource LabelText}" Width="{StaticResource SettingsFormLabelWidth}" VerticalAlignment="Center" />
-                                <NumberBox Grid.Column="1" MinWidth="160" Maximum="6" Minimum="1" SpinButtonPlacementMode="Inline" Value="{Binding CloudThreads, Mode=TwoWay}" HorizontalAlignment="Left" />
-                            </Grid>
-                            <Grid MinHeight="{StaticResource SettingsRowMinHeight}" ColumnSpacing="{StaticResource SpaceLarge}">
-                                <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
-                                <TextBlock Text="预读分块 (MB)" Style="{StaticResource LabelText}" Width="{StaticResource SettingsFormLabelWidth}" VerticalAlignment="Center" />
-                                <NumberBox Grid.Column="1" MinWidth="160" Maximum="8" Minimum="1" SpinButtonPlacementMode="Inline" Value="{Binding CloudChunkMb, Mode=TwoWay}" HorizontalAlignment="Left" />
-                            </Grid>
+                            </Border>
+                            <Border Style="{StaticResource SettingsCardStyle}">
+                                <StackPanel Spacing="10">
+                                    <Grid ColumnSpacing="{StaticResource SpaceSmall}">
+                                        <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                        <StackPanel Spacing="{StaticResource SpaceTiny}">
+                                            <TextBlock Text="安全播放加速" Style="{StaticResource LabelText}" />
+                                            <TextBlock Text="渐进式流媒体分块缓存 + 多连接预读；限流时自动退避并保护流畅度。" Style="{StaticResource MetaText}" TextWrapping="Wrap" />
+                                        </StackPanel>
+                                        <Button Grid.Column="1" Content="恢复默认" Command="{Binding ResetCloudAccelerationCommand}" Style="{StaticResource GhostButtonStyle}" />
+                                    </Grid>
+                                    <Border Height="1" Background="{ThemeResource DividerBrush}" />
+                                    <Grid MinHeight="{StaticResource SettingsRowMinHeight}" ColumnSpacing="{StaticResource SpaceLarge}">
+                                        <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                        <TextBlock Text="启用预读加速" Style="{StaticResource LabelText}" VerticalAlignment="Center" />
+                                        <ToggleSwitch Grid.Column="1" IsOn="{Binding CloudAcceleration, Mode=TwoWay}" OnContent="" OffContent="" MinWidth="0" HorizontalAlignment="Right" VerticalAlignment="Center" />
+                                    </Grid>
+                                    <Grid MinHeight="{StaticResource SettingsRowMinHeight}" ColumnSpacing="{StaticResource SpaceLarge}">
+                                        <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                                        <TextBlock Text="并发连接数" Style="{StaticResource LabelText}" Width="{StaticResource SettingsFormLabelWidth}" VerticalAlignment="Center" />
+                                        <NumberBox Grid.Column="1" MinWidth="160" Maximum="6" Minimum="1" SpinButtonPlacementMode="Inline" Value="{Binding CloudThreads, Mode=TwoWay}" HorizontalAlignment="Left" />
+                                    </Grid>
+                                    <Grid MinHeight="{StaticResource SettingsRowMinHeight}" ColumnSpacing="{StaticResource SpaceLarge}">
+                                        <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                                        <TextBlock Text="预读分块 (MB)" Style="{StaticResource LabelText}" Width="{StaticResource SettingsFormLabelWidth}" VerticalAlignment="Center" />
+                                        <NumberBox Grid.Column="1" MinWidth="160" Maximum="8" Minimum="1" SpinButtonPlacementMode="Inline" Value="{Binding CloudChunkMb, Mode=TwoWay}" HorizontalAlignment="Left" />
+                                    </Grid>
+                                </StackPanel>
+                            </Border>
                         </StackPanel>
 
                         <!-- ============ 网络 ============ -->
-                        <StackPanel x:Name="NetworkPane" Spacing="{StaticResource SpaceMedium}" Visibility="Collapsed">
-                            <TextBlock Text="网络" Style="{StaticResource SectionTitleText}" />
-                            <TextBlock Text="安全 DNS、网盘连接与跨站搜索请求参数。" Style="{StaticResource SecondaryText}" />
-                            <Border Height="1" Background="{ThemeResource DividerBrush}" />
-                            <Grid MinHeight="{StaticResource SettingsRowMinHeight}" ColumnSpacing="{StaticResource SpaceLarge}">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="Auto" />
-                                    <ColumnDefinition Width="*" />
-                                </Grid.ColumnDefinitions>
-                                <TextBlock Text="DNS 解析" Style="{StaticResource LabelText}" Width="{StaticResource SettingsFormLabelWidth}" VerticalAlignment="Center" />
-                                <controls:AnchoredChoice Grid.Column="1" Header="安全 DNS" MinWidth="160"
-                                                         MinHeight="{StaticResource SecondaryButtonHeight}"
-                                                         HorizontalAlignment="Left" VerticalAlignment="Center"
-                                                         SelectedIndex="{Binding DnsIndex, Mode=TwoWay}"
-                                                         Options="系统默认|阿里 DoH|腾讯 DoH|114 DNS|360 DNS|百度 DNS" />
-                            </Grid>
-                            <Grid MinHeight="{StaticResource SettingsRowMinHeight}" ColumnSpacing="{StaticResource SpaceLarge}">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="Auto" />
-                                    <ColumnDefinition Width="*" />
-                                </Grid.ColumnDefinitions>
-                                <TextBlock Text="跨站搜索并发" Style="{StaticResource LabelText}" Width="{StaticResource SettingsFormLabelWidth}" VerticalAlignment="Center" />
-                                <NumberBox Grid.Column="1" MinWidth="160" MaxWidth="{StaticResource SettingsFormControlWidth}"
-                                           Minimum="1" Maximum="6" SpinButtonPlacementMode="Inline"
-                                           Value="{Binding SearchConcurrency, Mode=TwoWay}" HorizontalAlignment="Left" />
-                            </Grid>
+                        <StackPanel x:Name="NetworkPane" Spacing="16" Visibility="Collapsed">
+                            <StackPanel Spacing="4">
+                                <TextBlock Text="网络" Style="{StaticResource SectionTitleText}" />
+                                <TextBlock Text="安全 DNS、网盘连接与跨站搜索请求参数。" Style="{StaticResource SecondaryText}" />
+                            </StackPanel>
+                            <Border Style="{StaticResource SettingsCardStyle}">
+                                <StackPanel Spacing="8">
+                                    <Grid MinHeight="{StaticResource SettingsRowMinHeight}" ColumnSpacing="{StaticResource SpaceLarge}">
+                                        <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                                        <TextBlock Text="DNS 解析" Style="{StaticResource LabelText}" Width="{StaticResource SettingsFormLabelWidth}" VerticalAlignment="Center" />
+                                        <controls:AnchoredChoice Grid.Column="1" Header="安全 DNS" MinWidth="180"
+                                                                 MinHeight="{StaticResource SecondaryButtonHeight}"
+                                                                 HorizontalAlignment="Left" VerticalAlignment="Center"
+                                                                 SelectedIndex="{Binding DnsIndex, Mode=TwoWay}"
+                                                                 Options="系统默认|阿里 DoH|腾讯 DoH|114 DNS|360 DNS|百度 DNS" />
+                                    </Grid>
+                                    <Border Height="1" Background="{ThemeResource DividerBrush}" />
+                                    <Grid MinHeight="{StaticResource SettingsRowMinHeight}" ColumnSpacing="{StaticResource SpaceLarge}">
+                                        <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                                        <TextBlock Text="跨站搜索并发" Style="{StaticResource LabelText}" Width="{StaticResource SettingsFormLabelWidth}" VerticalAlignment="Center" />
+                                        <NumberBox Grid.Column="1" MinWidth="160" MaxWidth="{StaticResource SettingsFormControlWidth}"
+                                                   Minimum="1" Maximum="6" SpinButtonPlacementMode="Inline"
+                                                   Value="{Binding SearchConcurrency, Mode=TwoWay}" HorizontalAlignment="Left" />
+                                    </Grid>
+                                </StackPanel>
+                            </Border>
                         </StackPanel>
 
                         <!-- ============ 外观与内容 ============ -->
-                        <StackPanel x:Name="AppearancePane" Spacing="{StaticResource SpaceMedium}" Visibility="Collapsed">
-                            <TextBlock Text="外观与内容" Style="{StaticResource SectionTitleText}" />
-                            <TextBlock Text="主题、动效、窗口行为与推荐内容偏好。" Style="{StaticResource SecondaryText}" />
-                            <Border Height="1" Background="{ThemeResource DividerBrush}" />
-                            <Grid MinHeight="{StaticResource SettingsRowMinHeight}" ColumnSpacing="{StaticResource SpaceLarge}">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="Auto" />
-                                    <ColumnDefinition Width="*" />
-                                </Grid.ColumnDefinitions>
-                                <TextBlock Text="颜色主题" Style="{StaticResource LabelText}" Width="{StaticResource SettingsFormLabelWidth}" VerticalAlignment="Center" />
-                                <controls:AnchoredChoice Grid.Column="1" Header="主题" MinWidth="160"
-                                                         MinHeight="{StaticResource SecondaryButtonHeight}"
-                                                         HorizontalAlignment="Left" VerticalAlignment="Center"
-                                                         SelectedIndex="{Binding ThemeIndex, Mode=TwoWay}"
-                                                         Options="深色|浅色|跟随系统" />
-                            </Grid>
-                            <Grid MinHeight="{StaticResource SettingsRowMinHeight}" ColumnSpacing="{StaticResource SpaceLarge}">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="Auto" />
-                                    <ColumnDefinition Width="*" />
-                                </Grid.ColumnDefinitions>
-                                <TextBlock Text="界面动效" Style="{StaticResource LabelText}" Width="{StaticResource SettingsFormLabelWidth}" VerticalAlignment="Center" />
-                                <ToggleSwitch Grid.Column="1" IsOn="{Binding AnimationsEnabled, Mode=TwoWay}"
-                                              OnContent="" OffContent="" HorizontalAlignment="Left" VerticalAlignment="Center" />
-                            </Grid>
-                            <Grid MinHeight="{StaticResource SettingsRowMinHeight}" ColumnSpacing="{StaticResource SpaceLarge}">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="Auto" />
-                                    <ColumnDefinition Width="*" />
-                                </Grid.ColumnDefinitions>
-                                <TextBlock Text="最小化到托盘" Style="{StaticResource LabelText}" Width="{StaticResource SettingsFormLabelWidth}" VerticalAlignment="Center" />
-                                <ToggleSwitch Grid.Column="1" IsOn="{Binding MinimizeToTray, Mode=TwoWay}"
-                                              OnContent="" OffContent="" HorizontalAlignment="Left" VerticalAlignment="Center" />
-                            </Grid>
-                            <Grid MinHeight="{StaticResource SettingsRowMinHeight}" ColumnSpacing="{StaticResource SpaceLarge}">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="Auto" />
-                                    <ColumnDefinition Width="*" />
-                                </Grid.ColumnDefinitions>
-                                <TextBlock Text="关闭按钮行为" Style="{StaticResource LabelText}" Width="{StaticResource SettingsFormLabelWidth}" VerticalAlignment="Center" />
-                                <controls:AnchoredChoice Grid.Column="1" Header="关闭窗口时" MinWidth="160"
-                                                         MinHeight="{StaticResource SecondaryButtonHeight}"
-                                                         HorizontalAlignment="Left" VerticalAlignment="Center"
-                                                         SelectedIndex="{Binding CloseBehaviorIndex, Mode=TwoWay}"
-                                                         Options="每次询问|最小化到托盘|退出应用" />
-                            </Grid>
-                            <Grid MinHeight="{StaticResource SettingsRowMinHeight}" ColumnSpacing="{StaticResource SpaceLarge}">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="Auto" />
-                                    <ColumnDefinition Width="*" />
-                                </Grid.ColumnDefinitions>
-                                <TextBlock Text="豆瓣封面与评分" Style="{StaticResource LabelText}" Width="{StaticResource SettingsFormLabelWidth}" VerticalAlignment="Center" />
-                                <ToggleSwitch Grid.Column="1" IsOn="{Binding DoubanEnabled, Mode=TwoWay}"
-                                              OnContent="" OffContent="" HorizontalAlignment="Left" VerticalAlignment="Center" />
-                            </Grid>
-                            <Grid MinHeight="{StaticResource SettingsRowMinHeight}" ColumnSpacing="{StaticResource SpaceLarge}">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="Auto" />
-                                    <ColumnDefinition Width="*" />
-                                </Grid.ColumnDefinitions>
-                                <TextBlock Text="推荐内容" Style="{StaticResource LabelText}" Width="{StaticResource SettingsFormLabelWidth}" VerticalAlignment="Center" />
-                                <controls:AnchoredChoice Grid.Column="1" Header="推荐来源" MinWidth="160"
-                                                         MinHeight="{StaticResource SecondaryButtonHeight}"
-                                                         HorizontalAlignment="Left" VerticalAlignment="Center"
-                                                         SelectedIndex="{Binding RecommendationSourceIndex, Mode=TwoWay}"
-                                                         Options="站点推荐|豆瓣推荐" />
-                            </Grid>
+                        <StackPanel x:Name="AppearancePane" Spacing="16" Visibility="Collapsed">
+                            <StackPanel Spacing="4">
+                                <TextBlock Text="外观与内容" Style="{StaticResource SectionTitleText}" />
+                                <TextBlock Text="主题、动效、窗口行为与推荐内容偏好。" Style="{StaticResource SecondaryText}" />
+                            </StackPanel>
+                            <Border Style="{StaticResource SettingsCardStyle}">
+                                <StackPanel Spacing="6">
+                                    <Grid MinHeight="{StaticResource SettingsRowMinHeight}" ColumnSpacing="{StaticResource SpaceLarge}">
+                                        <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                        <TextBlock Text="颜色主题" Style="{StaticResource LabelText}" VerticalAlignment="Center" />
+                                        <controls:AnchoredChoice Grid.Column="1" Header="主题" MinWidth="160"
+                                                                 MinHeight="{StaticResource SecondaryButtonHeight}"
+                                                                 HorizontalAlignment="Right" VerticalAlignment="Center"
+                                                                 SelectedIndex="{Binding ThemeIndex, Mode=TwoWay}"
+                                                                 Options="深色|浅色|跟随系统" />
+                                    </Grid>
+                                    <Border Height="1" Background="{ThemeResource DividerBrush}" />
+                                    <Grid MinHeight="{StaticResource SettingsRowMinHeight}" ColumnSpacing="{StaticResource SpaceLarge}">
+                                        <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                        <TextBlock Text="界面动效" Style="{StaticResource LabelText}" VerticalAlignment="Center" />
+                                        <ToggleSwitch Grid.Column="1" IsOn="{Binding AnimationsEnabled, Mode=TwoWay}" OnContent="" OffContent="" MinWidth="0" HorizontalAlignment="Right" VerticalAlignment="Center" />
+                                    </Grid>
+                                    <Border Height="1" Background="{ThemeResource DividerBrush}" />
+                                    <Grid MinHeight="{StaticResource SettingsRowMinHeight}" ColumnSpacing="{StaticResource SpaceLarge}">
+                                        <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                        <TextBlock Text="最小化到托盘" Style="{StaticResource LabelText}" VerticalAlignment="Center" />
+                                        <ToggleSwitch Grid.Column="1" IsOn="{Binding MinimizeToTray, Mode=TwoWay}" OnContent="" OffContent="" MinWidth="0" HorizontalAlignment="Right" VerticalAlignment="Center" />
+                                    </Grid>
+                                    <Border Height="1" Background="{ThemeResource DividerBrush}" />
+                                    <Grid MinHeight="{StaticResource SettingsRowMinHeight}" ColumnSpacing="{StaticResource SpaceLarge}">
+                                        <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                        <TextBlock Text="关闭按钮行为" Style="{StaticResource LabelText}" VerticalAlignment="Center" />
+                                        <controls:AnchoredChoice Grid.Column="1" Header="关闭窗口时" MinWidth="160"
+                                                                 MinHeight="{StaticResource SecondaryButtonHeight}"
+                                                                 HorizontalAlignment="Right" VerticalAlignment="Center"
+                                                                 SelectedIndex="{Binding CloseBehaviorIndex, Mode=TwoWay}"
+                                                                 Options="每次询问|最小化到托盘|退出应用" />
+                                    </Grid>
+                                    <Border Height="1" Background="{ThemeResource DividerBrush}" />
+                                    <Grid MinHeight="{StaticResource SettingsRowMinHeight}" ColumnSpacing="{StaticResource SpaceLarge}">
+                                        <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                        <TextBlock Text="豆瓣封面与评分" Style="{StaticResource LabelText}" VerticalAlignment="Center" />
+                                        <ToggleSwitch Grid.Column="1" IsOn="{Binding DoubanEnabled, Mode=TwoWay}" OnContent="" OffContent="" MinWidth="0" HorizontalAlignment="Right" VerticalAlignment="Center" />
+                                    </Grid>
+                                    <Border Height="1" Background="{ThemeResource DividerBrush}" />
+                                    <Grid MinHeight="{StaticResource SettingsRowMinHeight}" ColumnSpacing="{StaticResource SpaceLarge}">
+                                        <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                        <TextBlock Text="推荐内容" Style="{StaticResource LabelText}" VerticalAlignment="Center" />
+                                        <controls:AnchoredChoice Grid.Column="1" Header="推荐来源" MinWidth="160"
+                                                                 MinHeight="{StaticResource SecondaryButtonHeight}"
+                                                                 HorizontalAlignment="Right" VerticalAlignment="Center"
+                                                                 SelectedIndex="{Binding RecommendationSourceIndex, Mode=TwoWay}"
+                                                                 Options="站点推荐|豆瓣推荐" />
+                                    </Grid>
+                                </StackPanel>
+                            </Border>
                         </StackPanel>
 
                         <!-- ============ 存储 ============ -->
@@ -685,44 +697,39 @@
                         </StackPanel>
 
                         <!-- ============ 关于 ============ -->
-                        <StackPanel x:Name="AboutPane" Spacing="{StaticResource SpaceMedium}" Visibility="Collapsed">
-                            <TextBlock Text="关于" Style="{StaticResource SectionTitleText}" />
-                            <TextBlock Text="流光影院 · 深墨底与暖金流光的桌面影院。" Style="{StaticResource SecondaryText}" />
-                            <Border Height="1" Background="{ThemeResource DividerBrush}" />
-                            <Grid MinHeight="{StaticResource SettingsRowMinHeight}" ColumnSpacing="{StaticResource SpaceLarge}">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="Auto" />
-                                    <ColumnDefinition Width="*" />
-                                </Grid.ColumnDefinitions>
-                                <TextBlock Text="应用名称" Style="{StaticResource LabelText}" Width="{StaticResource SettingsFormLabelWidth}" VerticalAlignment="Center" />
-                                <TextBlock Grid.Column="1" Text="流光影院" Style="{StaticResource BodyText}" VerticalAlignment="Center" />
-                            </Grid>
-                            <Grid MinHeight="{StaticResource SettingsRowMinHeight}" ColumnSpacing="{StaticResource SpaceLarge}">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="Auto" />
-                                    <ColumnDefinition Width="*" />
-                                </Grid.ColumnDefinitions>
-                                <TextBlock Text="版本" Style="{StaticResource LabelText}" Width="{StaticResource SettingsFormLabelWidth}" VerticalAlignment="Center" />
-                                <TextBlock x:Name="AppVersionText" Grid.Column="1" Style="{StaticResource MetaText}"
-                                           VerticalAlignment="Center" />
-                            </Grid>
-                            <Grid MinHeight="{StaticResource SettingsRowMinHeight}" ColumnSpacing="{StaticResource SpaceLarge}">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="Auto" />
-                                    <ColumnDefinition Width="*" />
-                                </Grid.ColumnDefinitions>
-                                <TextBlock Text="视觉语言" Style="{StaticResource LabelText}" Width="{StaticResource SettingsFormLabelWidth}" VerticalAlignment="Center" />
-                                <TextBlock Grid.Column="1" Text="深墨底 · 暖金流光" Style="{StaticResource BodyText}" VerticalAlignment="Center" />
-                            </Grid>
-                            <Grid MinHeight="{StaticResource SettingsRowMinHeight}" ColumnSpacing="{StaticResource SpaceLarge}">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="Auto" />
-                                    <ColumnDefinition Width="*" />
-                                </Grid.ColumnDefinitions>
-                                <TextBlock Text="数据安全" Style="{StaticResource LabelText}" Width="{StaticResource SettingsFormLabelWidth}" VerticalAlignment="Center" />
-                                <TextBlock Grid.Column="1" Text="网盘凭据经 DPAPI 加密保存，日志不输出敏感内容。"
-                                           Style="{StaticResource SecondaryText}" VerticalAlignment="Center" TextWrapping="Wrap" />
-                            </Grid>
+                        <StackPanel x:Name="AboutPane" Spacing="16" Visibility="Collapsed">
+                            <StackPanel Spacing="4">
+                                <TextBlock Text="关于" Style="{StaticResource SectionTitleText}" />
+                                <TextBlock Text="流光影院 · 深墨底与暖金流光的桌面影院。" Style="{StaticResource SecondaryText}" />
+                            </StackPanel>
+                            <Border Style="{StaticResource SettingsCardStyle}">
+                                <StackPanel Spacing="6">
+                                    <Grid MinHeight="{StaticResource SettingsRowMinHeight}" ColumnSpacing="{StaticResource SpaceLarge}">
+                                        <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                                        <TextBlock Text="应用名称" Style="{StaticResource LabelText}" Width="{StaticResource SettingsFormLabelWidth}" VerticalAlignment="Center" />
+                                        <TextBlock Grid.Column="1" Text="流光影院" Style="{StaticResource BodyText}" VerticalAlignment="Center" />
+                                    </Grid>
+                                    <Border Height="1" Background="{ThemeResource DividerBrush}" />
+                                    <Grid MinHeight="{StaticResource SettingsRowMinHeight}" ColumnSpacing="{StaticResource SpaceLarge}">
+                                        <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                                        <TextBlock Text="版本" Style="{StaticResource LabelText}" Width="{StaticResource SettingsFormLabelWidth}" VerticalAlignment="Center" />
+                                        <TextBlock x:Name="AppVersionText" Grid.Column="1" Style="{StaticResource MetaText}" VerticalAlignment="Center" />
+                                    </Grid>
+                                    <Border Height="1" Background="{ThemeResource DividerBrush}" />
+                                    <Grid MinHeight="{StaticResource SettingsRowMinHeight}" ColumnSpacing="{StaticResource SpaceLarge}">
+                                        <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                                        <TextBlock Text="视觉语言" Style="{StaticResource LabelText}" Width="{StaticResource SettingsFormLabelWidth}" VerticalAlignment="Center" />
+                                        <TextBlock Grid.Column="1" Text="深墨底 · 暖金流光" Style="{StaticResource BodyText}" VerticalAlignment="Center" />
+                                    </Grid>
+                                    <Border Height="1" Background="{ThemeResource DividerBrush}" />
+                                    <Grid MinHeight="{StaticResource SettingsRowMinHeight}" ColumnSpacing="{StaticResource SpaceLarge}">
+                                        <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                                        <TextBlock Text="数据安全" Style="{StaticResource LabelText}" Width="{StaticResource SettingsFormLabelWidth}" VerticalAlignment="Center" />
+                                        <TextBlock Grid.Column="1" Text="网盘凭据经 DPAPI 加密保存，日志不输出敏感内容。"
+                                                   Style="{StaticResource SecondaryText}" VerticalAlignment="Center" TextWrapping="Wrap" />
+                                    </Grid>
+                                </StackPanel>
+                            </Border>
                             <StackPanel Orientation="Horizontal" Spacing="{StaticResource SpaceMini}">
                                 <Button Content="打开数据目录" Command="{Binding OpenDataFolderCommand}" Style="{StaticResource SecondaryButtonStyle}" />
                                 <Button Content="查看诊断日志" Command="{Binding OpenDiagnosticsCommand}" Style="{StaticResource SecondaryButtonStyle}" AutomationProperties.Name="查看诊断日志" />

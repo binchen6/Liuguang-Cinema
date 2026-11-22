@@ -80,8 +80,8 @@
                     AutomationProperties.Name="搜索"
                     ToolTipService.ToolTip="搜索（回车）">
                 <StackPanel Orientation="Horizontal" Spacing="{StaticResource SpaceMini}">
-                    <FontIcon Glyph="&#xE721;" FontSize="18" Foreground="{ThemeResource AccentInkBrush}" />
-                    <TextBlock Text="搜索" FontWeight="SemiBold" Foreground="{ThemeResource AccentInkBrush}" />
+                    <FontIcon Glyph="&#xE721;" FontSize="16" />
+                    <TextBlock Text="搜索" FontWeight="SemiBold" />
                 </StackPanel>
             </Button>
         </Grid>
@@ -100,8 +100,8 @@
                 <RowDefinition Height="*" />
             </Grid.RowDefinitions>
 
-            <Grid Width="{StaticResource NavPaneWidth}"
-                  Padding="{StaticResource ControlPaddingHorizontal}"
+            <Grid Width="212"
+                  Padding="12,0"
                   ColumnSpacing="{StaticResource SpaceMini}" VerticalAlignment="Center">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*" />
@@ -162,52 +162,55 @@
                 </Button>
             </Grid>
 
-            <!-- 站点标题与列表项的文字使用相同的水平内边距。 -->
-            <ListView Grid.Row="1"
-                      Width="{StaticResource NavPaneWidth}"
-                      AutomationProperties.Name="搜索站点"
-                      ItemsSource="{Binding Scopes}"
-                      SelectedItem="{Binding Scope, Mode=TwoWay}"
-                      SelectionMode="Single"
-                      Background="Transparent"
-                      BorderThickness="0"
-                      ItemContainerStyle="{StaticResource SearchSiteContainer}"
-                      ContainerContentChanging="OnScopeContainerChanging">
-                <ListView.ItemTemplate>
-                    <DataTemplate>
-                        <Grid ColumnSpacing="{StaticResource SpaceMini}" VerticalAlignment="Center">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="Auto" />
-                            </Grid.ColumnDefinitions>
-                            <StackPanel Spacing="0" VerticalAlignment="Center">
-                                <TextBlock Text="{Binding Name}" Style="{StaticResource CardTitleText}"
-                                           MaxLines="1" TextTrimming="CharacterEllipsis" />
-                                <TextBlock Text="{Binding Group.Status}" Style="{StaticResource MetaText}"
-                                           TextTrimming="CharacterEllipsis"
-                                           Visibility="{Binding Group.Status, Converter={StaticResource StringToVisibility}, FallbackValue=Collapsed}" />
-                            </StackPanel>
-                            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
-                                <Button Content="验证"
-                                        Click="OnVerifyClick"
-                                        DataContext="{Binding Group}"
-                                        Style="{StaticResource SecondaryButtonStyle}"
-                                        Height="32" MinHeight="32" Padding="10,0"
-                                        AutomationProperties.Name="验证站点"
-                                        ToolTipService.ToolTip="完成站点安全验证并重新搜索"
-                                        Visibility="{Binding CanVerify, Converter={StaticResource BoolToVisibility}, FallbackValue=Collapsed}" />
-                                <Button Content="重试"
-                                        Click="OnRetryClick"
-                                        DataContext="{Binding Group}"
-                                        Style="{StaticResource GhostButtonStyle}"
-                                        AutomationProperties.Name="重试"
-                                        ToolTipService.ToolTip="重新搜索该站点"
-                                        Visibility="{Binding CanRetry, Converter={StaticResource BoolToVisibility}, FallbackValue=Collapsed}" />
-                            </StackPanel>
-                        </Grid>
-                    </DataTemplate>
-                </ListView.ItemTemplate>
-            </ListView>
+            <!-- 站点侧栏卡片容器 -->
+            <Border Grid.Row="1" Width="212"
+                    Background="{ThemeResource SurfaceBrush}"
+                    BorderBrush="{ThemeResource SubtleBorderBrush}" BorderThickness="1"
+                    CornerRadius="{StaticResource RadiusCard}" Padding="6,8">
+                <ListView AutomationProperties.Name="搜索站点"
+                          ItemsSource="{Binding Scopes}"
+                          SelectedItem="{Binding Scope, Mode=TwoWay}"
+                          SelectionMode="Single"
+                          Background="Transparent"
+                          BorderThickness="0"
+                          ItemContainerStyle="{StaticResource RailListStyle}"
+                          ContainerContentChanging="OnScopeContainerChanging">
+                    <ListView.ItemTemplate>
+                        <DataTemplate>
+                            <Grid ColumnSpacing="{StaticResource SpaceMini}" VerticalAlignment="Center">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Spacing="0" VerticalAlignment="Center">
+                                    <TextBlock Text="{Binding Name}" Style="{StaticResource BodyText}" FontWeight="SemiBold"
+                                               MaxLines="1" TextTrimming="CharacterEllipsis" />
+                                    <TextBlock Text="{Binding Group.Status}" Style="{StaticResource MetaText}"
+                                               TextTrimming="CharacterEllipsis"
+                                               Visibility="{Binding Group.Status, Converter={StaticResource StringToVisibility}, FallbackValue=Collapsed}" />
+                                </StackPanel>
+                                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
+                                    <Button Content="验证"
+                                            Click="OnVerifyClick"
+                                            DataContext="{Binding Group}"
+                                            Style="{StaticResource SecondaryButtonStyle}"
+                                            Height="32" MinHeight="32" Padding="10,0"
+                                            AutomationProperties.Name="验证站点"
+                                            ToolTipService.ToolTip="完成站点安全验证并重新搜索"
+                                            Visibility="{Binding CanVerify, Converter={StaticResource BoolToVisibility}, FallbackValue=Collapsed}" />
+                                    <Button Content="重试"
+                                            Click="OnRetryClick"
+                                            DataContext="{Binding Group}"
+                                            Style="{StaticResource GhostButtonStyle}"
+                                            AutomationProperties.Name="重试"
+                                            ToolTipService.ToolTip="重新搜索该站点"
+                                            Visibility="{Binding CanRetry, Converter={StaticResource BoolToVisibility}, FallbackValue=Collapsed}" />
+                                </StackPanel>
+                            </Grid>
+                        </DataTemplate>
+                    </ListView.ItemTemplate>
+                </ListView>
+            </Border>
 
             <!-- 右列：历史态（搜索历史列表 / 空态） -->
             <Grid Grid.Row="1" Grid.Column="1"
@@ -315,8 +318,10 @@
                                         HorizontalAlignment="Stretch"
                                         HorizontalContentAlignment="Stretch"
                                         AutomationProperties.Name="{Binding Item.Name}"
-                                        Margin="0,0,18,22"
-                                        Click="OnResultClick">
+                                        Margin="0,4,18,18"
+                                        Click="OnResultClick"
+                                        PointerEntered="OnResultCardIn" PointerExited="OnResultCardOut"
+                                        PointerPressed="OnResultCardPressed" PointerReleased="OnResultCardReleased" PointerCanceled="OnResultCardReleased">
                                     <Grid RowSpacing="{StaticResource SpaceMini}">
                                         <Grid.RowDefinitions>
                                             <RowDefinition Height="282" />

@@ -26,7 +26,6 @@ public sealed partial class SettingsPage : Page
     {
         try
         {
-            MotionService.Reveal(this);
             var version = typeof(SettingsPage).Assembly.GetName().Version;
             AppVersionText.Text = version is null ? "版本未知" : $"版本 {version.Major}.{version.Minor}.{version.Build}";
             if (_activeSection is null)
@@ -59,16 +58,24 @@ public sealed partial class SettingsPage : Page
     private void ActivateSection(Expander section)
     {
         if (_switchingSection) return;
+        var changed = !ReferenceEquals(_activeSection, section);
         _activeSection = section;
         _switchingSection = true;
         try
         {
+            FrameworkElement? activePane = null;
             foreach (var (candidate, pane) in _sections)
             {
                 var active = ReferenceEquals(candidate, section);
                 if (!active && candidate.IsExpanded) candidate.IsExpanded = false;
                 pane.Visibility = active ? Visibility.Visible : Visibility.Collapsed;
+                if (active) activePane = pane as FrameworkElement;
                 ResetSectionVisual(candidate, active);
+            }
+            if (changed && activePane is not null)
+            {
+                SettingsScroller.ChangeView(null, 0, null, true);
+                MotionService.EnterSection(activePane, offsetY: 10);
             }
             DispatcherQueue.TryEnqueue(() =>
             {

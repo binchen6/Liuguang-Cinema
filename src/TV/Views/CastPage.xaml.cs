@@ -28,7 +28,7 @@ public sealed partial class CastPage : Page
 
     public CastPage() => InitializeComponent();
 
-    private void OnLoaded(object sender, RoutedEventArgs args) => MotionService.Reveal(this);
+    private void OnLoaded(object sender, RoutedEventArgs args) { }
     private async void OnUnloaded(object sender, RoutedEventArgs args) => await StopAsync();
 
     private void OnPageSizeChanged(object sender, SizeChangedEventArgs args)

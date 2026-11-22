@@ -43,7 +43,6 @@ public sealed partial class PlayerPage : Page
     private ContentDialog? _onlineSubtitleDialog;
     private Flyout? _timingFlyout;
     private int _volumeBeforeMute = 85;
-    private int _osdAnimationVersion;
 
     [System.Runtime.InteropServices.DllImport("user32.dll")] private static extern nint SetCursor(nint cursor);
     [System.Runtime.InteropServices.DllImport("user32.dll")] private static extern nint LoadCursor(nint instance, nint cursorName);
@@ -209,54 +208,15 @@ public sealed partial class PlayerPage : Page
     {
         if (string.IsNullOrWhiteSpace(message)) return;
         OsdText.Text = message;
-        OsdBadge.Visibility = Visibility.Visible;
+        OsdBadge.Opacity = 1;
         _osdTimer.Stop();
         _osdTimer.Start();
-        if (!MotionService.CanAnimate)
-        {
-            OsdBadge.Opacity = 1;
-            return;
-        }
-        AnimateOpacity(OsdBadge, 1, 110, ref _osdAnimationVersion);
+        MotionService.SetFloatingVisible(OsdBadge, true, offsetY: -8, hiddenScale: 0.92f);
     }
 
     private void HideOsd()
     {
-        if (!MotionService.CanAnimate)
-        {
-            OsdBadge.Opacity = 0;
-            OsdBadge.Visibility = Visibility.Collapsed;
-            return;
-        }
-        var version = ++_osdAnimationVersion;
-        var storyboard = new Storyboard { FillBehavior = FillBehavior.Stop };
-        var animation = new DoubleAnimation { To = 0, Duration = TimeSpan.FromMilliseconds(180) };
-        Storyboard.SetTarget(animation, OsdBadge);
-        Storyboard.SetTargetProperty(animation, "Opacity");
-        storyboard.Children.Add(animation);
-        storyboard.Completed += (_, _) =>
-        {
-            if (version == _osdAnimationVersion)
-            {
-                OsdBadge.Opacity = 0;
-                OsdBadge.Visibility = Visibility.Collapsed;
-            }
-        };
-        storyboard.Begin();
-    }
-
-    private static void AnimateOpacity(UIElement target, double to, int milliseconds, ref int versionCounter)
-    {
-        var version = ++versionCounter;
-        var storyboard = new Storyboard { FillBehavior = FillBehavior.Stop };
-        var animation = new DoubleAnimation { To = to, Duration = TimeSpan.FromMilliseconds(milliseconds) };
-        Storyboard.SetTarget(animation, target);
-        Storyboard.SetTargetProperty(animation, "Opacity");
-        storyboard.Children.Add(animation);
-        var captured = version;
-        storyboard.Completed += (_, _) => { target.Opacity = to; };
-        _ = captured;
-        storyboard.Begin();
+        MotionService.SetFloatingVisible(OsdBadge, false, offsetY: -8, hiddenScale: 0.92f);
     }
 
     private void OnQualityMenuOpening(object? sender, object args)
@@ -881,9 +841,7 @@ public sealed partial class PlayerPage : Page
         return false;
     }
 
-    private const int ChromeFadeInMs = 150;
-    private const int ChromeFadeOutMs = 160;
-    private int _chromeAnimationVersion;
+    private bool _centerPlayVisible;
 
     private void ShowControls()
     {
@@ -906,23 +864,18 @@ public sealed partial class PlayerPage : Page
 
     private void SetChromeVisible(bool visible)
     {
-        ControlsLayer.IsHitTestVisible = visible;
         if (visible) ShowArrowCursor();
         else SetCursor(0);
-        if (!MotionService.CanAnimate)
-        {
-            ControlsLayer.Opacity = visible ? 1 : 0;
-            return;
-        }
-        Fade(ControlsLayer, visible ? 1 : 0, visible ? ChromeFadeInMs : ChromeFadeOutMs);
+        MotionService.SetPlayerChromeVisible(ControlsLayer, TopChromeBar, BottomChromeBar, visible);
     }
 
     private void UpdateCenterPlayVisibility()
     {
-        CenterPlayButton.Visibility = _controlsVisible && ViewModel.HasMedia && !ViewModel.IsPlaying
-            && !ViewModel.IsBuffering && !ViewModel.ShowStatusPanel
-            ? Visibility.Visible
-            : Visibility.Collapsed;
+        var show = _controlsVisible && ViewModel.HasMedia && !ViewModel.IsPlaying
+            && !ViewModel.IsBuffering && !ViewModel.ShowStatusPanel;
+        if (show == _centerPlayVisible) return;
+        _centerPlayVisible = show;
+        MotionService.SetFloatingVisible(CenterPlayButton, show, offsetY: 0, hiddenScale: 0.86f);
     }
 
     private bool AnyFlyoutOpen() => PlaylistFlyout.IsOpen || PlaybackOptionsFlyout.IsOpen || RateFlyout.IsOpen ||
@@ -941,19 +894,6 @@ public sealed partial class PlayerPage : Page
     private void OnMenuFlyoutClosed(object? sender, object e)
     {
         if (IsLoaded) ShowControls();
-    }
-
-    private void Fade(UIElement target, double to, int milliseconds)
-    {
-        if (!MotionService.CanAnimate) { target.Opacity = to; return; }
-        var storyboard = new Storyboard { FillBehavior = FillBehavior.Stop };
-        var version = ++_chromeAnimationVersion;
-        var animation = new DoubleAnimation { To = to, Duration = TimeSpan.FromMilliseconds(milliseconds) };
-        Storyboard.SetTarget(animation, target);
-        Storyboard.SetTargetProperty(animation, "Opacity");
-        storyboard.Children.Add(animation);
-        storyboard.Completed += (_, _) => { if (version == _chromeAnimationVersion) target.Opacity = to; };
-        storyboard.Begin();
     }
 
     private void OnBackClick(object sender, RoutedEventArgs e) => App.Window.GoBack();

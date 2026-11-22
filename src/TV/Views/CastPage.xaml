@@ -105,7 +105,7 @@
                                     <ColumnDefinition Width="Auto" />
                                     <ColumnDefinition Width="*" />
                                 </Grid.ColumnDefinitions>
-                                <FontIcon Glyph="&#xE8AE;" FontSize="16" Foreground="{ThemeResource SecondaryTextBrush}"
+                                <FontIcon Glyph="&#xEC15;" FontSize="16" Foreground="{ThemeResource SecondaryTextBrush}"
                                           VerticalAlignment="Center" />
                                 <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="0">
                                     <TextBlock Text="接收设备" Style="{StaticResource MetaText}" />
@@ -185,9 +185,11 @@
                     <Grid x:Name="Stage">
                         <StackPanel x:Name="StageIdle" HorizontalAlignment="Center" VerticalAlignment="Center"
                                     Spacing="{StaticResource SpaceMedium}" Padding="32">
-                            <Border Width="104" Height="104" CornerRadius="{StaticResource RadiusCard}"
-                                    Background="{ThemeResource SurfaceAltBrush}" HorizontalAlignment="Center">
-                                <FontIcon Glyph="&#xE8AE;" FontSize="40" Foreground="{ThemeResource AccentBrush}"
+                            <Border Width="96" Height="96" CornerRadius="24"
+                                    Background="{ThemeResource AccentSoftBrush}"
+                                    BorderBrush="{ThemeResource AccentBorderBrush}" BorderThickness="1"
+                                    HorizontalAlignment="Center">
+                                <FontIcon Glyph="&#xEC15;" FontSize="40" Foreground="{ThemeResource AccentBrush}"
                                           HorizontalAlignment="Center" VerticalAlignment="Center" />
                             </Border>
                             <TextBlock x:Name="StageTitle" Text="接收手机视频" Style="{StaticResource PageTitleText}"

@@ -18,15 +18,27 @@ public sealed partial class KanqiuVodProvider(SourceHttpClient http) : INativePl
     private const string ReplayCategory = "replay";
     private const string BrowserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/132.0.0.0 Safari/537.36";
 
-    public bool CanHandle(SourceSite site) => site.Type == 3 &&
+    public static bool Supports(SourceSite site) => site.Type == 3 &&
         (site.Api.Equals("csp_Kanqiu", StringComparison.OrdinalIgnoreCase) ||
-         site.Api.Equals("csp_KanqiuGuard", StringComparison.OrdinalIgnoreCase));
+         site.Api.Equals("csp_KanqiuGuard", StringComparison.OrdinalIgnoreCase) ||
+         site.Api.Equals("csp_Alllive", StringComparison.OrdinalIgnoreCase) ||
+         site.Api.Equals("csp_AllliveGuard", StringComparison.OrdinalIgnoreCase) ||
+         site.Api.Equals("csp_LiveGz", StringComparison.OrdinalIgnoreCase) ||
+         site.Api.Equals("csp_LiveGzGuard", StringComparison.OrdinalIgnoreCase) ||
+         site.Api.Equals("csp_Doubao", StringComparison.OrdinalIgnoreCase) ||
+         site.Api.Equals("csp_DoubaoGuard", StringComparison.OrdinalIgnoreCase));
+
+    public bool CanHandle(SourceSite site) => Supports(site);
 
     public async Task<CmsResponse> GetHomeAsync(SourceSite site, CancellationToken cancellationToken = default)
     {
         var (html, page) = await ReadPageAsync(site, Origin(site), cancellationToken).ConfigureAwait(false);
-        var response = ReadSchedule(site, html, page);
-        response.HomeCategoryName = "全部直播";
+        var isReplayPrimary = site.Api.Equals("csp_Doubao", StringComparison.OrdinalIgnoreCase) ||
+                              site.Api.Equals("csp_DoubaoGuard", StringComparison.OrdinalIgnoreCase);
+        var response = isReplayPrimary
+            ? await ReadReplayPageAsync(site, 1, cancellationToken).ConfigureAwait(false)
+            : ReadSchedule(site, html, page);
+        response.HomeCategoryName = isReplayPrimary ? "热门回放" : "全部直播";
         var seen = new HashSet<string>(StringComparer.Ordinal);
         foreach (var link in html.QuerySelectorAll("a[href]"))
         {

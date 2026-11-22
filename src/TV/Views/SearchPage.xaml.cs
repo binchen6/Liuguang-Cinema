@@ -263,6 +263,26 @@ public sealed partial class SearchPage : Page
         if (!e.InRecycleQueue && e.Item is VodCardViewModel card) _ = card.LoadVisualAsync();
     }
 
+    private void OnResultCardIn(object sender, PointerRoutedEventArgs e)
+    {
+        if (sender is FrameworkElement element) MotionService.SetCardHover(element, null, null, true);
+    }
+
+    private void OnResultCardOut(object sender, PointerRoutedEventArgs e)
+    {
+        if (sender is FrameworkElement element) MotionService.SetCardHover(element, null, null, false);
+    }
+
+    private void OnResultCardPressed(object sender, PointerRoutedEventArgs e)
+    {
+        if (sender is FrameworkElement element) MotionService.SetCardPressed(element, true);
+    }
+
+    private void OnResultCardReleased(object sender, PointerRoutedEventArgs e)
+    {
+        if (sender is FrameworkElement element) MotionService.SetCardPressed(element, false);
+    }
+
     private void OnHistoryClick(object sender, RoutedEventArgs e)
     {
         if (sender is not Button { DataContext: string query }) return;

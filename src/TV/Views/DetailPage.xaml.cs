@@ -1,6 +1,7 @@
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Input;
 using TV.ViewModels;
 
 namespace TV.Views;
@@ -13,7 +14,6 @@ public sealed partial class DetailPage : Page
 
     private void OnLoaded(object sender, RoutedEventArgs e)
     {
-        MotionService.Reveal(this);
         Attach(DataContext as VodViewModel);
         if (_observed is null)
             DispatcherQueue.TryEnqueue(DispatcherQueuePriority.Low, () =>
@@ -133,6 +133,27 @@ public sealed partial class DetailPage : Page
         if (sender is not Button { DataContext: VodCardViewModel card } || DataContext is not VodViewModel viewModel) return;
         viewModel.SelectedCard = card;
         DetailScroller.ChangeView(null, 0, null, true);
+        MotionService.EnterSection(HeroBanner, offsetY: 12);
+    }
+
+    private void OnRelatedIn(object sender, PointerRoutedEventArgs e)
+    {
+        if (sender is FrameworkElement element) MotionService.SetCardHover(element, null, null, true);
+    }
+
+    private void OnRelatedOut(object sender, PointerRoutedEventArgs e)
+    {
+        if (sender is FrameworkElement element) MotionService.SetCardHover(element, null, null, false);
+    }
+
+    private void OnRelatedPressed(object sender, PointerRoutedEventArgs e)
+    {
+        if (sender is FrameworkElement element) MotionService.SetCardPressed(element, true);
+    }
+
+    private void OnRelatedReleased(object sender, PointerRoutedEventArgs e)
+    {
+        if (sender is FrameworkElement element) MotionService.SetCardPressed(element, false);
     }
 
     private void OnRelatedContainerChanging(ListViewBase sender, ContainerContentChangingEventArgs e)

@@ -13,9 +13,9 @@
             <SolidColorBrush x:Key="TextFillColorSecondaryBrush" Color="#A6AEBC" />
             <SolidColorBrush x:Key="TextFillColorTertiaryBrush" Color="#7E8795" />
             <SolidColorBrush x:Key="TextFillColorDisabledBrush" Color="#667E8795" />
-            <SolidColorBrush x:Key="TextOnAccentFillColorPrimaryBrush" Color="#1D1408" />
-            <SolidColorBrush x:Key="TextOnAccentFillColorSecondaryBrush" Color="#CC1D1408" />
-            <SolidColorBrush x:Key="TextOnAccentFillColorDisabledBrush" Color="#991D1408" />
+            <SolidColorBrush x:Key="TextOnAccentFillColorPrimaryBrush" Color="#1B1206" />
+            <SolidColorBrush x:Key="TextOnAccentFillColorSecondaryBrush" Color="#CC1B1206" />
+            <SolidColorBrush x:Key="TextOnAccentFillColorDisabledBrush" Color="#A6A4ADBC" />
             <SolidColorBrush x:Key="AccentTextFillColorPrimaryBrush" Color="#F5C36B" />
             <SolidColorBrush x:Key="AccentTextFillColorSecondaryBrush" Color="#D6A34F" />
             <SolidColorBrush x:Key="AccentTextFillColorTertiaryBrush" Color="#B98A3F" />
@@ -49,10 +49,10 @@
             <SolidColorBrush x:Key="SubtleFillColorDisabledBrush" Color="#00FFFFFF" />
 
             <!-- 强调 -->
-            <SolidColorBrush x:Key="AccentFillColorDefaultBrush" Color="#F2B75C" />
-            <SolidColorBrush x:Key="AccentFillColorSecondaryBrush" Color="#D69C45" />
+            <SolidColorBrush x:Key="AccentFillColorDefaultBrush" Color="#F4BE64" />
+            <SolidColorBrush x:Key="AccentFillColorSecondaryBrush" Color="#D9A048" />
             <SolidColorBrush x:Key="AccentFillColorTertiaryBrush" Color="#B87F2C" />
-            <SolidColorBrush x:Key="AccentFillColorDisabledBrush" Color="#59F2B75C" />
+            <SolidColorBrush x:Key="AccentFillColorDisabledBrush" Color="#26FFFFFF" />
 
             <!-- 按钮 -->
             <SolidColorBrush x:Key="ButtonBackground" Color="#14FFFFFF" />
@@ -134,9 +134,9 @@
             <SolidColorBrush x:Key="TextFillColorSecondaryBrush" Color="#565E6B" />
             <SolidColorBrush x:Key="TextFillColorTertiaryBrush" Color="#78808C" />
             <SolidColorBrush x:Key="TextFillColorDisabledBrush" Color="#6678808C" />
-            <SolidColorBrush x:Key="TextOnAccentFillColorPrimaryBrush" Color="#1D1408" />
-            <SolidColorBrush x:Key="TextOnAccentFillColorSecondaryBrush" Color="#CC1D1408" />
-            <SolidColorBrush x:Key="TextOnAccentFillColorDisabledBrush" Color="#991D1408" />
+            <SolidColorBrush x:Key="TextOnAccentFillColorPrimaryBrush" Color="#1B1206" />
+            <SolidColorBrush x:Key="TextOnAccentFillColorSecondaryBrush" Color="#CC1B1206" />
+            <SolidColorBrush x:Key="TextOnAccentFillColorDisabledBrush" Color="#8017191E" />
             <SolidColorBrush x:Key="AccentTextFillColorPrimaryBrush" Color="#8A5A12" />
             <SolidColorBrush x:Key="AccentTextFillColorSecondaryBrush" Color="#9A6500" />
             <SolidColorBrush x:Key="AccentTextFillColorTertiaryBrush" Color="#A8791F" />
@@ -331,14 +331,14 @@
         <Setter Property="VerticalContentAlignment" Value="Center" />
     </Style>
 
-    <!-- 筛选胶囊：未选透明描边、选中暖金淡底 + 暖金字 + 暖金描边（颜色之外还有描边/字重区分） -->
+    <!-- 筛选胶囊：轻量椭圆胶囊，未选克制通透、选中暖金淡底 + 暖金字 + 暖金描边 -->
     <Style x:Key="FilterChipStyle" TargetType="ToggleButton" BasedOn="{StaticResource DefaultToggleButtonStyle}">
-        <Setter Property="Height" Value="40" />
-        <Setter Property="MinHeight" Value="40" />
+        <Setter Property="Height" Value="36" />
+        <Setter Property="MinHeight" Value="36" />
         <Setter Property="Padding" Value="18,0" />
         <Setter Property="FontSize" Value="{StaticResource FontSizeSecondary}" />
         <Setter Property="FontWeight" Value="SemiBold" />
-        <Setter Property="CornerRadius" Value="{StaticResource RadiusChip}" />
+        <Setter Property="CornerRadius" Value="18" />
         <Setter Property="BorderThickness" Value="1" />
     </Style>
 
@@ -431,19 +431,28 @@
         </Setter>
     </Style>
 
-    <!-- 页面内导航列表（站点/分组等）：文字左缘与分区标题对齐，整项仍在内容边距内 -->
+    <!-- 页面内导航列表（站点/分组等）：留出与左侧 3px 指示条的安全呼吸间距，杜绝文字贴边碰撞 -->
     <Style x:Key="RailListStyle" TargetType="ListViewItem" BasedOn="{StaticResource NavRailItemStyle}">
-        <Setter Property="Padding" Value="0,0,14,0" />
+        <Setter Property="Padding" Value="12,0,14,0" />
         <Setter Property="Margin" Value="0,2" />
     </Style>
 
-    <!-- 面板：只在真正需要边界时使用 -->
+    <!-- 面板：深邃浮层卡片 -->
     <Style x:Key="PanelCardStyle" TargetType="Border">
         <Setter Property="Background" Value="{ThemeResource SurfaceBrush}" />
         <Setter Property="BorderBrush" Value="{ThemeResource SubtleBorderBrush}" />
         <Setter Property="BorderThickness" Value="1" />
-        <Setter Property="CornerRadius" Value="{StaticResource RadiusCard}" />
+        <Setter Property="CornerRadius" Value="{StaticResource RadiusPanel}" />
         <Setter Property="Padding" Value="{StaticResource CardPadding}" />
+    </Style>
+
+    <!-- 设置分组卡片：全宽沉稳分层容器 -->
+    <Style x:Key="SettingsCardStyle" TargetType="Border">
+        <Setter Property="Background" Value="{ThemeResource SurfaceBrush}" />
+        <Setter Property="BorderBrush" Value="{ThemeResource SubtleBorderBrush}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="CornerRadius" Value="{StaticResource RadiusCard}" />
+        <Setter Property="Padding" Value="20,16" />
     </Style>
 
     <!-- 兼容旧键 -->
@@ -468,12 +477,19 @@
         <Setter Property="MinHeight" Value="40" />
     </Style>
 
-    <!-- 输入框全站 44 高 -->
+    <!-- 输入框全站 44 高，垂直内边距 10px 确保占位符与正文光学居中 -->
     <Style TargetType="TextBox" BasedOn="{StaticResource DefaultTextBoxStyle}">
         <Setter Property="MinHeight" Value="{StaticResource InputHeight}" />
         <Setter Property="FontSize" Value="{StaticResource FontSizeBody}" />
         <Setter Property="CornerRadius" Value="{StaticResource RadiusControl}" />
-        <Setter Property="Padding" Value="12,0" />
+        <Setter Property="Padding" Value="12,10,12,10" />
+        <Setter Property="VerticalContentAlignment" Value="Center" />
+    </Style>
+    <Style TargetType="PasswordBox" BasedOn="{StaticResource DefaultPasswordBoxStyle}">
+        <Setter Property="MinHeight" Value="{StaticResource InputHeight}" />
+        <Setter Property="FontSize" Value="{StaticResource FontSizeBody}" />
+        <Setter Property="CornerRadius" Value="{StaticResource RadiusControl}" />
+        <Setter Property="Padding" Value="12,10,12,10" />
         <Setter Property="VerticalContentAlignment" Value="Center" />
     </Style>
     <Style TargetType="ComboBox" BasedOn="{StaticResource DefaultComboBoxStyle}">

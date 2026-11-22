@@ -11,13 +11,16 @@ internal static class CloudSearchDetail
         if (!CloudShareLink.TryParse(url, out var link)) throw new InvalidDataException("网盘分享地址无效。");
         CloudShare share;
         try { share = await cloud.GetShareAsync(link.ToShareUrl(), token).ConfigureAwait(false); }
-        catch (CloudAuthenticationException)
+        catch (Exception ex) when (ex is CloudAuthenticationException or HttpRequestException or InvalidDataException or InvalidOperationException)
         {
+            var hint = ex is CloudAuthenticationException ? "登录后加载分享" : $"需登录或检查分享（{ProviderName(link.Provider)}）";
             return new VodItem
             {
-                Id = id, SiteKey = site.Key, SiteName = site.Name, Name = string.IsNullOrWhiteSpace(title) ? ProviderName(link.Provider) + "分享" : title,
+                Id = id, SiteKey = site.Key, SiteName = site.Name,
+                Name = string.IsNullOrWhiteSpace(title) ? ProviderName(link.Provider) + "分享" : title,
                 Remarks = ProviderName(link.Provider), PlayFrom = ProviderName(link.Provider),
-                PlayUrl = "登录后加载分享$" + link.ToShareUrl()
+                PlayUrl = hint + "$" + link.ToShareUrl(),
+                Content = ex.Message
             };
         }
         if (share.Files.Count == 0) throw new InvalidDataException("分享中没有可播放的媒体文件。");

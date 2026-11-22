@@ -14,34 +14,40 @@
     <ResourceDictionary.ThemeDictionaries>
         <ResourceDictionary x:Key="Default">
             <!-- 表面 -->
-            <SolidColorBrush x:Key="AppBackgroundBrush" Color="#0B0D12" />
-            <SolidColorBrush x:Key="SurfaceBrush" Color="#13161D" />
-            <SolidColorBrush x:Key="SurfaceAltBrush" Color="#191D26" />
-            <SolidColorBrush x:Key="SurfaceHoverBrush" Color="#20252F" />
-            <SolidColorBrush x:Key="SurfaceElevatedBrush" Color="#1D2230" />
-            <SolidColorBrush x:Key="PosterPlaceholderBrush" Color="#1B2029" />
-            <SolidColorBrush x:Key="ScrimBrush" Color="#D9070A0F" />
-            <SolidColorBrush x:Key="DividerBrush" Color="#1AFFFFFF" />
+            <SolidColorBrush x:Key="AppBackgroundBrush" Color="#090B10" />
+            <SolidColorBrush x:Key="SurfaceBrush" Color="#11151E" />
+            <SolidColorBrush x:Key="SurfaceAltBrush" Color="#171C27" />
+            <SolidColorBrush x:Key="SurfaceHoverBrush" Color="#1F2533" />
+            <SolidColorBrush x:Key="SurfaceElevatedBrush" Color="#1C2230" />
+            <SolidColorBrush x:Key="PosterPlaceholderBrush" Color="#161B25" />
+            <SolidColorBrush x:Key="ScrimBrush" Color="#DF06080D" />
+            <SolidColorBrush x:Key="DividerBrush" Color="#17FFFFFF" />
+            <LinearGradientBrush x:Key="HeroScrimBrush" StartPoint="0,0" EndPoint="1,1">
+                <GradientStop Color="#C411151E" Offset="0" />
+                <GradientStop Color="#E611151E" Offset="0.52" />
+                <GradientStop Color="#FA11151E" Offset="1" />
+            </LinearGradientBrush>
 
             <!-- 文本 -->
-            <SolidColorBrush x:Key="PrimaryTextBrush" Color="#F3F0E9" />
-            <SolidColorBrush x:Key="SecondaryTextBrush" Color="#A6AEBC" />
-            <SolidColorBrush x:Key="TertiaryTextBrush" Color="#7E8795" />
-            <SolidColorBrush x:Key="OnInverseTextBrush" Color="#12151B" />
+            <SolidColorBrush x:Key="PrimaryTextBrush" Color="#F5F2EC" />
+            <SolidColorBrush x:Key="SecondaryTextBrush" Color="#A4ADBC" />
+            <SolidColorBrush x:Key="TertiaryTextBrush" Color="#788292" />
+            <SolidColorBrush x:Key="OnInverseTextBrush" Color="#11141A" />
 
             <!-- 边框 -->
-            <SolidColorBrush x:Key="SubtleBorderBrush" Color="#1AFFFFFF" />
-            <SolidColorBrush x:Key="StrongBorderBrush" Color="#33FFFFFF" />
+            <SolidColorBrush x:Key="SubtleBorderBrush" Color="#1CFFFFFF" />
+            <SolidColorBrush x:Key="StrongBorderBrush" Color="#36FFFFFF" />
+            <SolidColorBrush x:Key="AccentBorderBrush" Color="#59F4BE64" />
 
             <!-- 暖金强调 -->
-            <SolidColorBrush x:Key="AccentBrush" Color="#F2B75C" />
-            <SolidColorBrush x:Key="AccentFillBrush" Color="#F2B75C" />
-            <SolidColorBrush x:Key="AccentFillHoverBrush" Color="#FFC978" />
-            <SolidColorBrush x:Key="AccentFillPressedBrush" Color="#D69C45" />
-            <SolidColorBrush x:Key="AccentInkBrush" Color="#1D1408" />
-            <SolidColorBrush x:Key="AccentSoftBrush" Color="#2EF2B75C" />
-            <SolidColorBrush x:Key="SelectionBrush" Color="#26F2B75C" />
-            <SolidColorBrush x:Key="SelectionIndicatorBrush" Color="#F2B75C" />
+            <SolidColorBrush x:Key="AccentBrush" Color="#F4BE64" />
+            <SolidColorBrush x:Key="AccentFillBrush" Color="#F4BE64" />
+            <SolidColorBrush x:Key="AccentFillHoverBrush" Color="#FFCE7D" />
+            <SolidColorBrush x:Key="AccentFillPressedBrush" Color="#D9A048" />
+            <SolidColorBrush x:Key="AccentInkBrush" Color="#1B1206" />
+            <SolidColorBrush x:Key="AccentSoftBrush" Color="#29F4BE64" />
+            <SolidColorBrush x:Key="SelectionBrush" Color="#24F4BE64" />
+            <SolidColorBrush x:Key="SelectionIndicatorBrush" Color="#F4BE64" />
 
             <!-- 状态 -->
             <SolidColorBrush x:Key="DangerBrush" Color="#FF7A72" />
@@ -66,6 +72,11 @@
             <SolidColorBrush x:Key="PosterPlaceholderBrush" Color="#E8E2D8" />
             <SolidColorBrush x:Key="ScrimBrush" Color="#D9F5F1E9" />
             <SolidColorBrush x:Key="DividerBrush" Color="#14000000" />
+            <LinearGradientBrush x:Key="HeroScrimBrush" StartPoint="0,0" EndPoint="1,1">
+                <GradientStop Color="#C4FFFFFF" Offset="0" />
+                <GradientStop Color="#E6FFFFFF" Offset="0.52" />
+                <GradientStop Color="#FAFFFFFF" Offset="1" />
+            </LinearGradientBrush>
 
             <SolidColorBrush x:Key="PrimaryTextBrush" Color="#17191E" />
             <SolidColorBrush x:Key="SecondaryTextBrush" Color="#565E6B" />
@@ -74,6 +85,7 @@
 
             <SolidColorBrush x:Key="SubtleBorderBrush" Color="#14000000" />
             <SolidColorBrush x:Key="StrongBorderBrush" Color="#26000000" />
+            <SolidColorBrush x:Key="AccentBorderBrush" Color="#59C98419" />
 
             <SolidColorBrush x:Key="AccentBrush" Color="#8A5A12" />
             <SolidColorBrush x:Key="AccentFillBrush" Color="#F2B75C" />
@@ -105,6 +117,7 @@
             <SolidColorBrush x:Key="PosterPlaceholderBrush" Color="{ThemeResource SystemColorWindowColor}" />
             <SolidColorBrush x:Key="ScrimBrush" Color="{ThemeResource SystemColorWindowColor}" />
             <SolidColorBrush x:Key="DividerBrush" Color="{ThemeResource SystemColorWindowTextColor}" />
+            <SolidColorBrush x:Key="HeroScrimBrush" Color="{ThemeResource SystemColorWindowColor}" />
 
             <SolidColorBrush x:Key="PrimaryTextBrush" Color="{ThemeResource SystemColorWindowTextColor}" />
             <SolidColorBrush x:Key="SecondaryTextBrush" Color="{ThemeResource SystemColorWindowTextColor}" />
@@ -113,6 +126,7 @@
 
             <SolidColorBrush x:Key="SubtleBorderBrush" Color="{ThemeResource SystemColorWindowTextColor}" />
             <SolidColorBrush x:Key="StrongBorderBrush" Color="{ThemeResource SystemColorWindowTextColor}" />
+            <SolidColorBrush x:Key="AccentBorderBrush" Color="{ThemeResource SystemColorHighlightColor}" />
 
             <SolidColorBrush x:Key="AccentBrush" Color="{ThemeResource SystemColorHotlightColor}" />
             <SolidColorBrush x:Key="AccentFillBrush" Color="{ThemeResource SystemColorHighlightColor}" />
@@ -180,13 +194,13 @@
     <x:Double x:Key="SpaceXLarge">32</x:Double>
     <x:Double x:Key="SpaceHuge">48</x:Double>
 
-    <!-- 页面外边距：宽窗 32 / 标准 24 / 窄窗 16 -->
-    <Thickness x:Key="PagePaddingWide">32,24,32,32</Thickness>
-    <Thickness x:Key="PagePaddingStandard">24,20,24,24</Thickness>
-    <Thickness x:Key="PagePaddingNarrow">16,16,16,20</Thickness>
-    <Thickness x:Key="SectionGap">0,0,0,32</Thickness>
+    <!-- 页面外边距：标题栏已提供顶部留白，页面上边距克制收紧以让内容区首屏更饱满 -->
+    <Thickness x:Key="PagePaddingWide">32,10,32,28</Thickness>
+    <Thickness x:Key="PagePaddingStandard">24,10,24,24</Thickness>
+    <Thickness x:Key="PagePaddingNarrow">16,8,16,20</Thickness>
+    <Thickness x:Key="SectionGap">0,0,0,28</Thickness>
     <Thickness x:Key="GroupGap">0,0,0,16</Thickness>
-    <Thickness x:Key="CardPadding">16</Thickness>
+    <Thickness x:Key="CardPadding">20</Thickness>
     <Thickness x:Key="ControlPaddingHorizontal">16,0</Thickness>
 
     <!-- ============================================================

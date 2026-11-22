@@ -93,48 +93,52 @@
                 <ColumnDefinition x:Name="DetailColumn" Width="360" />
             </Grid.ColumnDefinitions>
 
-            <Grid x:Name="LeftPanel" RowSpacing="{StaticResource SpaceMedium}">
-                <Grid.RowDefinitions>
-                    <RowDefinition x:Name="SourceRow" Height="Auto" />
-                    <RowDefinition x:Name="GroupRow" Height="*" />
-                </Grid.RowDefinitions>
-
-                <!-- 内置与导入直播源共用一个选择器。 -->
-                <StackPanel x:Name="SourceSection" Spacing="{StaticResource SpaceSmall}">
-                    <TextBlock Text="直播源" Style="{StaticResource LabelText}" />
-                    <controls:AnchoredChoice ItemsSource="{Binding AvailableSources}"
-                                             SelectedItem="{Binding SelectedRepository, Mode=TwoWay}"
-                                             DisplayMemberPath="Name" PlaceholderText="内置直播源"
-                                             HorizontalAlignment="Stretch" />
-                    <Grid ColumnSpacing="{StaticResource SpaceMini}">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*" />
-                            <ColumnDefinition Width="Auto" />
-                        </Grid.ColumnDefinitions>
-                        <TextBlock Text="无导入源时默认使用内置源" Style="{StaticResource MetaText}"
-                                   VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
-                        <Button Grid.Column="1" Content="查看内置频道"
-                                Command="{Binding SelectBuiltInCommand}"
-                                Style="{StaticResource GhostButtonStyle}"
-                                AutomationProperties.Name="查看内置频道" />
-                    </Grid>
-                </StackPanel>
-
-                <!-- 第二级：分组（分组列表为空时由 code-behind 隐藏整块，不再出现只有标题的空分组区） -->
-                <Grid x:Name="GroupSection" Grid.Row="1">
+            <Border x:Name="LeftPanel" Background="{ThemeResource SurfaceBrush}"
+                    BorderBrush="{ThemeResource SubtleBorderBrush}" BorderThickness="1"
+                    CornerRadius="{StaticResource RadiusPanel}" Padding="14">
+                <Grid RowSpacing="{StaticResource SpaceMedium}">
                     <Grid.RowDefinitions>
-                        <RowDefinition Height="Auto" />
-                        <RowDefinition Height="*" />
+                        <RowDefinition x:Name="SourceRow" Height="Auto" />
+                        <RowDefinition x:Name="GroupRow" Height="*" />
                     </Grid.RowDefinitions>
-                    <TextBlock Text="分组" Style="{StaticResource LabelText}" Margin="0,0,0,8" />
-                    <ListView Grid.Row="1" ItemsSource="{Binding Groups}"
-                              SelectedItem="{Binding SelectedGroup, Mode=TwoWay}"
-                              SelectionMode="Single" Background="Transparent" BorderThickness="0"
-                              ItemContainerStyle="{StaticResource RailListStyle}"
-                              SelectionChanged="OnGroupSelectionChanged"
-                              ScrollViewer.HorizontalScrollMode="Disabled" />
+
+                    <!-- 内置与导入直播源共用一个选择器。 -->
+                    <StackPanel x:Name="SourceSection" Spacing="{StaticResource SpaceSmall}">
+                        <TextBlock Text="直播源" Style="{StaticResource LabelText}" />
+                        <controls:AnchoredChoice ItemsSource="{Binding AvailableSources}"
+                                                 SelectedItem="{Binding SelectedRepository, Mode=TwoWay}"
+                                                 DisplayMemberPath="Name" PlaceholderText="内置直播源"
+                                                 HorizontalAlignment="Stretch" />
+                        <Grid ColumnSpacing="{StaticResource SpaceMini}">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Text="无导入源时默认使用内置源" Style="{StaticResource MetaText}"
+                                       VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+                            <Button Grid.Column="1" Content="查看内置频道"
+                                    Command="{Binding SelectBuiltInCommand}"
+                                    Style="{StaticResource GhostButtonStyle}"
+                                    AutomationProperties.Name="查看内置频道" />
+                        </Grid>
+                    </StackPanel>
+
+                    <!-- 第二级：分组（分组列表为空时由 code-behind 隐藏整块，不再出现只有标题的空分组区） -->
+                    <Grid x:Name="GroupSection" Grid.Row="1">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="*" />
+                        </Grid.RowDefinitions>
+                        <TextBlock Text="分组" Style="{StaticResource LabelText}" Margin="0,0,0,8" />
+                        <ListView Grid.Row="1" ItemsSource="{Binding Groups}"
+                                  SelectedItem="{Binding SelectedGroup, Mode=TwoWay}"
+                                  SelectionMode="Single" Background="Transparent" BorderThickness="0"
+                                  ItemContainerStyle="{StaticResource RailListStyle}"
+                                  SelectionChanged="OnGroupSelectionChanged"
+                                  ScrollViewer.HorizontalScrollMode="Disabled" />
+                    </Grid>
                 </Grid>
-            </Grid>
+            </Border>
 
             <!-- 频道列表（每项为聚合后的频道，含线路数与清晰度） -->
             <Grid x:Name="ChannelsPanel" Grid.Column="1">
@@ -170,11 +174,12 @@
                                         <ColumnDefinition Width="*" />
                                         <ColumnDefinition Width="Auto" />
                                     </Grid.ColumnDefinitions>
-                                    <Border Width="40" Height="40" CornerRadius="{StaticResource RadiusControl}"
-                                            Background="{ThemeResource SurfaceAltBrush}">
+                                    <Border Width="44" Height="44" CornerRadius="10" Padding="5"
+                                            Background="{ThemeResource SurfaceAltBrush}"
+                                            BorderBrush="{ThemeResource SubtleBorderBrush}" BorderThickness="1">
                                         <Grid>
                                             <FontIcon Glyph="&#xE7F4;" FontSize="18" Foreground="{ThemeResource SecondaryTextBrush}" HorizontalAlignment="Center" VerticalAlignment="Center" />
-                                            <Image Source="{Binding Logo}" Stretch="UniformToFill" />
+                                            <Image Source="{Binding Logo}" Stretch="Uniform" />
                                         </Grid>
                                     </Border>
                                     <StackPanel Grid.Column="1" Spacing="{StaticResource SpaceTiny}" VerticalAlignment="Center">
@@ -223,7 +228,7 @@
                     <StackPanel MaxWidth="280" Spacing="{StaticResource SpaceSmall}"
                                 HorizontalAlignment="Center" VerticalAlignment="Center"
                                 Visibility="{Binding HasSelectedChannel, Converter={StaticResource BoolToVisibility}, ConverterParameter=Inverse}">
-                        <FontIcon Glyph="&#xE8AE;" FontSize="40"
+                        <FontIcon Glyph="&#xE7F4;" FontSize="40"
                                   Foreground="{ThemeResource SecondaryTextBrush}" HorizontalAlignment="Center" />
                         <TextBlock Text="选择一个频道" Style="{StaticResource SectionTitleText}"
                                    HorizontalAlignment="Center" TextAlignment="Center" />

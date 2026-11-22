@@ -18,7 +18,6 @@ public sealed partial class LivePage : Page
 
     private async void OnLoaded(object sender, Microsoft.UI.Xaml.RoutedEventArgs e)
     {
-        MotionService.Reveal(this);
         ViewModel.Groups.CollectionChanged -= OnGroupsChanged;
         ViewModel.Groups.CollectionChanged += OnGroupsChanged;
         UpdateGroupSection();

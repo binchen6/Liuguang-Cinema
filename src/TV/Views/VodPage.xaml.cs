@@ -26,13 +26,13 @@ public sealed partial class VodPage : Page
     private async void OnLoaded(object sender, RoutedEventArgs e)
     {
         Diagnostics.Log("VodPage loaded");
-        MotionService.Reveal(this);
         try { await ViewModel.InitializeAsync(); Diagnostics.Log("VodPage initialized"); }
         catch (Exception ex) { ViewModel.StatusMessage = "加载失败：" + ex.Message; }
     }
 
     private ScrollViewer? _postersScroll;
     private bool _browseLayoutReady;
+    private bool _scrolledCompact;
     private void OnSearchClick(object sender, RoutedEventArgs e) => App.Window.OpenSearch();
     private async void OnVerifySiteClick(object sender, RoutedEventArgs e)
     {
@@ -51,6 +51,7 @@ public sealed partial class VodPage : Page
     private void OnPostersLoaded(object sender, RoutedEventArgs e)
     {
         _browseLayoutReady = false;
+        _scrolledCompact = false;
         BrowseHeader.Visibility = GalleryHost.Visibility = Visibility.Visible;
         BackToTop.Visibility = Visibility.Collapsed;
         _postersScroll = SearchPage.FindScrollViewer(Posters);
@@ -73,8 +74,11 @@ public sealed partial class VodPage : Page
         if (!_browseLayoutReady) return;
         var offset = _postersScroll?.VerticalOffset ?? 0;
         if (offset > 0 && offset < 40) return;
-        BrowseHeader.Visibility = GalleryHost.Visibility = offset >= 40 ? Visibility.Collapsed : Visibility.Visible;
-        BackToTop.Visibility = offset >= 40 ? Visibility.Visible : Visibility.Collapsed;
+        var compact = offset >= 40;
+        if (compact == _scrolledCompact) return;
+        _scrolledCompact = compact;
+        BrowseHeader.Visibility = GalleryHost.Visibility = compact ? Visibility.Collapsed : Visibility.Visible;
+        MotionService.SetFloatingVisible(BackToTop, compact, offsetY: 16, hiddenScale: 0.84f);
     }
 
     private async void OnCategoryPillClick(object sender, RoutedEventArgs e)
@@ -110,8 +114,8 @@ public sealed partial class VodPage : Page
         // ItemWidth 是列间距（pitch），模板里的 18 右边距由 item 内部 Button.Margin 承担，
         // 所以这里不能用 (width - gap*(n-1))/n，否则最后会空出一整列宽度的空白。
         panel.ItemWidth = Math.Floor(width / columns);
-        // 行高 = 封面 282 + 行距 10 + 标题 44 + 行距 10 + 元数据 18 + 底部行距 22（模板内 Button Margin）。
-        panel.ItemHeight = 386;
+        // 行高 = 封面 268 + 间距 8 + 标题 22 + 间距 8 + 元数据 18 + 上下 Margin 22 = 346。
+        panel.ItemHeight = 346;
     }
 
     private void OnFeaturedLoaded(object sender, RoutedEventArgs e)
@@ -124,36 +128,36 @@ public sealed partial class VodPage : Page
         if (sender is Button { DataContext: VodCardViewModel card }) ViewModel.SelectedCard = card;
     }
 
+    private void OnFeaturedIn(object sender, PointerRoutedEventArgs e)
+    {
+        if (sender is FrameworkElement element) MotionService.SetCardHover(element, null, null, true);
+    }
+
+    private void OnFeaturedOut(object sender, PointerRoutedEventArgs e)
+    {
+        if (sender is FrameworkElement element) MotionService.SetCardHover(element, null, null, false);
+    }
+
     private void OnCardIn(object sender, PointerRoutedEventArgs e)
     {
         if (sender is not FrameworkElement element) return;
-        ScaleTo(element, 1.03);
-        FadeOverlay(element, 1);
+        MotionService.SetCardHover(element, FindDescendant(element, "PlayOverlay"), FindDescendant(element, "PlayBadge"), true);
     }
 
     private void OnCardOut(object sender, PointerRoutedEventArgs e)
     {
         if (sender is not FrameworkElement element) return;
-        ScaleTo(element, 1.0);
-        FadeOverlay(element, 0);
+        MotionService.SetCardHover(element, FindDescendant(element, "PlayOverlay"), FindDescendant(element, "PlayBadge"), false);
     }
 
-    private static void FadeOverlay(FrameworkElement cardRoot, double opacity)
+    private void OnCardPressed(object sender, PointerRoutedEventArgs e)
     {
-        if (FindDescendant(cardRoot, "PlayOverlay") is not UIElement overlay) return;
-        if (!MotionService.CanAnimate) { overlay.Opacity = opacity; return; }
-        var animation = new DoubleAnimation
-        {
-            To = opacity,
-            Duration = TimeSpan.FromMilliseconds(140),
-            EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut },
-            EnableDependentAnimation = true
-        };
-        var storyboard = new Storyboard();
-        Storyboard.SetTarget(animation, overlay);
-        Storyboard.SetTargetProperty(animation, "Opacity");
-        storyboard.Children.Add(animation);
-        storyboard.Begin();
+        if (sender is FrameworkElement element) MotionService.SetCardPressed(element, true);
+    }
+
+    private void OnCardReleased(object sender, PointerRoutedEventArgs e)
+    {
+        if (sender is FrameworkElement element) MotionService.SetCardPressed(element, false);
     }
 
     private static FrameworkElement? FindDescendant(DependencyObject root, string name)
@@ -165,31 +169,6 @@ public sealed partial class VodPage : Page
             if (FindDescendant(VisualTreeHelper.GetChild(root, i), name) is { } found) return found;
         }
         return null;
-    }
-
-    private static void ScaleTo(FrameworkElement element, double scale)
-    {
-        if (!MotionService.CanAnimate) return;
-        if (element.RenderTransform is not CompositeTransform transform)
-        {
-            transform = new CompositeTransform();
-            element.RenderTransform = transform;
-            element.RenderTransformOrigin = new Windows.Foundation.Point(0.5, 0.5);
-        }
-        var storyboard = new Storyboard();
-        foreach (var property in new[] { "ScaleX", "ScaleY" })
-        {
-            var animation = new DoubleAnimation
-            {
-                To = scale,
-                Duration = TimeSpan.FromMilliseconds(170),
-                EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
-            };
-            Storyboard.SetTarget(animation, transform);
-            Storyboard.SetTargetProperty(animation, property);
-            storyboard.Children.Add(animation);
-        }
-        storyboard.Begin();
     }
 
 }

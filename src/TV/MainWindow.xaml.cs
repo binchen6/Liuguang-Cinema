@@ -19,6 +19,8 @@ namespace TV;
 public sealed partial class MainWindow : Window
 {
     private string _currentTag = string.Empty;
+    private PageTransitionKind _pendingTransition = PageTransitionKind.TopLevel;
+    private bool _hasAnimatedNavIndicator;
     private bool _fullScreen;
     private bool _compact;
     private bool _leavingPlayer;
@@ -56,11 +58,14 @@ public sealed partial class MainWindow : Window
         ContentFrame.Navigated += (_, args) =>
         {
             if (args.Content is FrameworkElement page)
+            {
                 page.DataContext = _currentTag switch
                 {
                     "live" => ViewModel.Live, "library" => ViewModel.Library, "settings" => ViewModel.Settings,
                     "player" => ViewModel.Player, "search" => ViewModel.Search, "cloud" => ViewModel.CloudDrive, _ => ViewModel.Vod
                 };
+                MotionService.EnterPage(page, _pendingTransition);
+            }
         };
         ViewModel.NavigationRequested += OnNavigationRequested;
         ViewModel.Player.FullScreenRequested += OnFullScreenRequested;
@@ -190,7 +195,15 @@ public sealed partial class MainWindow : Window
     private void NavigateCore(string tag, bool goingBack)
     {
         Diagnostics.Log($"NavigateCore tag={tag} prev={_currentTag}");
+        var previous = _currentTag;
         _currentTag = tag;
+        _pendingTransition = tag == "player"
+            ? PageTransitionKind.Immersive
+            : goingBack
+                ? PageTransitionKind.DrillOut
+                : tag is "detail" or "search" or "cloud"
+                    ? PageTransitionKind.DrillIn
+                    : PageTransitionKind.TopLevel;
         Type? pageType = tag switch
         {
             "live" => typeof(LivePage),
@@ -203,12 +216,10 @@ public sealed partial class MainWindow : Window
             "search" => typeof(SearchPage),
             _ => typeof(VodPage)
         };
-        NavigationTransitionInfo transition = MotionService.CanAnimate
-            ? new SlideNavigationTransitionInfo { Effect = goingBack ? SlideNavigationTransitionEffect.FromLeft : SlideNavigationTransitionEffect.FromRight }
-            : new SuppressNavigationTransitionInfo();
         try
         {
-            ContentFrame.Navigate(pageType, null, transition);
+            // 使用 SuppressNavigationTransitionInfo 将页面转场完全交给 MotionService 物理引擎，支持随时零卡顿打断。
+            ContentFrame.Navigate(pageType, null, new SuppressNavigationTransitionInfo());
             UpdatePaneLayout();
         }
         catch (Exception ex)
@@ -245,16 +256,40 @@ public sealed partial class MainWindow : Window
         UpdateNavVisuals(tag);
     }
 
-    // ListViewItem 的 SelectionStates 视觉态在切换选中项时不会回退（deselected 项保留选中底色/指示条），
-    // 这里直接按当前 tag 校正每项的选中底板与指示条，避免出现两个高亮项。
+    // 校正每项选中底板，并将全局弹簧指示条平滑滑行到当前激活项（含设置按钮）。
     private void UpdateNavVisuals(string tag)
     {
+        FrameworkElement? activeTarget = tag == "settings" ? SettingsButton : null;
         foreach (var item in NavList.Items.OfType<ListViewItem>())
         {
             var active = item.Tag as string == tag;
+            if (active) activeTarget = item;
             if (FindTemplateChild(item, "SelectionPlate") is UIElement plate) plate.Opacity = active ? 1 : 0;
-            if (FindTemplateChild(item, "Indicator") is UIElement indicator) indicator.Opacity = active ? 1 : 0;
+            // 侧栏使用全局弹簧 FloatingNavIndicator，隐藏各子项静态指示条避免双条重影
+            if (FindTemplateChild(item, "Indicator") is UIElement indicator) indicator.Opacity = 0;
         }
+        ScheduleIndicatorGlide(activeTarget);
+    }
+
+    private void ScheduleIndicatorGlide(FrameworkElement? target)
+    {
+        if (App.PlayerOnly || target is null) return;
+        DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Normal, () =>
+        {
+            if (_closing || target.XamlRoot is null || NavPaneContent.XamlRoot is null) return;
+            try
+            {
+                var pt = target.TransformToVisual(NavPaneContent).TransformPoint(new Windows.Foundation.Point(0, 0));
+                var centerY = pt.Y + (target.ActualHeight - FloatingNavIndicator.Height) * 0.5;
+                if (centerY > 0)
+                {
+                    FloatingNavIndicator.Opacity = 1;
+                    MotionService.GlideVerticalIndicator(FloatingNavIndicator, centerY, animate: _hasAnimatedNavIndicator);
+                    _hasAnimatedNavIndicator = true;
+                }
+            }
+            catch { }
+        });
     }
 
     private static FrameworkElement? FindTemplateChild(DependencyObject root, string name)
@@ -324,8 +359,14 @@ public sealed partial class MainWindow : Window
         foreach (var content in new FrameworkElement[] { NavContentVod, NavContentLive, NavContentLibrary, NavContentCast, NavContentSettings })
             content.HorizontalAlignment = alignment;
         SettingsButton.HorizontalContentAlignment = narrow ? HorizontalAlignment.Center : HorizontalAlignment.Left;
+        SettingsButton.Padding = narrow ? new Thickness(0) : new Thickness(17, 0, 14, 0);
         BrandBlock.Margin = narrow ? new Thickness(0, 0, 0, 0) : new Thickness(20, 0, 0, 0);
         BrandBlock.HorizontalAlignment = narrow ? HorizontalAlignment.Center : HorizontalAlignment.Left;
+        var currentNav = _currentTag == "settings"
+            ? (FrameworkElement?)SettingsButton
+            : NavList.Items.OfType<ListViewItem>().FirstOrDefault(i => i.Tag as string == _currentTag)
+                ?? NavList.SelectedItem as FrameworkElement;
+        ScheduleIndicatorGlide(currentNav);
     }
 
     private void OnBackClick(object sender, RoutedEventArgs e) => GoBack();
@@ -357,11 +398,9 @@ public sealed partial class MainWindow : Window
 
     private void UpdateBackButton()
     {
-        // 播放器页有自己的顶部返回按钮，避免出现两个返回键。
-        var canGoBack = _currentTag is not ("vod" or "live" or "library" or "player") && _back.Count > 0;
-        BackButton.Visibility = canGoBack ? Visibility.Visible : Visibility.Collapsed;
-        BackButton.Opacity = 1;
-        BackButton.IsHitTestVisible = canGoBack;
+        // 主导航页（点播/直播/媒体库/投屏）与自带返回键的播放器页不显示标题栏返回键。
+        var canGoBack = _currentTag is not ("vod" or "live" or "library" or "cast" or "player") && _back.Count > 0;
+        MotionService.SetFloatingVisible(BackButton, canGoBack, offsetY: 0, offsetX: -8, hiddenScale: 0.90f);
         ScheduleTitleBarInput();
     }
 
