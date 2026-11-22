@@ -255,6 +255,10 @@
         <StackPanel Grid.Row="5" Orientation="Horizontal" HorizontalAlignment="Center" Spacing="16" Margin="0,16,0,0">
             <TextBlock Text="{Binding StatusMessage}" Style="{StaticResource MetaText}" VerticalAlignment="Center"
                        MaxWidth="460" TextTrimming="CharacterEllipsis" />
+            <Button Content="完成验证" Style="{StaticResource PrimaryButtonStyle}"
+                    Click="OnVerifySiteClick"
+                    AutomationProperties.Name="完成站点验证"
+                    Visibility="{Binding HasPendingVerification, Converter={StaticResource BoolToVisibility}}" />
             <Button Content="加载更多" Style="{StaticResource SecondaryButtonStyle}"
                     Command="{Binding LoadMoreCommand}"
                     Visibility="{Binding HasMore, Converter={StaticResource BoolToVisibility}}" />

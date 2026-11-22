@@ -149,7 +149,8 @@ public sealed partial class SearchPage : Page
         if (_observed is not { } model) return;
         var resultsMode = !model.ShowsHistory;
         var hasRows = model.Rows.Count > 0;
-        var failed = model.Scopes.Any(scope => scope.Group?.CanRetry == true);
+        var failed = model.Scopes.Any(scope => scope.Group?.CanRetry == true || scope.Group?.CanVerify == true);
+        var needsVerify = model.Scopes.Any(scope => scope.Group?.CanVerify == true);
 
         LoadingState.Visibility = resultsMode && model.IsSearching && !hasRows
             ? Visibility.Visible
@@ -162,8 +163,10 @@ public sealed partial class SearchPage : Page
         }
 
         EmptyIcon.Glyph = failed ? "\uE7BA" : "\uE721";
-        EmptyTitle.Text = failed ? "部分站点搜索未完成" : "没有找到匹配的影片";
-        EmptyDescription.Text = failed
+        EmptyTitle.Text = needsVerify ? "部分站点需要安全验证" : failed ? "部分站点搜索未完成" : "没有找到匹配的影片";
+        EmptyDescription.Text = needsVerify
+            ? "请在左侧站点列表点击「验证」完成验证码后自动恢复搜索。"
+            : failed
             ? (string.IsNullOrWhiteSpace(model.Status)
                 ? "可在左侧站点列表点击「重试」重新搜索失败的站点。"
                 : $"{model.Status} · 可在左侧站点列表点击「重试」重新搜索失败的站点。")
@@ -230,6 +233,18 @@ public sealed partial class SearchPage : Page
     private void OnRetryClick(object sender, RoutedEventArgs e)
     {
         if (sender is Button { DataContext: SearchGroup group }) ViewModel.RetryCommand.Execute(group);
+    }
+
+    private async void OnVerifyClick(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { DataContext: SearchGroup { PendingVerification: { } challenge } group } || XamlRoot is null) return;
+        try
+        {
+            var dialog = new Controls.SiteVerificationDialog(App.Services, challenge, XamlRoot);
+            if (await dialog.ShowAsync() && IsLoaded)
+                ViewModel.RetryCommand.Execute(group);
+        }
+        catch (Exception ex) { Diagnostics.Log($"站点验证对话框失败: {ex.Message}"); }
     }
 
     private void OnResultClick(object sender, RoutedEventArgs e)

@@ -1,4 +1,4 @@
-[CmdletBinding()]
+﻿[CmdletBinding()]
 param(
     [ValidateSet("Release", "Debug")]
     [string]$Configuration = "Release",
@@ -189,12 +189,10 @@ foreach ($packagePath in ($packagePaths | Sort-Object -Unique)) {
 }
 $setupStage = Join-Path $root "artifacts/installer-$publishId"
 New-Item -ItemType Directory -Path $setupStage | Out-Null
-$setupPayload = Join-Path $setupStage 'setup-payload.exe'
-$setupOutput = Join-Path $release "$installerName-build-$publishId.exe"
-& $iscc "/DMyAppVersion=$version" "/DPublishRoot=$publish" "/O$setupStage" '/Fsetup-payload' (Join-Path $root "installer/TV.iss")
+$setupOutput = Join-Path $setupStage "$installerName.exe"
+& $iscc "/DMyAppVersion=$version" "/DPublishRoot=$publish" "/O$setupStage" "/F$installerName" (Join-Path $root "installer/TV.iss")
 if ($LASTEXITCODE -ne 0) { throw "Inno Setup failed with exit code $LASTEXITCODE" }
 try {
-    & (Join-Path $PSScriptRoot 'build-setup-launcher.ps1') -Payload $setupPayload -OutputPath $setupOutput -Version $version
     Assert-ReleaseIntegrity $setupOutput
     Move-Item -LiteralPath $setupOutput -Destination $installer -Force
     Assert-ReleaseIntegrity $installer

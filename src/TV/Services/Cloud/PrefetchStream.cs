@@ -39,9 +39,9 @@ public sealed class PrefetchStream : Stream
         _current = initial;
         _endExclusive = endExclusive;
         _fileLength = fileLength;
-        _chunkSize = chunkSize;
-        _preferredChunkSize = chunkSize;
-        _threads = Math.Clamp(threads, 1, 3);
+        _chunkSize = Math.Max(256 * 1024, chunkSize);
+        _preferredChunkSize = _chunkSize;
+        _threads = Math.Clamp(threads, 1, 6);
         _maxThreads = _threads;
         _gate = gate;
         _lifetime = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -71,7 +71,7 @@ public sealed class PrefetchStream : Stream
             var start = _nextPosition;
             if (!_chunks.TryGetValue(start, out var task))
             {
-                var fetch = FetchAsync(start, _lifetime.Token);
+                var fetch = FetchAsync(start, _chunkSize, _lifetime.Token);
                 task = _chunks.GetOrAdd(start, fetch);
             }
             var bytes = await task.WaitAsync(cancellationToken).ConfigureAwait(false);
@@ -87,17 +87,18 @@ public sealed class PrefetchStream : Stream
     private void ScheduleWindow()
     {
         var chunkSize = _chunkSize;
-        var threads = _threads;
-        for (var i = 0; i < threads - 1; i++)
+        // Always prefetch at least 1 chunk ahead even if concurrency drops to 1
+        var lookahead = Math.Clamp(_threads, 1, 5);
+        for (var i = 0; i < lookahead; i++)
         {
             var distance = (long)i * chunkSize;
             if (_disposed || distance >= _endExclusive - _nextPosition) break;
             var start = _nextPosition + distance;
-            if (!_chunks.ContainsKey(start)) _chunks.TryAdd(start, FetchAsync(start, _lifetime.Token));
+            if (!_chunks.ContainsKey(start)) _chunks.TryAdd(start, FetchAsync(start, chunkSize, _lifetime.Token));
         }
     }
 
-    private async Task<byte[]> FetchAsync(long start, CancellationToken cancellationToken)
+    private async Task<byte[]> FetchAsync(long start, int requestedChunkSize, CancellationToken cancellationToken)
     {
         await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
@@ -106,22 +107,21 @@ public sealed class PrefetchStream : Stream
             {
                 try
                 {
-                    using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-                    deadline.CancelAfter(TimeSpan.FromSeconds(18));
-                    var token = deadline.Token;
+                    using var headerDeadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                    headerDeadline.CancelAfter(TimeSpan.FromSeconds(15));
                     var started = System.Diagnostics.Stopwatch.StartNew();
                     using var request = new HttpRequestMessage(HttpMethod.Get, _url);
                     foreach (var (name, value) in _headers)
                         if (!name.Equals("Host", StringComparison.OrdinalIgnoreCase))
                             request.Headers.TryAddWithoutValidation(name, value);
-                    var size = (int)Math.Min(_endExclusive - start, _chunkSize);
+                    var size = (int)Math.Min(_endExclusive - start, requestedChunkSize);
                     var end = start + size - 1;
                     request.Headers.Range = new RangeHeaderValue(start, end);
                     if (_entityTag is { IsWeak: false }) request.Headers.IfRange = new RangeConditionHeaderValue(_entityTag);
-                    using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, token).ConfigureAwait(false);
+                    using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, headerDeadline.Token).ConfigureAwait(false);
                     if (_refresh is not null && (int)response.StatusCode is 401 or 403 or 412)
                     {
-                        var refreshed = await _refresh(token).ConfigureAwait(false);
+                        var refreshed = await _refresh(headerDeadline.Token).ConfigureAwait(false);
                         _url = refreshed.Url;
                         _headers = refreshed.Headers;
                         continue;
@@ -140,9 +140,17 @@ public sealed class PrefetchStream : Stream
                         range.From != start || range.To != end || range.Length != _fileLength ||
                         response.Content.Headers.ContentLength is { } length && length != size)
                         throw new InvalidDataException("媒体服务器返回了错误的分块范围。");
-                    await using var source = await response.Content.ReadAsStreamAsync(token).ConfigureAwait(false);
+                    await using var source = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
                     var bytes = GC.AllocateUninitializedArray<byte>(size);
-                    await source.ReadExactlyAsync(bytes, token).ConfigureAwait(false);
+                    var offset = 0;
+                    using var idle = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                    while (offset < size)
+                    {
+                        idle.CancelAfter(TimeSpan.FromSeconds(15));
+                        var read = await source.ReadAsync(bytes.AsMemory(offset, size - offset), idle.Token).ConfigureAwait(false);
+                        if (read == 0) throw new EndOfStreamException("媒体分块提前结束。");
+                        offset += read;
+                    }
                     AdjustWindow(bytes.Length, started.Elapsed);
                     return bytes;
                 }
@@ -162,24 +170,18 @@ public sealed class PrefetchStream : Stream
         if (bytes < 64 * 1024) return;
         lock (_adaptSync)
         {
-            if (elapsed > TimeSpan.FromSeconds(5))
+            if (elapsed > TimeSpan.FromSeconds(6))
             {
                 _fastChunks = 0;
                 _slowChunks++;
                 if (_threads > 1) _threads--;
-                if (_slowChunks >= 2)
-                {
-                    _chunkSize = Math.Max(1024 * 1024, _chunkSize / 2);
-                    _slowChunks = 0;
-                }
             }
-            else if (elapsed < TimeSpan.FromMilliseconds(1200))
+            else if (elapsed < TimeSpan.FromMilliseconds(1500))
             {
                 _slowChunks = 0;
                 if (++_fastChunks >= 4)
                 {
                     _threads = Math.Min(_maxThreads, _threads + 1);
-                    _chunkSize = Math.Min(_preferredChunkSize, _chunkSize + 1024 * 1024);
                     _fastChunks = 0;
                 }
             }

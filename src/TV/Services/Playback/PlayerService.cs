@@ -1,6 +1,7 @@
+using System.Diagnostics;
+using System.Runtime.InteropServices;
 using LibVLCSharp.Shared;
 using LibVLCSharp.Shared.Structures;
-using System.Runtime.InteropServices;
 using TV.Models;
 
 namespace TV.Services.Playback;
@@ -9,14 +10,20 @@ public sealed record PlaybackTrack(int Id, string? Name);
 internal sealed record PlaybackTrackSelection(PlaybackTrack? Audio, PlaybackTrack? Subtitle, bool Paused = false, float Rate = 1);
 public sealed record PlayerSnapshot(VLCState State, bool IsPlaying, long TimeMs, long LengthMs, bool CanSeek,
     float BufferingPercent, IReadOnlyList<PlaybackTrack> AudioTracks, IReadOnlyList<PlaybackTrack> SubtitleTracks,
-    int AudioTrack, int SubtitleTrack, VideoFormat? VideoFormat, float Rate);
+    int AudioTrack, int SubtitleTrack, VideoFormat? VideoFormat, float Rate,
+    long CapturedAtTimestamp = 0, string MediaInfo = "");
 
 public sealed class PlayerService : IDisposable
 {
+    private static readonly int DecoderThreads = Math.Clamp(Environment.ProcessorCount / 2, 2, 6);
     private readonly SemaphoreSlim _nativeGate = new(1, 1);
     private readonly object _stopSync = new();
     private readonly object _commandSync = new();
+    private readonly object _coreSync = new();
     private Task _commandTail = Task.CompletedTask;
+    private LibVLC? _libVLC;
+    private MediaPlayer? _mediaPlayer;
+    private bool _coreInitialized;
     private Media? _currentMedia;
     private long _pendingStartPosition;
     private long? _pendingSeekPosition;
@@ -30,28 +37,60 @@ public sealed class PlayerService : IDisposable
     private Task? _stopTask;
     private int _stopping;
     private VideoFormat? _videoFormat;
+    private string _mediaInfo = string.Empty;
     private bool _videoOutputReady;
     private int _snapshotReads;
+    private int _volume = 85;
+    private string? _aspectRatio;
+    private string? _cropGeometry;
     private PlayerSnapshot _snapshot = new(VLCState.NothingSpecial, false, 0, 0, false, 100, [], [], -1, -1, null, 1);
 
     public PlayerService()
     {
+        // Defer LibVLC native initialization until EnsureInitializedAsync(swapChainOptions)
+        // or first headless access, eliminating the redundant double-create startup cost & memory footprint.
+    }
+
+    private void EnsureVlcRuntimeInitialized()
+    {
+        if (_coreInitialized) return;
         Core.Initialize();
-        (LibVLC, MediaPlayer) = CreateCore(null);
+        _coreInitialized = true;
     }
 
     private (LibVLC libVLC, MediaPlayer player) CreateCore(string[]? swapChainOptions)
     {
+        EnsureVlcRuntimeInitialized();
         var options = new List<string>
         {
-            "--network-caching=3600", "--live-caching=1800", "--file-caching=900", "--disc-caching=500",
-            "--no-osd", "--no-video-title-show", "--no-stats"
+            $"--network-caching={(App.PlayerOnly ? 1000 : NetworkCachingMs)}",
+            $"--live-caching={(App.PlayerOnly ? 800 : LiveCachingMs)}",
+            "--file-caching=300",
+            "--disc-caching=300",
+            "--no-osd",
+            "--no-video-title-show",
+            "--no-stats",
+            "--no-snapshot-preview",
+            "--no-metadata-network-access",
+            "--no-lua"
         };
         if (swapChainOptions is not null) options.AddRange(swapChainOptions);
         var libVLC = new LibVLC(options.ToArray());
         if (HasHdrSurface) libVLC.Log += OnNativeVideoLog;
-        var player = new MediaPlayer(libVLC) { EnableHardwareDecoding = true, Volume = 85 };
+        var player = new MediaPlayer(libVLC) { EnableHardwareDecoding = HardwareDecoding, Volume = _volume };
         return (libVLC, player);
+    }
+
+    private MediaPlayer EnsurePlayerCore()
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        if (_mediaPlayer is not null) return _mediaPlayer;
+        lock (_coreSync)
+        {
+            if (_mediaPlayer is not null) return _mediaPlayer;
+            (_libVLC, _mediaPlayer) = CreateCore(null);
+            return _mediaPlayer;
+        }
     }
 
     public async Task EnsureInitializedAsync(string[] swapChainOptions)
@@ -68,19 +107,22 @@ public sealed class PlayerService : IDisposable
             await RunNativeAsync(() =>
             {
                 StopCore();
-                MediaPlayer.Dispose();
-                LibVLC.Dispose();
+                _mediaPlayer?.Dispose();
+                _libVLC?.Dispose();
+                _mediaPlayer = null;
+                _libVLC = null;
                 ReleaseVideoOutput();
                 HasHdrSurface = hdrDisplay && VideoDisplay.TryEnableHdrOutput(swapChain);
-                (LibVLC, MediaPlayer) = CreateCore(swapChainOptions);
+                (_libVLC, _mediaPlayer) = CreateCore(swapChainOptions);
                 _swapChainOptions = swapChainOptions;
                 _swapChain = swapChain;
                 _deviceContext = deviceContext;
                 swapChain = deviceContext = 0;
-                MediaPlayer.EnableHardwareDecoding = HardwareDecoding;
+                _mediaPlayer.EnableHardwareDecoding = HardwareDecoding;
+                ApplyGeometryCore(_mediaPlayer);
             }, CancellationToken.None).ConfigureAwait(false);
             _videoOutputReady = true;
-            Diagnostics.Log($"LibVLC re-initialized with VideoView swapchain, HDR surface={HasHdrSurface}");
+            Diagnostics.Log($"LibVLC initialized with VideoView swapchain, HDR surface={HasHdrSurface}");
         }
         finally
         {
@@ -104,8 +146,16 @@ public sealed class PlayerService : IDisposable
         _swapChainOptions = null;
     }
 
-    public LibVLC LibVLC { get; private set; }
-    public MediaPlayer MediaPlayer { get; private set; }
+    public LibVLC LibVLC
+    {
+        get
+        {
+            EnsurePlayerCore();
+            return _libVLC!;
+        }
+    }
+
+    public MediaPlayer MediaPlayer => EnsurePlayerCore();
     public PlaybackRequest? CurrentRequest { get; private set; }
     public float BufferingPercent { get; private set; } = 100;
     public int NetworkCachingMs { get; set; } = 3600;
@@ -126,6 +176,8 @@ public sealed class PlayerService : IDisposable
     private void PlayCore(PlaybackRequest request, PlaybackTrackSelection? tracks)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
+        var player = EnsurePlayerCore();
+        var libVLC = _libVLC!;
         Interlocked.Exchange(ref _stopping, 1);
         try { StopCore(); }
         finally { Interlocked.Exchange(ref _stopping, 0); }
@@ -137,19 +189,30 @@ public sealed class PlayerService : IDisposable
         _trackAttempts = 0;
         _snapshotReads = 0;
         _videoFormat = null;
-        _snapshot = new(VLCState.Opening, false, request.StartPositionMs, 0, false, 0, [], [], -1, -1, null, tracks?.Rate ?? 1);
-        var media = new Media(LibVLC, request.Url, FromType.FromLocation);
+        _mediaInfo = string.Empty;
+        _snapshot = new(VLCState.Opening, false, request.StartPositionMs, 0, false, 0, [], [], -1, -1, null, tracks?.Rate ?? 1, Stopwatch.GetTimestamp(), string.Empty);
+        var media = new Media(libVLC, request.Url, FromType.FromLocation);
         _currentMedia = media;
+        var isLocalFile = Uri.TryCreate(request.Url, UriKind.Absolute, out var parsed) && parsed.IsFile;
         try
         {
-            MediaPlayer.EnableHardwareDecoding = HardwareDecoding;
+            player.EnableHardwareDecoding = HardwareDecoding;
             media.AddOption(HardwareDecoding ? ":avcodec-hw=d3d11va" : ":avcodec-hw=none");
-            media.AddOption(":avcodec-threads=0");
-            media.AddOption(request.Kind == PlaybackKind.Live ? $":live-caching={LiveCachingMs}" : $":network-caching={NetworkCachingMs}");
-            media.AddOption(":file-caching=900");
-            media.AddOption(":http-reconnect=true");
-            media.AddOption(":http-forward-cookies=true");
-            media.AddOption(":adaptive-use-access=true");
+            // Cap avcodec decode threads: hardware decode needs minimal frame buffers (2), software decode bounded (2..6).
+            var decodeThreads = HardwareDecoding ? 2 : DecoderThreads;
+            media.AddOption($":avcodec-threads={decodeThreads}");
+            if (isLocalFile)
+            {
+                media.AddOption(":file-caching=300");
+            }
+            else
+            {
+                media.AddOption(request.Kind == PlaybackKind.Live ? $":live-caching={LiveCachingMs}" : $":network-caching={NetworkCachingMs}");
+                media.AddOption(":file-caching=500");
+                media.AddOption(":http-reconnect=true");
+                media.AddOption(":http-forward-cookies=true");
+                media.AddOption(":adaptive-use-access=true");
+            }
             if (request.UseAvformatDemuxer) media.AddOption(":demux=avformat");
             foreach (var subtitle in request.Subtitles) media.AddSlave(MediaSlaveType.Subtitle, 3, subtitle);
             foreach (var audio in request.AudioTracks) media.AddSlave(MediaSlaveType.Audio, 3, audio);
@@ -158,10 +221,11 @@ public sealed class PlayerService : IDisposable
                 if (key.Equals("User-Agent", StringComparison.OrdinalIgnoreCase)) media.AddOption($":http-user-agent={value}");
                 else if (key.Equals("Referer", StringComparison.OrdinalIgnoreCase) || key.Equals("Referrer", StringComparison.OrdinalIgnoreCase)) media.AddOption($":http-referrer={value}");
             }
-            MediaPlayer.Buffering += OnBuffering;
-            MediaPlayer.EndReached += OnPlaybackChanged;
-            MediaPlayer.EncounteredError += OnPlaybackChanged;
-            if (!MediaPlayer.Play(media)) throw new InvalidOperationException("播放器无法启动该媒体，请尝试其他线路。");
+            player.Buffering += OnBuffering;
+            player.EndReached += OnPlaybackChanged;
+            player.EncounteredError += OnPlaybackChanged;
+            ApplyGeometryCore(player);
+            if (!player.Play(media)) throw new InvalidOperationException("播放器无法启动该媒体，请尝试其他线路。");
             PlaybackChanged?.Invoke(this, EventArgs.Empty);
         }
         catch
@@ -173,9 +237,9 @@ public sealed class PlayerService : IDisposable
 
     public void TogglePause() => RunFireAndForget(() =>
     {
-        if (_currentMedia is null) return;
-        if (MediaPlayer.IsPlaying) MediaPlayer.Pause();
-        else MediaPlayer.Play();
+        if (_currentMedia is null || _mediaPlayer is null) return;
+        if (_mediaPlayer.IsPlaying) _mediaPlayer.Pause();
+        else _mediaPlayer.Play();
         PlaybackChanged?.Invoke(this, EventArgs.Empty);
     });
 
@@ -183,42 +247,78 @@ public sealed class PlayerService : IDisposable
 
     public Task<PlayerSnapshot> ReadSnapshotAsync(CancellationToken token) => RunNativeAsync(() =>
     {
+        if (_mediaPlayer is null) return _snapshot;
         ApplyPendingPositionCore();
         ApplyPendingTracksCore();
-        var state = MediaPlayer.State;
+        var state = _mediaPlayer.State;
         var video = ReadVideoFormatCore(state);
-        var readTracks = ++_snapshotReads <= 4 || _snapshotReads % 6 == 0;
-        var audio = readTracks ? DescribeTracks(MediaPlayer.AudioTrackDescription) : _snapshot.AudioTracks;
-        var subtitles = readTracks ? DescribeTracks(MediaPlayer.SpuDescription) : _snapshot.SubtitleTracks;
-        _snapshot = new PlayerSnapshot(state, MediaPlayer.IsPlaying, Math.Max(0, MediaPlayer.Time), Math.Max(0, MediaPlayer.Length),
-            MediaPlayer.IsSeekable, BufferingPercent, audio, subtitles, MediaPlayer.AudioTrack, MediaPlayer.Spu, video, MediaPlayer.Rate);
+        var readTracks = ++_snapshotReads <= 4 || _snapshotReads % 12 == 0;
+        var audio = readTracks ? DescribeTracks(_mediaPlayer.AudioTrackDescription) : _snapshot.AudioTracks;
+        var subtitles = readTracks ? DescribeTracks(_mediaPlayer.SpuDescription) : _snapshot.SubtitleTracks;
+        _snapshot = new PlayerSnapshot(state, _mediaPlayer.IsPlaying, Math.Max(0, _mediaPlayer.Time), Math.Max(0, _mediaPlayer.Length),
+            _mediaPlayer.IsSeekable, BufferingPercent, audio, subtitles, _mediaPlayer.AudioTrack, _mediaPlayer.Spu, video, _mediaPlayer.Rate,
+            Stopwatch.GetTimestamp(), _mediaInfo);
         return _snapshot;
     }, token);
 
     private VideoFormat? ReadVideoFormatCore(VLCState state)
     {
-        if (_videoFormat is not null || _currentMedia is null || state is not (VLCState.Playing or VLCState.Paused)) return _videoFormat;
+        if (_videoFormat is not null || _currentMedia is null || _mediaPlayer is null || state is not (VLCState.Playing or VLCState.Paused)) return _videoFormat;
         uint width = 0, height = 0;
-        var tracks = _currentMedia.Tracks.Where(track => track.TrackType == TrackType.Video && track.Data.Video.Height > 0).ToArray();
-        if (tracks.Length == 0)
+        var allTracks = _currentMedia.Tracks;
+        var videoTracks = allTracks.Where(track => track.TrackType == TrackType.Video && track.Data.Video.Height > 0).ToArray();
+        if (videoTracks.Length == 0)
         {
-            if (MediaPlayer.Size(0, ref width, ref height) && height > 0) _videoFormat = new VideoFormat((int)height, 0);
+            if (_mediaPlayer.Size(0, ref width, ref height) && height > 0)
+            {
+                _videoFormat = new VideoFormat((int)height, 0);
+                _mediaInfo = $"{width}×{height} · {(HardwareDecoding ? "D3D11 硬解" : "软解")}";
+            }
             return _videoFormat;
         }
-        var track = tracks.FirstOrDefault(track => track.Id == MediaPlayer.VideoTrack);
-        var video = track.Data.Video.Height > 0 ? track.Data.Video : tracks[0].Data.Video;
-        var frameRate = video.FrameRateDen == 0 ? 0 : VideoFormat.HighFrameRate((double)video.FrameRateNum / video.FrameRateDen);
+        var track = videoTracks.FirstOrDefault(track => track.Id == _mediaPlayer.VideoTrack);
+        if (track.Data.Video.Height == 0) track = videoTracks[0];
+        var video = track.Data.Video;
+        var fps = video.FrameRateDen == 0 ? 0d : (double)video.FrameRateNum / video.FrameRateDen;
+        var frameRate = VideoFormat.HighFrameRate(fps);
         _videoFormat = new VideoFormat((int)video.Height, frameRate);
+
+        var vCodec = FormatFourCc(track.Codec);
+        var audioTrack = allTracks.FirstOrDefault(t => t.TrackType == TrackType.Audio);
+        var aCodec = audioTrack.TrackType == TrackType.Audio ? FormatFourCc(audioTrack.Codec) : string.Empty;
+        var parts = new List<string> { $"{video.Width}×{video.Height}" };
+        if (fps is > 1 and < 240) parts.Add($"{fps:0.##} fps");
+        if (vCodec.Length > 0) parts.Add(vCodec);
+        if (aCodec.Length > 0) parts.Add(aCodec);
+        parts.Add(HardwareDecoding ? "D3D11 硬解" : "软解");
+        if (HasHdrSurface) parts.Add("HDR");
+        _mediaInfo = string.Join(" · ", parts);
         return _videoFormat;
+    }
+
+    private static string FormatFourCc(uint fourcc)
+    {
+        if (fourcc == 0) return string.Empty;
+        Span<char> chars = stackalloc char[4];
+        for (var i = 0; i < 4; i++)
+        {
+            var b = (byte)((fourcc >> (i * 8)) & 0xFF);
+            if (b < 0x20 || b > 0x7E) return string.Empty;
+            chars[i] = char.ToUpperInvariant((char)b);
+        }
+        return new string(chars).Trim();
     }
 
     public void Seek(long positionMs) => RunFireAndForget(() =>
     {
-        if (MediaPlayer.Length > 0 && MediaPlayer.IsSeekable)
+        if (_mediaPlayer is null) return;
+        if (_mediaPlayer.Length > 0 && _mediaPlayer.IsSeekable)
         {
             _pendingSeekPosition = null;
-            MediaPlayer.Time = Math.Clamp(positionMs, 0, MediaPlayer.Length);
+            var target = Math.Clamp(positionMs, 0, _mediaPlayer.Length);
+            _mediaPlayer.Time = target;
             _positionApplied = true;
+            _snapshot = _snapshot with { TimeMs = target, CapturedAtTimestamp = Stopwatch.GetTimestamp() };
         }
         else if (CurrentRequest?.Kind == PlaybackKind.Vod) _pendingSeekPosition = positionMs;
     });
@@ -226,20 +326,25 @@ public sealed class PlayerService : IDisposable
     private void StopCore()
     {
         if (_currentMedia is null) return;
-        MediaPlayer.Buffering -= OnBuffering;
-        MediaPlayer.EndReached -= OnPlaybackChanged;
-        MediaPlayer.EncounteredError -= OnPlaybackChanged;
+        if (_mediaPlayer is not null)
+        {
+            _mediaPlayer.Buffering -= OnBuffering;
+            _mediaPlayer.EndReached -= OnPlaybackChanged;
+            _mediaPlayer.EncounteredError -= OnPlaybackChanged;
+        }
         var current = _currentMedia;
-        try { MediaPlayer.Stop(); }
+        try { _mediaPlayer?.Stop(); }
         finally
         {
             current.Dispose();
             _currentMedia = null;
             _pendingSeekPosition = null;
             _pendingTracks = null;
+            _videoFormat = null;
+            _mediaInfo = string.Empty;
             BufferingPercent = 100;
             _snapshot = new(VLCState.Stopped, false, _snapshot.TimeMs, _snapshot.LengthMs, false, 100,
-                _snapshot.AudioTracks, _snapshot.SubtitleTracks, -1, -1, _snapshot.VideoFormat, _snapshot.Rate);
+                [], [], -1, -1, null, _snapshot.Rate, Stopwatch.GetTimestamp(), string.Empty);
             PlaybackChanged?.Invoke(this, EventArgs.Empty);
         }
     }
@@ -264,61 +369,88 @@ public sealed class PlayerService : IDisposable
 
     private void ApplyPendingPositionCore()
     {
-        if (_positionApplied && !_pendingSeekPosition.HasValue) return;
-        if (MediaPlayer.Length <= 0 || !MediaPlayer.IsSeekable) return;
+        if (_mediaPlayer is null || _positionApplied && !_pendingSeekPosition.HasValue) return;
+        if (_mediaPlayer.Length <= 0 || !_mediaPlayer.IsSeekable) return;
         if (_pendingSeekPosition is { } seek)
         {
-            MediaPlayer.Time = Math.Clamp(seek, 0, MediaPlayer.Length);
+            _mediaPlayer.Time = Math.Clamp(seek, 0, _mediaPlayer.Length);
             _pendingSeekPosition = null;
             _positionApplied = true;
         }
         else if (!_positionApplied && _pendingStartPosition > 0)
         {
-            MediaPlayer.Time = Math.Min(_pendingStartPosition, Math.Max(0, MediaPlayer.Length - 3000));
+            _mediaPlayer.Time = Math.Min(_pendingStartPosition, Math.Max(0, _mediaPlayer.Length - 3000));
             _positionApplied = true;
         }
     }
 
     internal Task<PlaybackTrackSelection> CaptureTrackSelectionAsync(CancellationToken token) => RunNativeAsync(() =>
     {
-        var audio = DescribeTrack(MediaPlayer.AudioTrackDescription, MediaPlayer.AudioTrack);
-        var subtitle = DescribeTrack(MediaPlayer.SpuDescription, MediaPlayer.Spu);
-        return new PlaybackTrackSelection(audio, subtitle, MediaPlayer.State == VLCState.Paused, MediaPlayer.Rate);
+        if (_mediaPlayer is null) return new PlaybackTrackSelection(null, null, false, 1);
+        var audio = DescribeTrack(_mediaPlayer.AudioTrackDescription, _mediaPlayer.AudioTrack);
+        var subtitle = DescribeTrack(_mediaPlayer.SpuDescription, _mediaPlayer.Spu);
+        return new PlaybackTrackSelection(audio, subtitle, _mediaPlayer.State == VLCState.Paused, _mediaPlayer.Rate);
     }, token);
 
     private void ApplyPendingTracksCore()
     {
-        if (_pendingTracks is not { } tracks || MediaPlayer.State is not (VLCState.Playing or VLCState.Paused)) return;
+        if (_mediaPlayer is null || _pendingTracks is not { } tracks || _mediaPlayer.State is not (VLCState.Playing or VLCState.Paused)) return;
         if (_trackAttempts == 0)
         {
-            if (tracks.Rate > 0 && tracks.Rate != 1) MediaPlayer.SetRate(tracks.Rate);
-            if (tracks.Paused) MediaPlayer.SetPause(true);
+            if (tracks.Rate > 0 && tracks.Rate != 1) _mediaPlayer.SetRate(tracks.Rate);
+            if (tracks.Paused) _mediaPlayer.SetPause(true);
         }
-        var audio = tracks.Audio is { } a && !RestoreTrack(a, MediaPlayer.AudioTrackDescription, SelectAudioTrackCore) ? a : null;
-        var subtitle = tracks.Subtitle is { } s && !RestoreTrack(s, MediaPlayer.SpuDescription, MediaPlayer.SetSpu) ? s : null;
+        var audio = tracks.Audio is { } a && !RestoreTrack(a, _mediaPlayer.AudioTrackDescription, SelectAudioTrackCore) ? a : null;
+        var subtitle = tracks.Subtitle is { } s && !RestoreTrack(s, _mediaPlayer.SpuDescription, _mediaPlayer.SetSpu) ? s : null;
         _pendingTracks = ++_trackAttempts >= 8 || audio is null && subtitle is null ? null : tracks with { Audio = audio, Subtitle = subtitle };
     }
 
     internal Task<bool> SelectTrackAsync(bool subtitle, int id) => RunNativeAsync(() =>
     {
-        if (_disposed) return false;
+        if (_disposed || _mediaPlayer is null) return false;
         if (_pendingTracks is { } tracks) _pendingTracks = subtitle ? tracks with { Subtitle = null } : tracks with { Audio = null };
-        return subtitle ? MediaPlayer.SetSpu(id) : SelectAudioTrackCore(id);
+        return subtitle ? _mediaPlayer.SetSpu(id) : SelectAudioTrackCore(id);
     }, CancellationToken.None);
 
     private bool SelectAudioTrackCore(int id)
     {
-        if (MediaPlayer.AudioTrack == id) return true;
-        var position = MediaPlayer.Time;
-        if (!MediaPlayer.SetAudioTrack(id)) return false;
-        if (id >= 0 && position >= 0 && CurrentRequest?.SeekOnAudioTrackChange == true && MediaPlayer.IsSeekable) MediaPlayer.Time = position;
+        if (_mediaPlayer is null) return false;
+        if (_mediaPlayer.AudioTrack == id) return true;
+        var position = _mediaPlayer.Time;
+        if (!_mediaPlayer.SetAudioTrack(id)) return false;
+        if (id >= 0 && position >= 0 && CurrentRequest?.SeekOnAudioTrackChange == true && _mediaPlayer.IsSeekable) _mediaPlayer.Time = position;
         return true;
     }
 
-    internal Task<bool> AddSubtitleAsync(Uri file) => RunNativeAsync(() => MediaPlayer.AddSlave(MediaSlaveType.Subtitle, file.AbsoluteUri, true), CancellationToken.None);
-    internal void SetRate(float rate) => RunFireAndForget(() => MediaPlayer.SetRate(rate));
-    internal void SetVolume(int volume) => RunFireAndForget(() => MediaPlayer.Volume = volume);
-    internal void SetBufferingPause(bool paused) => RunFireAndForget(() => MediaPlayer.SetPause(paused));
+    internal Task<bool> AddSubtitleAsync(Uri file) => RunNativeAsync(() =>
+        _mediaPlayer is not null && _mediaPlayer.AddSlave(MediaSlaveType.Subtitle, file.AbsoluteUri, true), CancellationToken.None);
+
+    internal void SetRate(float rate) => RunFireAndForget(() => _mediaPlayer?.SetRate(rate));
+    internal void SetVolume(int volume)
+    {
+        _volume = Math.Clamp(volume, 0, 100);
+        RunFireAndForget(() => { if (_mediaPlayer is not null) _mediaPlayer.Volume = _volume; });
+    }
+    internal void SetBufferingPause(bool paused) => RunFireAndForget(() => _mediaPlayer?.SetPause(paused));
+
+    internal void SetVideoGeometry(string? aspectRatio, string? cropGeometry)
+    {
+        _aspectRatio = aspectRatio;
+        _cropGeometry = cropGeometry;
+        RunFireAndForget(() => { if (_mediaPlayer is not null) ApplyGeometryCore(_mediaPlayer); });
+    }
+
+    private void ApplyGeometryCore(MediaPlayer player)
+    {
+        player.AspectRatio = _aspectRatio;
+        player.CropGeometry = _cropGeometry;
+    }
+
+    internal void SetSubtitleDelayMs(long delayMs) => RunFireAndForget(() => _mediaPlayer?.SetSpuDelay(delayMs * 1000L));
+    internal void SetAudioDelayMs(long delayMs) => RunFireAndForget(() => _mediaPlayer?.SetAudioDelay(delayMs * 1000L));
+    internal void NextFrame() => RunFireAndForget(() => _mediaPlayer?.NextFrame());
+    internal Task<bool> TakeSnapshotAsync(string filePath, CancellationToken token = default) => RunNativeAsync(() =>
+        _mediaPlayer is not null && _currentMedia is not null && _mediaPlayer.TakeSnapshot(0, filePath, 0, 0), token);
 
     private static PlaybackTrack[] DescribeTracks(IEnumerable<TrackDescription> descriptions) =>
         descriptions.Where(track => track.Id >= 0).Select(track => new PlaybackTrack(track.Id, track.Name)).ToArray();
@@ -399,8 +531,10 @@ public sealed class PlayerService : IDisposable
         try { _nativeGate.Wait(); StopCore(); }
         catch (Exception ex) { Diagnostics.Log($"LibVLC dispose failed: {ex.GetType().Name}"); }
         finally { _nativeGate.Release(); }
-        MediaPlayer.Dispose();
-        LibVLC.Dispose();
+        _mediaPlayer?.Dispose();
+        _libVLC?.Dispose();
+        _mediaPlayer = null;
+        _libVLC = null;
         ReleaseVideoOutput();
     }
 }

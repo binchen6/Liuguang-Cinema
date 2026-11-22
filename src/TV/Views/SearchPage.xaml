@@ -187,14 +187,23 @@
                                            TextTrimming="CharacterEllipsis"
                                            Visibility="{Binding Group.Status, Converter={StaticResource StringToVisibility}, FallbackValue=Collapsed}" />
                             </StackPanel>
-                            <Button Grid.Column="1"
-                                    Content="重试"
-                                    Click="OnRetryClick"
-                                    DataContext="{Binding Group}"
-                                    Style="{StaticResource GhostButtonStyle}"
-                                    AutomationProperties.Name="重试"
-                                    ToolTipService.ToolTip="重新搜索该站点"
-                                    Visibility="{Binding CanRetry, Converter={StaticResource BoolToVisibility}, FallbackValue=Collapsed}" />
+                            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
+                                <Button Content="验证"
+                                        Click="OnVerifyClick"
+                                        DataContext="{Binding Group}"
+                                        Style="{StaticResource SecondaryButtonStyle}"
+                                        Height="32" MinHeight="32" Padding="10,0"
+                                        AutomationProperties.Name="验证站点"
+                                        ToolTipService.ToolTip="完成站点安全验证并重新搜索"
+                                        Visibility="{Binding CanVerify, Converter={StaticResource BoolToVisibility}, FallbackValue=Collapsed}" />
+                                <Button Content="重试"
+                                        Click="OnRetryClick"
+                                        DataContext="{Binding Group}"
+                                        Style="{StaticResource GhostButtonStyle}"
+                                        AutomationProperties.Name="重试"
+                                        ToolTipService.ToolTip="重新搜索该站点"
+                                        Visibility="{Binding CanRetry, Converter={StaticResource BoolToVisibility}, FallbackValue=Collapsed}" />
+                            </StackPanel>
                         </Grid>
                     </DataTemplate>
                 </ListView.ItemTemplate>

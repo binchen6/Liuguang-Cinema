@@ -10,6 +10,7 @@
     Unloaded="OnUnloaded"
     PointerMoved="OnPointerMoved"
     PointerExited="OnPointerExited"
+    PointerWheelChanged="OnPointerWheelChanged"
     Tapped="OnTapped"
     DoubleTapped="OnDoubleTapped"
     KeyDown="OnKeyDown">
@@ -66,7 +67,29 @@
 
     <Grid x:Name="RootGrid">
         <vlc:VideoView x:Name="VideoView" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" Initialized="OnVideoViewInitialized" />
-        <Canvas x:Name="DanmakuLayer" IsHitTestVisible="False" />
+        <controls:DanmakuOverlay x:Name="DanmakuLayer" />
+
+        <!-- 快捷操作 OSD 气泡提示 -->
+        <Border x:Name="OsdBadge" HorizontalAlignment="Center" VerticalAlignment="Top" Margin="0,72,0,0"
+                Padding="16,8" CornerRadius="{StaticResource RadiusPill}"
+                Background="#CC12141A" BorderBrush="#33FFFFFF" BorderThickness="1"
+                IsHitTestVisible="False" Opacity="0" Visibility="Collapsed">
+            <TextBlock x:Name="OsdText" Style="{StaticResource SecondaryText}" FontWeight="SemiBold"
+                       Foreground="{ThemeResource PrimaryTextBrush}" />
+        </Border>
+
+        <!-- 媒体信息 HUD (快捷键 I) -->
+        <Border x:Name="MediaInfoHud" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="24,72,0,0"
+                Padding="14,10" CornerRadius="{StaticResource RadiusControl}"
+                Background="#CC12141A" BorderBrush="#33FFFFFF" BorderThickness="1"
+                IsHitTestVisible="False"
+                Visibility="{Binding ShowMediaInfo, Converter={StaticResource BoolToVisibility}}">
+            <StackPanel Spacing="4">
+                <TextBlock Text="播放信息" Style="{StaticResource MetaText}" Foreground="{ThemeResource AccentBrush}" FontWeight="SemiBold" />
+                <TextBlock Text="{Binding MediaInfoText}" Style="{StaticResource MetaText}" Foreground="{ThemeResource PrimaryTextBrush}" />
+                <TextBlock x:Name="MediaInfoExtra" Style="{StaticResource MetaText}" Foreground="{ThemeResource SecondaryTextBrush}" />
+            </StackPanel>
+        </Border>
 
         <!-- 中央状态层：加载 / 空 / 错误，统一图标 + 标题 + 说明 + 主操作 -->
         <Grid HorizontalAlignment="Center" VerticalAlignment="Center" MaxWidth="640" Margin="24">
@@ -165,9 +188,15 @@
                                     <MenuFlyoutSubItem x:Name="SubtitleTracks" Text="字幕" />
                                     <MenuFlyoutItem Text="加载本地字幕" Click="OnLoadSubtitleClick" />
                                     <MenuFlyoutItem Text="匹配在线字幕" Click="OnMatchSubtitleClick" />
+                                    <MenuFlyoutSeparator />
+                                    <MenuFlyoutSubItem x:Name="AspectRatioMenu" Text="画面比例" />
+                                    <MenuFlyoutSubItem x:Name="SyncDelayMenu" Text="字幕与音频同步" />
                                     <MenuFlyoutItem Text="片头片尾设置" Click="OnTimingSettingsClick" />
                                     <MenuFlyoutItem Text="弹幕设置" Click="OnDanmakuSettingsClick" AutomationProperties.Name="弹幕" />
                                     <MenuFlyoutSeparator />
+                                    <ToggleMenuFlyoutItem x:Name="LoopEpisodeItem" Text="单集循环" Click="OnLoopEpisodeClick" />
+                                    <MenuFlyoutItem Text="视频截图" Click="OnSnapshotClick" />
+                                    <ToggleMenuFlyoutItem x:Name="MediaInfoToggleItem" Text="显示视频信息 (I)" Click="OnMediaInfoToggleClick" />
                                     <MenuFlyoutItem Text="画中画" Command="{Binding CompactOverlayCommand}" />
                                 </MenuFlyout>
                             </Button.Flyout>
@@ -310,7 +339,8 @@
                                 </DropDownButton.Flyout>
                             </DropDownButton>
                             <Button x:Name="DanmakuToggleButton" Style="{StaticResource PlayerIconButtonStyle}"
-                                    Click="OnDanmakuToggleClick" ToolTipService.ToolTip="显示弹幕"
+                                    Click="OnDanmakuToggleClick" RightTapped="OnDanmakuRightTapped"
+                                    ToolTipService.ToolTip="显示弹幕 (D · 右键设置)"
                                     AutomationProperties.Name="弹幕开关">
                                 <Grid>
                                     <FontIcon Glyph="&#xE8BD;" FontSize="{StaticResource FontSizeSection}" />

@@ -20,6 +20,7 @@ public sealed partial class PlayerViewModel : ObservableObject
     private DateTime _lastSaved = DateTime.MinValue;
     private bool _suppressSelection;
     private bool _isLive;
+    private bool _isLocalFile;
     private bool _autoNext = true;
     private bool _autoSwitchLine = true;
     private bool _lineRecoveryAttempted;
@@ -52,7 +53,7 @@ public sealed partial class PlayerViewModel : ObservableObject
         _services = services;
         _dispatcher = dispatcher;
         _timer = dispatcher.CreateTimer();
-        _timer.Interval = TimeSpan.FromMilliseconds(500);
+        _timer.Interval = TimeSpan.FromMilliseconds(250);
         _timer.Tick += OnTick;
         if (!services.PlayerOnly) _services.Cloud.AuthenticationRequired += OnCloudAuthenticationRequired;
     }
@@ -102,7 +103,17 @@ public sealed partial class PlayerViewModel : ObservableObject
     public event EventHandler? FullScreenRequested;
     public event EventHandler? CompactOverlayRequested;
     public event EventHandler<Uri?>? DanmakuChanged;
+    public event EventHandler<PlayerSnapshot>? SnapshotUpdated;
+    public event EventHandler<long>? SeekPerformed;
     public TV.Services.Playback.PlayerService Service => _services.Player;
+    [ObservableProperty] private bool _loopCurrentEpisode;
+    [ObservableProperty] private int _aspectModeIndex;
+    [ObservableProperty] private long _subtitleDelayMs;
+    [ObservableProperty] private long _audioDelayMs;
+    [ObservableProperty] private string _mediaInfoText = string.Empty;
+    [ObservableProperty] private bool _showMediaInfo;
+    public static readonly string[] AspectModeNames = ["默认比例", "16:9", "4:3", "21:9", "填充裁剪"];
+    public string AspectModeName => AspectModeNames[Math.Clamp(AspectModeIndex, 0, AspectModeNames.Length - 1)];
     internal IReadOnlyList<CloudSubtitleTrack> CloudSubtitleTracks => _resolvedMedia?.CloudSubtitles ?? [];
     internal CloudSubtitleTrack? SelectedCloudSubtitle { get; private set; }
     public IReadOnlyList<PlaybackTrack> AudioTracks => Service.LastSnapshot.AudioTracks;
@@ -257,6 +268,12 @@ public sealed partial class PlayerViewModel : ObservableObject
                 media = await _services.Playback.ResolveAsync(request, SelectedQuality, GetHdrOutputAsync, token);
             }
             pendingMedia = media;
+            _isLocalFile = Uri.TryCreate(media.Url, UriKind.Absolute, out var mediaUri) && mediaUri.IsFile;
+            if (!_isLocalFile && request.Url.StartsWith("cloud://", StringComparison.OrdinalIgnoreCase))
+                _services.Player.NetworkCachingMs = Math.Max(_services.Player.NetworkCachingMs, 4500);
+            SubtitleDelayMs = 0;
+            AudioDelayMs = 0;
+            MediaInfoText = string.Empty;
             StatusMessage = "正在打开媒体…";
             await _viewReady.Task.WaitAsync(TimeSpan.FromSeconds(8), token);
             await _services.Player.PlayAsync(media, token);
@@ -387,7 +404,71 @@ public sealed partial class PlayerViewModel : ObservableObject
     {
         var snapshot = _services.Player.LastSnapshot;
         if (snapshot.LengthMs <= 0) return;
-        _services.Player.Seek(Math.Clamp(snapshot.TimeMs + (long)(seconds * 1000), 0, snapshot.LengthMs));
+        var target = Math.Clamp(snapshot.TimeMs + (long)(seconds * 1000), 0, snapshot.LengthMs);
+        _services.Player.Seek(target);
+        PositionMs = target;
+        PositionText = Format(target);
+        SeekPerformed?.Invoke(this, target);
+    }
+
+    public void SetAspectMode(int index)
+    {
+        AspectModeIndex = Math.Clamp(index, 0, AspectModeNames.Length - 1);
+        OnPropertyChanged(nameof(AspectModeName));
+        var (aspect, crop) = AspectModeIndex switch
+        {
+            1 => ("16:9", (string?)null),
+            2 => ("4:3", (string?)null),
+            3 => ("21:9", (string?)null),
+            4 => ((string?)null, "16:9"),
+            _ => ((string?)null, (string?)null)
+        };
+        _services.Player.SetVideoGeometry(aspect, crop);
+    }
+
+    public void AdjustSubtitleDelay(long deltaMs)
+    {
+        SubtitleDelayMs = Math.Clamp(SubtitleDelayMs + deltaMs, -30_000, 30_000);
+        _services.Player.SetSubtitleDelayMs(SubtitleDelayMs);
+    }
+
+    public void ResetSubtitleDelay()
+    {
+        SubtitleDelayMs = 0;
+        _services.Player.SetSubtitleDelayMs(0);
+    }
+
+    public void AdjustAudioDelay(long deltaMs)
+    {
+        AudioDelayMs = Math.Clamp(AudioDelayMs + deltaMs, -10_000, 10_000);
+        _services.Player.SetAudioDelayMs(AudioDelayMs);
+    }
+
+    public void ResetAudioDelay()
+    {
+        AudioDelayMs = 0;
+        _services.Player.SetAudioDelayMs(0);
+    }
+
+    public void StepFrame()
+    {
+        if (IsPlaying)
+        {
+            _manualPaused = true;
+            _services.Player.TogglePause();
+        }
+        _services.Player.NextFrame();
+    }
+
+    public async Task<string?> TakeSnapshotAsync()
+    {
+        if (_request is null) return null;
+        var folder = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyPictures), "流光影院");
+        Directory.CreateDirectory(folder);
+        var safeTitle = string.Concat(Title.Select(ch => Path.GetInvalidFileNameChars().Contains(ch) ? '_' : ch));
+        if (safeTitle.Length > 40) safeTitle = safeTitle[..40];
+        var file = Path.Combine(folder, $"{(safeTitle.Length > 0 ? safeTitle : "snapshot")}_{DateTime.Now:yyyyMMdd_HHmmss}.png");
+        return await _services.Player.TakeSnapshotAsync(file) ? file : null;
     }
 
     partial void OnSelectedEpisodeChanged(Episode? value)
@@ -725,10 +806,13 @@ public sealed partial class PlayerViewModel : ObservableObject
             {
                 _hasPlayedMedia = true;
                 ReadFixedVideoQuality(snapshot.VideoFormat);
+                if (!string.IsNullOrEmpty(snapshot.MediaInfo) && MediaInfoText != snapshot.MediaInfo)
+                    MediaInfoText = snapshot.MediaInfo;
             }
             IsBuffering = snapshot.State is VLCState.Opening or VLCState.Buffering;
             BufferingText = snapshot.State == VLCState.Buffering
                 ? $"网络缓冲 {Math.Clamp(snapshot.BufferingPercent, 0, 100):0}% · 缓冲后自动续播" : "正在打开媒体…";
+            SnapshotUpdated?.Invoke(this, snapshot);
             if (_request.Kind == PlaybackKind.Vod)
             {
                 PositionMs = _isSeeking ? PositionMs : snapshot.TimeMs;
@@ -736,7 +820,7 @@ public sealed partial class PlayerViewModel : ObservableObject
                 PositionText = Format(snapshot.TimeMs);
                 DurationText = Format(snapshot.LengthMs);
                 ApplyEpisodeTiming(snapshot.TimeMs, snapshot.LengthMs);
-                if (_hasPlayedMedia && !_manualPaused) UpdateBuffering(snapshot);
+                if (_hasPlayedMedia && !_manualPaused && !_isLocalFile) UpdateBuffering(snapshot);
             }
             else
             {
@@ -751,6 +835,13 @@ public sealed partial class PlayerViewModel : ObservableObject
             }
             else if (snapshot.State == VLCState.Ended && _request.Kind == PlaybackKind.Vod && _recoveryRunning == 0)
             {
+                if (_hasPlayedMedia && LoopCurrentEpisode)
+                {
+                    var replay = _request.Copy();
+                    replay.StartPositionMs = 0;
+                    _ = LoadAsync(replay);
+                    return;
+                }
                 if (_hasPlayedMedia && CanNext && _autoNext) NextEpisode();
                 else if (!_hasPlayedMedia && _autoSwitchLine && TryNextLine()) return;
                 else if (_hasPlayedMedia) StatusMessage = "播放完毕";
@@ -921,7 +1012,11 @@ public sealed partial class PlayerViewModel : ObservableObject
     public void EndSeek(double value)
     {
         _isSeeking = false;
-        _services.Player.Seek((long)value);
+        var target = Math.Max(0, (long)value);
+        _services.Player.Seek(target);
+        PositionMs = target;
+        PositionText = Format(target);
+        SeekPerformed?.Invoke(this, target);
     }
 
     private bool TryNextLine()

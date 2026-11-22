@@ -450,12 +450,12 @@
                             <Grid MinHeight="{StaticResource SettingsRowMinHeight}" ColumnSpacing="{StaticResource SpaceLarge}">
                                 <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
                                 <TextBlock Text="连接数" Style="{StaticResource LabelText}" Width="{StaticResource SettingsFormLabelWidth}" VerticalAlignment="Center" />
-                                <NumberBox Grid.Column="1" MinWidth="160" Maximum="3" Minimum="1" SpinButtonPlacementMode="Inline" Value="{Binding CloudThreads, Mode=TwoWay}" HorizontalAlignment="Left" />
+                                <NumberBox Grid.Column="1" MinWidth="160" Maximum="6" Minimum="1" SpinButtonPlacementMode="Inline" Value="{Binding CloudThreads, Mode=TwoWay}" HorizontalAlignment="Left" />
                             </Grid>
                             <Grid MinHeight="{StaticResource SettingsRowMinHeight}" ColumnSpacing="{StaticResource SpaceLarge}">
                                 <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
                                 <TextBlock Text="预读分块 (MB)" Style="{StaticResource LabelText}" Width="{StaticResource SettingsFormLabelWidth}" VerticalAlignment="Center" />
-                                <NumberBox Grid.Column="1" MinWidth="160" Maximum="8" Minimum="2" SpinButtonPlacementMode="Inline" Value="{Binding CloudChunkMb, Mode=TwoWay}" HorizontalAlignment="Left" />
+                                <NumberBox Grid.Column="1" MinWidth="160" Maximum="8" Minimum="1" SpinButtonPlacementMode="Inline" Value="{Binding CloudChunkMb, Mode=TwoWay}" HorizontalAlignment="Left" />
                             </Grid>
                         </StackPanel>
 

@@ -6,6 +6,7 @@ using CommunityToolkit.Mvvm.Input;
 using Microsoft.UI.Dispatching;
 using TV.Models;
 using TV.Services;
+using TV.Services.Http;
 
 namespace TV.ViewModels;
 
@@ -66,6 +67,9 @@ public sealed partial class VodViewModel : ObservableObject
     [ObservableProperty] private bool _isDetailLoading;
     [ObservableProperty] private bool _hasMore;
     [ObservableProperty] private string _statusMessage = "正在准备片源…";
+    [ObservableProperty, NotifyPropertyChangedFor(nameof(HasPendingVerification))]
+    private SiteVerificationRequiredException? _pendingVerification;
+    public bool HasPendingVerification => PendingVerification is not null;
     [ObservableProperty] private string _detailStatus = string.Empty;
     [ObservableProperty] private bool _isFavorite;
     [ObservableProperty] private string _typeFilter = "全部";
@@ -155,6 +159,7 @@ public sealed partial class VodViewModel : ObservableObject
         _recommendationsDirty = false;
         var token = BeginRequest();
         IsLoading = true;
+        PendingVerification = null;
         StatusMessage = $"正在读取 {site.Name}…";
         try
         {
@@ -234,7 +239,8 @@ public sealed partial class VodViewModel : ObservableObject
                 if (cached is null)
                 {
                     DisplayHome(site, new CmsResponse());
-                    StatusMessage = homeStatus == HttpStatusCode.Forbidden ? "该站点拒绝访问（403）" : "片源暂不可用";
+                    StatusMessage = PendingVerification is not null ? PendingVerification.Message
+                        : homeStatus == HttpStatusCode.Forbidden ? "该站点拒绝访问（403）" : "片源暂不可用";
                 }
                 return;
             }
@@ -270,6 +276,12 @@ public sealed partial class VodViewModel : ObservableObject
     private async Task<(CmsResponse? Response, HttpStatusCode? Status)> ReadHomeResultAsync(SourceSite site, bool allowFallback, CancellationToken token)
     {
         try { return (await TryReadHomeAsync(site, allowFallback, token), null); }
+        catch (SiteVerificationRequiredException ex)
+        {
+            PendingVerification = ex;
+            Diagnostics.Log($"读取首页需要验证 ({site.Key}): {ex.Kind}");
+            return (null, HttpStatusCode.Forbidden);
+        }
         catch (Exception ex) when (ex is HttpRequestException or InvalidOperationException or InvalidDataException or NotSupportedException)
         {
             Diagnostics.Log($"读取首页失败 ({site.Key}): {ex.Message}");
@@ -411,6 +423,7 @@ public sealed partial class VodViewModel : ObservableObject
     {
         var token = _cts.Token;
         IsLoading = true;
+        PendingVerification = null;
         try
         {
             var filters = HasCategoryFilters ? CategoryFilters.Where(filter => !string.IsNullOrEmpty(filter.Selected.Value))
@@ -431,6 +444,14 @@ public sealed partial class VodViewModel : ObservableObject
             StatusMessage = Items.Count > 0 ? $"第 {_page} / {Math.Max(_page, _pageCount)} 页 · {count}" : "该分类暂时没有内容";
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested) { }
+        catch (SiteVerificationRequiredException ex)
+        {
+            if (!token.IsCancellationRequested)
+            {
+                PendingVerification = ex;
+                StatusMessage = ex.Message;
+            }
+        }
         catch (Exception ex) { if (!token.IsCancellationRequested) StatusMessage = ex.Message; }
         finally { if (!token.IsCancellationRequested) IsLoading = false; }
     }

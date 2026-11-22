@@ -6,6 +6,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using TV.Models;
 using TV.Services;
+using TV.Services.Http;
 using TV.Services.Vod;
 
 namespace TV.ViewModels;
@@ -25,7 +26,9 @@ public sealed partial class SearchGroup(SourceSite site) : ObservableObject
     internal SiteSearchState State { get; set; }
     internal bool IsPending => State is SiteSearchState.Queued or SiteSearchState.Searching;
     public string Name => Site.Name;
+    internal SiteVerificationRequiredException? PendingVerification { get; set; }
     [ObservableProperty] private bool _canRetry;
+    [ObservableProperty] private bool _canVerify;
     [ObservableProperty] private string _status = "等待搜索";
 
 }
@@ -141,7 +144,7 @@ public sealed partial class SearchViewModel(AppServices services, Action<VodCard
     [RelayCommand(AllowConcurrentExecutions = true)]
     private async Task RetryAsync(SearchGroup group)
     {
-        if (!group.CanRetry || !_groups.Contains(group)) return;
+        if ((!group.CanRetry && !group.CanVerify) || !_groups.Contains(group)) return;
         var run = _run ??= new SearchRun(new CancellationTokenSource(), new SemaphoreSlim(_maximumRequests, _maximumRequests));
         await SearchSiteAsync(group, run, run.Cancellation.Token);
     }
@@ -150,6 +153,8 @@ public sealed partial class SearchViewModel(AppServices services, Action<VodCard
     {
         var query = SubmittedQuery;
         group.CanRetry = false;
+        group.CanVerify = false;
+        group.PendingVerification = null;
         group.State = SiteSearchState.Queued;
         group.Status = "等待搜索";
         try
@@ -177,6 +182,16 @@ public sealed partial class SearchViewModel(AppServices services, Action<VodCard
             finally { run.Requests.Release(); }
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested) { }
+        catch (SiteVerificationRequiredException ex)
+        {
+            if (token.IsCancellationRequested) return;
+            group.State = SiteSearchState.Failed;
+            group.PendingVerification = ex;
+            group.CanVerify = true;
+            group.CanRetry = false;
+            group.Status = ex.Kind == SiteVerificationKind.ImageCaptcha ? "需要验证码" : "需要安全验证";
+            Diagnostics.Log($"站点搜索需要验证 ({group.Site.Key}): {ex.Kind}");
+        }
         catch (Exception ex)
         {
             if (token.IsCancellationRequested) return;

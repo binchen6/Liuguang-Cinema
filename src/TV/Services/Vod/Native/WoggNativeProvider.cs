@@ -23,11 +23,14 @@ public sealed partial class WoggNativeProvider : ICategoryFilterVodProvider
     private readonly SourceHttpClient _http;
     private readonly CloudDriveService _cloud;
     private readonly ConcurrentDictionary<string, Uri> _workingOrigins = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, DateTimeOffset> _forbiddenUntil = new(StringComparer.OrdinalIgnoreCase);
+    private readonly SemaphoreSlim _requestGate = new(3, 3);
     private readonly SemaphoreSlim _searchGate = new(1);
     private long _lastSearchEnd;
     private static readonly TimeSpan SearchInterval = TimeSpan.FromMilliseconds(3100);
     private static readonly Uri LegacyOrigin = new("https://www.wogg.net/");
     private static readonly Uri[] PublicOrigins = [new("https://woggpan.888484.xyz/"), LegacyOrigin];
+    private const string BrowserUserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36";
 
     public WoggNativeProvider(SourceHttpClient http, CloudDriveService cloud)
     {
@@ -198,58 +201,140 @@ public sealed partial class WoggNativeProvider : ICategoryFilterVodProvider
     private async Task<IDocument> OpenAsync(SourceSite site, string path, CancellationToken cancellationToken)
     {
         HttpRequestException? accessError = null;
+        Uri? challengeTarget = null;
         var configured = ConfiguredOrigins(site.Ext).ToArray();
-        var roots = _workingOrigins.TryGetValue(site.Key, out var working) &&
-            (configured.Contains(working) || PublicOrigins.Contains(working))
-            ? configured.Concat(new[] { working }).Concat(PublicOrigins)
-            : configured.Concat(PublicOrigins);
+        var customConfigured = configured.Where(origin => !MediaRequestHeaders.SameOrigin(origin, LegacyOrigin)).ToArray();
+        var ordered = new List<Uri>();
+        ordered.AddRange(customConfigured);
+        if (_workingOrigins.TryGetValue(site.Key, out var working) &&
+            (configured.Contains(working) || PublicOrigins.Contains(working)))
+            ordered.Add(working);
+        ordered.AddRange(PublicOrigins);
+        ordered.AddRange(configured);
+
+        var candidates = ordered.Distinct().Take(6).ToArray();
+        var now = DateTimeOffset.UtcNow;
+        var preferred = candidates.Where(origin => !IsInCooldown(origin, now)).ToArray();
+        var roots = preferred.Length > 0 ? preferred : candidates;
+
         var detail = path.Contains("/voddetail/", StringComparison.OrdinalIgnoreCase);
         var search = path.Contains("/vodsearch/", StringComparison.OrdinalIgnoreCase);
         var selector = detail ? ".video-info-header h1, .module-row-text" : search ? ".search-stat, .module-search-item" : ".module-item, .library-stat, .nav-link";
-        foreach (var root in roots.Distinct().Take(6))
+
+        foreach (var root in roots)
         {
-            try
+            var maxAttempts = MediaRequestHeaders.SameOrigin(root, LegacyOrigin) ? 1 : 2;
+            for (var attempt = 0; attempt < maxAttempts; attempt++)
             {
-                var document = await ReadDocumentAsync(root, path, cancellationToken).ConfigureAwait(false);
-                if (search && ReadSearchDelay(document) is { } delay)
+                try
                 {
-                    await Task.Delay(delay, cancellationToken).ConfigureAwait(false);
-                    document = await ReadDocumentAsync(root, path, cancellationToken).ConfigureAwait(false);
-                    if (ReadSearchDelay(document) is not null)
-                        throw new HttpRequestException("玩偶哥哥搜索间隔未结束，请稍后重试。", null, HttpStatusCode.TooManyRequests);
+                    var (document, statusCode, isChallenge) = await ReadDocumentAsync(root, path, cancellationToken).ConfigureAwait(false);
+                    if (statusCode == HttpStatusCode.Forbidden || isChallenge)
+                    {
+                        var originKey = SiteSessionStore.NormalizeOrigin(root);
+                        _forbiddenUntil[originKey] = DateTimeOffset.UtcNow.AddMinutes(10);
+                        if (_http.Sessions is not null)
+                            await _http.Sessions.ClearAsync(root, cancellationToken).ConfigureAwait(false);
+                        challengeTarget ??= new Uri(root, "./" + path.TrimStart('/'));
+                        accessError = new HttpRequestException($"玩偶入口 {root.IdnHost} 拒绝访问（HTTP {(int)statusCode}）。", null, HttpStatusCode.Forbidden);
+                        Diagnostics.Log($"玩偶入口 {root.IdnHost}：{(int)statusCode} (challenge={isChallenge})");
+                        break;
+                    }
+                    if ((int)statusCode >= 500 && attempt + 1 < maxAttempts)
+                    {
+                        await Task.Delay(500, cancellationToken).ConfigureAwait(false);
+                        continue;
+                    }
+                    if ((int)statusCode >= 400)
+                    {
+                        accessError ??= new HttpRequestException($"玩偶入口 {root.IdnHost} 返回 HTTP {(int)statusCode}。", null, statusCode);
+                        Diagnostics.Log($"玩偶入口 {root.IdnHost}：{(int)statusCode}");
+                        break;
+                    }
+                    if (search && ReadSearchDelay(document) is { } delay)
+                    {
+                        await Task.Delay(delay, cancellationToken).ConfigureAwait(false);
+                        (document, statusCode, isChallenge) = await ReadDocumentAsync(root, path, cancellationToken).ConfigureAwait(false);
+                        if (statusCode == HttpStatusCode.Forbidden || isChallenge)
+                        {
+                            challengeTarget ??= new Uri(root, "./" + path.TrimStart('/'));
+                            accessError = new HttpRequestException($"玩偶入口 {root.IdnHost} 拒绝访问（HTTP {(int)statusCode}）。", null, HttpStatusCode.Forbidden);
+                            break;
+                        }
+                        if (ReadSearchDelay(document) is not null)
+                            throw new HttpRequestException("玩偶哥哥搜索间隔未结束，请稍后重试。", null, HttpStatusCode.TooManyRequests);
+                    }
+                    if (document.QuerySelector(selector) is null) break;
+                    _forbiddenUntil.TryRemove(SiteSessionStore.NormalizeOrigin(root), out _);
+                    _workingOrigins[site.Key] = root;
+                    return document;
                 }
-                if (document.QuerySelector(selector) is null) continue;
-                _workingOrigins[site.Key] = root;
-                return document;
-            }
-            catch (HttpRequestException ex) when (ex.StatusCode != HttpStatusCode.TooManyRequests)
-            {
-                if (accessError is null || ex.StatusCode == HttpStatusCode.Forbidden) accessError = ex;
-                Diagnostics.Log($"玩偶入口 {root.IdnHost}：{(int?)ex.StatusCode ?? 0}");
-            }
-            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
-            {
-                Diagnostics.Log($"玩偶入口 {root.IdnHost}：超时");
+                catch (HttpRequestException ex) when (ex.StatusCode != HttpStatusCode.TooManyRequests)
+                {
+                    if (accessError is null || ex.StatusCode == HttpStatusCode.Forbidden) accessError = ex;
+                    Diagnostics.Log($"玩偶入口 {root.IdnHost}：{(int?)ex.StatusCode ?? 0}");
+                    if (ex.StatusCode == HttpStatusCode.Forbidden) break;
+                    if (attempt + 1 < maxAttempts) await Task.Delay(400, cancellationToken).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+                {
+                    Diagnostics.Log($"玩偶入口 {root.IdnHost}：超时 (attempt {attempt + 1})");
+                    if (attempt + 1 < maxAttempts) await Task.Delay(350, cancellationToken).ConfigureAwait(false);
+                }
             }
         }
         cancellationToken.ThrowIfCancellationRequested();
+        if (challengeTarget is not null)
+            throw new SiteVerificationRequiredException(site.Key, site.Name, challengeTarget,
+                SiteVerificationKind.BrowserChallenge, "玩偶哥哥站点需要完成浏览器安全验证后访问。");
         throw accessError ?? new HttpRequestException("玩偶入口未返回片库页面。");
     }
 
-    private async Task<IDocument> ReadDocumentAsync(Uri root, string path, CancellationToken token)
+    private bool IsInCooldown(Uri root, DateTimeOffset now)
     {
-        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(token);
-        deadline.CancelAfter(TimeSpan.FromSeconds(4));
-        var requestUri = new Uri(root, "./" + path.TrimStart('/'));
-        var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        var key = SiteSessionStore.NormalizeOrigin(root);
+        if (!_forbiddenUntil.TryGetValue(key, out var until) || until <= now) return false;
+        // If user just completed verification and saved a session, bypass cooldown immediately
+        var session = _http.Sessions?.TryGetCached(root);
+        if (session is not null && session.SavedAt > until.AddMinutes(-10))
         {
-            ["User-Agent"] = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/132.0.0.0 Safari/537.36",
-            ["Accept"] = "text/html,application/xhtml+xml,*/*;q=0.8",
-            ["Referer"] = root.AbsoluteUri
-        };
-        var payload = await _http.GetBytesAsync(requestUri.AbsoluteUri, headers, cancellationToken: deadline.Token).ConfigureAwait(false);
-        var context = BrowsingContext.New(AngleSharp.Configuration.Default);
-        return await context.OpenAsync(request => request.Content(SourceHttpClient.DecodeText(payload.Content)).Address(payload.FinalUri.AbsoluteUri), deadline.Token).ConfigureAwait(false);
+            _forbiddenUntil.TryRemove(key, out _);
+            return false;
+        }
+        return true;
+    }
+
+    private async Task<(IDocument Document, HttpStatusCode StatusCode, bool IsChallenge)> ReadDocumentAsync(Uri root, string path, CancellationToken token)
+    {
+        await _requestGate.WaitAsync(token).ConfigureAwait(false);
+        try
+        {
+            using var deadline = CancellationTokenSource.CreateLinkedTokenSource(token);
+            deadline.CancelAfter(TimeSpan.FromSeconds(12));
+            var requestUri = new Uri(root, "./" + path.TrimStart('/'));
+            var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["User-Agent"] = BrowserUserAgent,
+                ["Accept"] = "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                ["Accept-Language"] = "zh-CN,zh;q=0.9,en;q=0.8",
+                ["Referer"] = root.AbsoluteUri
+            };
+            var exchange = await _http.GetExchangeAsync(requestUri.AbsoluteUri, headers, cancellationToken: deadline.Token).ConfigureAwait(false);
+            var html = SourceHttpClient.DecodeText(exchange.Payload.Content);
+            var isChallenge = exchange.HasCloudflareChallenge ||
+                (exchange.StatusCode == HttpStatusCode.Forbidden &&
+                 (html.Contains("Just a moment", StringComparison.OrdinalIgnoreCase) ||
+                  html.Contains("challenge-platform", StringComparison.OrdinalIgnoreCase) ||
+                  html.Contains("Attention Required", StringComparison.OrdinalIgnoreCase) ||
+                  html.Contains("正在验证您的浏览器", StringComparison.Ordinal)));
+            var context = BrowsingContext.New(AngleSharp.Configuration.Default);
+            var document = await context.OpenAsync(request => request.Content(html).Address(exchange.Payload.FinalUri.AbsoluteUri), deadline.Token).ConfigureAwait(false);
+            return (document, exchange.StatusCode, isChallenge);
+        }
+        finally
+        {
+            _requestGate.Release();
+        }
     }
 
     private static TimeSpan? ReadSearchDelay(IDocument document)

@@ -23,7 +23,7 @@ public sealed partial class MainWindow : Window
     private bool _compact;
     private bool _leavingPlayer;
     private Task? _leavePlayerTask;
-    private readonly WindowTray _tray;
+    private readonly WindowTray? _tray;
     private WindowCloseBehavior _closeBehavior;
     private bool _titleInputQueued;
     private RectInt32[]? _titleInputRegions;
@@ -33,7 +33,15 @@ public sealed partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
-        SystemBackdrop = new MicaBackdrop();
+        if (App.PlayerOnly)
+        {
+            ShellRoot.Children.Remove(NavPane);
+            PaneColumn.Width = new GridLength(0);
+        }
+        else
+        {
+            SystemBackdrop = new MicaBackdrop();
+        }
         ExtendsContentIntoTitleBar = true;
         if (AppWindowTitleBar.IsCustomizationSupported())
             AppWindow.TitleBar.PreferredHeightOption = TitleBarHeightOption.Tall;
@@ -67,14 +75,17 @@ public sealed partial class MainWindow : Window
         backShortcut.Invoked += (_, args) => { GoBack(); args.Handled = true; };
         ShellRoot.KeyboardAcceleratorPlacementMode = KeyboardAcceleratorPlacementMode.Hidden;
         ShellRoot.KeyboardAccelerators.Add(backShortcut);
-        var searchShortcut = new KeyboardAccelerator
+        if (!App.PlayerOnly)
         {
-            Key = Windows.System.VirtualKey.F,
-            Modifiers = Windows.System.VirtualKeyModifiers.Control
-        };
-        searchShortcut.Invoked += (_, args) => { OpenSearch(); args.Handled = true; };
-        ShellRoot.KeyboardAccelerators.Add(searchShortcut);
-        _tray = new WindowTray(WinRT.Interop.WindowNative.GetWindowHandle(this), DispatcherQueue, Title, Activate, () => _ = ShutdownAsync());
+            var searchShortcut = new KeyboardAccelerator
+            {
+                Key = Windows.System.VirtualKey.F,
+                Modifiers = Windows.System.VirtualKeyModifiers.Control
+            };
+            searchShortcut.Invoked += (_, args) => { OpenSearch(); args.Handled = true; };
+            ShellRoot.KeyboardAccelerators.Add(searchShortcut);
+            _tray = new WindowTray(WinRT.Interop.WindowNative.GetWindowHandle(this), DispatcherQueue, Title, Activate, () => _ = ShutdownAsync());
+        }
         AppWindow.Closing += OnClosing;
         DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () =>
         {
@@ -104,7 +115,7 @@ public sealed partial class MainWindow : Window
             if (_closing) return;
             SetTheme(theme switch { "1" => ElementTheme.Light, "2" => ElementTheme.Default, _ => ElementTheme.Dark });
             MotionService.Enabled = await settings.GetSettingAsync("ui.animations") != "false";
-            _tray.Enabled = await settings.GetSettingAsync("ui.minimizeToTray") != "false";
+            if (_tray is not null) _tray.Enabled = await settings.GetSettingAsync("ui.minimizeToTray") != "false";
             if (int.TryParse(await settings.GetSettingAsync("ui.closeBehavior"), out var closeBehavior) &&
                 Enum.IsDefined((WindowCloseBehavior)closeBehavior))
                 _closeBehavior = (WindowCloseBehavior)closeBehavior;
@@ -112,9 +123,14 @@ public sealed partial class MainWindow : Window
         catch (Exception ex) { Diagnostics.Log($"窗口设置读取失败: {ex.Message}"); }
     }
 
-    internal void SetMinimizeToTray(bool enabled) => _tray.Enabled = enabled;
+    internal void SetMinimizeToTray(bool enabled) { if (_tray is not null) _tray.Enabled = enabled; }
     internal void SetCloseBehavior(WindowCloseBehavior behavior) => _closeBehavior = behavior;
-    internal void RestoreWindow() { if (!_closing) _tray.Restore(); }
+    internal void RestoreWindow()
+    {
+        if (_closing) return;
+        if (_tray is not null) _tray.Restore();
+        else Activate();
+    }
 
     public MainViewModel ViewModel { get; }
 
@@ -209,6 +225,7 @@ public sealed partial class MainWindow : Window
 
     private void SyncNavSelection(string tag)
     {
+        if (App.PlayerOnly) return;
         SettingsButton.Background = tag == "settings" ? (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["SelectionBrush"] : new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(0, 0, 0, 0));
         if (tag == "settings")
         {
@@ -268,6 +285,11 @@ public sealed partial class MainWindow : Window
     private void UpdatePaneLayout()
     {
         if (ShellRoot.XamlRoot is null) return;
+        if (App.PlayerOnly)
+        {
+            PaneColumn.Width = new GridLength(0);
+            return;
+        }
         var hidePane = _currentTag == "player" || _fullScreen || _compact;
         NavPane.Visibility = hidePane ? Visibility.Collapsed : Visibility.Visible;
         if (hidePane)
@@ -438,7 +460,7 @@ public sealed partial class MainWindow : Window
             if (!_closing) _ = ShutdownAsync();
             return;
         }
-        if (_tray.IsEndingSession) _ = ShutdownAsync();
+        if (_tray?.IsEndingSession == true) _ = ShutdownAsync();
         else if (!_closing && !_closePromptOpen) _ = ApplyCloseChoiceAsync();
     }
 
@@ -457,7 +479,7 @@ public sealed partial class MainWindow : Window
             }
             if (behavior == WindowCloseBehavior.MinimizeToTray)
             {
-                if (!_tray.TryMinimizeFromClose() && AppWindow.Presenter is OverlappedPresenter presenter)
+                if (_tray?.TryMinimizeFromClose() != true && AppWindow.Presenter is OverlappedPresenter presenter)
                     presenter.Minimize();
             }
             else await ShutdownAsync();
@@ -497,7 +519,7 @@ public sealed partial class MainWindow : Window
         _closing = true;
         _closeFlyout?.Hide();
         Diagnostics.Log("Shutdown requested");
-        _tray.Dispose();
+        _tray?.Dispose();
         try
         {
             if (!App.PlayerOnly)

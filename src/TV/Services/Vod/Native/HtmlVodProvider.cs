@@ -1,3 +1,5 @@
+using System.Collections.Concurrent;
+using System.Net;
 using AngleSharp.Dom;
 using AngleSharp.Html.Parser;
 using TV.Models;
@@ -8,6 +10,9 @@ namespace TV.Services.Vod.Native;
 
 public sealed class HtmlVodProvider(SourceHttpClient http) : INativePlaybackProvider
 {
+    private const string BrowserUserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36";
+    private readonly ConcurrentDictionary<string, string> _discoveredSearchPaths = new(StringComparer.OrdinalIgnoreCase);
+
     private sealed record Category(string Id, string Name);
 
     private sealed record Layout(Uri Base, Category[] Categories, string Cards, string SearchPath,
@@ -16,7 +21,7 @@ public sealed class HtmlVodProvider(SourceHttpClient http) : INativePlaybackProv
 
     private static readonly Layout Auete = new(new Uri("https://www.aeete.com/"),
         [new("Movie", "电影"), new("Tv", "电视剧"), new("Dm", "动漫"), new("Zy", "综艺"), new("qita", "其他")],
-        ".threadlist a.pic, .threadlist a[title][href], a.carousel-link", "/auete4so.php?searchword=",
+        ".threadlist a.pic, .threadlist a[title][href], a.carousel-link", "/auete5so.php?searchword=",
         "h1.detail-title", ".detail-poster img", ".play-card", ".card-header b", "a[href*='/play-']", HtmlPageMedia.ReadBase64Player);
 
     private static readonly Layout Bttwoo = new(new Uri("https://www.bttwoo.com/"),
@@ -53,17 +58,48 @@ public sealed class HtmlVodProvider(SourceHttpClient http) : INativePlaybackProv
         return ReadListAsync(site, layout, path, page, cancellationToken);
     }
 
-    public Task<CmsResponse> SearchAsync(SourceSite site, string keyword, int page, CancellationToken cancellationToken = default)
+    public async Task<CmsResponse> SearchAsync(SourceSite site, string keyword, int page, CancellationToken cancellationToken = default)
     {
         var layout = FindLayout(site.Api)!;
-        return ReadListAsync(site, layout, layout.SearchPath + Uri.EscapeDataString(keyword), page, cancellationToken);
+        var origin = ResolveOrigin(site, layout);
+        var originKey = SiteSessionStore.NormalizeOrigin(origin);
+        var searchPath = layout == Auete && _discoveredSearchPaths.TryGetValue(originKey, out var cached)
+            ? cached : layout.SearchPath;
+        try
+        {
+            return await ReadListAsync(site, layout, searchPath + Uri.EscapeDataString(keyword), page, cancellationToken).ConfigureAwait(false);
+        }
+        catch (HttpRequestException ex) when (layout == Auete && ex.StatusCode == HttpStatusCode.NotFound)
+        {
+            // Site may have rotated /aueteNso.php; discover current form action from homepage and retry once.
+            var (homeHtml, homeRoot, _, _) = await ReadPageWithExchangeAsync(site, layout, "/", cancellationToken).ConfigureAwait(false);
+            var freshPath = DiscoverAueteSearchPath(homeHtml, homeRoot);
+            if (!string.IsNullOrEmpty(freshPath) && !string.Equals(freshPath, searchPath, StringComparison.Ordinal))
+            {
+                _discoveredSearchPaths[originKey] = freshPath;
+                return await ReadListAsync(site, layout, freshPath + Uri.EscapeDataString(keyword), page, cancellationToken).ConfigureAwait(false);
+            }
+            throw;
+        }
     }
 
     private async Task<CmsResponse> ReadListAsync(SourceSite site, Layout layout, string path, int page, CancellationToken token)
     {
-        var (html, root, _) = await ReadPageAsync(site, layout, path, token).ConfigureAwait(false);
-        if (html.QuerySelector("#f_login img[src*='vdimgck']") is not null)
-            throw new InvalidDataException("站点搜索需要验证码。");
+        var (html, root, _, setCookies) = await ReadPageWithExchangeAsync(site, layout, path, token).ConfigureAwait(false);
+        if (layout == Auete && path == "/")
+        {
+            var discovered = DiscoverAueteSearchPath(html, root);
+            if (!string.IsNullOrEmpty(discovered))
+                _discoveredSearchPaths[SiteSessionStore.NormalizeOrigin(root)] = discovered;
+        }
+        if (html.QuerySelector("#f_login img[src*='vdimgck']") is { } captchaImg)
+        {
+            if (http.Sessions is not null)
+                await http.Sessions.ClearAsync(root, token).ConfigureAwait(false);
+            var challenge = BuildImageCaptchaChallenge(html, captchaImg, root, setCookies, Headers(site));
+            throw new SiteVerificationRequiredException(site.Key, site.Name, root, SiteVerificationKind.ImageCaptcha,
+                "站点搜索需要验证码。", challenge);
+        }
         var list = new Dictionary<string, VodItem>(StringComparer.Ordinal);
         foreach (var card in html.QuerySelectorAll(layout.Cards))
         {
@@ -87,9 +123,45 @@ public sealed class HtmlVodProvider(SourceHttpClient http) : INativePlaybackProv
             else if (item.Picture.Length == 0) item.Picture = picture;
             if (layout == Bttwoo) ReadBttCardMetadata(card, item);
         }
-        var pageCount = layout == Auete && !path.StartsWith(layout.SearchPath, StringComparison.Ordinal)
+        var isSearch = path.Contains("searchword=", StringComparison.OrdinalIgnoreCase) || path.StartsWith(layout.SearchPath, StringComparison.Ordinal);
+        var pageCount = layout == Auete && !isSearch
             ? ReadAuetePageCount(html, root, page) : page;
         return new CmsResponse { List = list.Values.ToList(), Page = page, PageCount = pageCount };
+    }
+
+    private static string? DiscoverAueteSearchPath(IDocument html, Uri root)
+    {
+        var form = html.QuerySelector("form#search_form")
+            ?? html.QuerySelector("form input[name='searchword']")?.Closest("form");
+        var action = form?.GetAttribute("action")?.Trim();
+        if (string.IsNullOrWhiteSpace(action) || !TryPageLink(action, root, out var uri)) return null;
+        return uri.AbsolutePath + "?searchword=";
+    }
+
+    private static ImageCaptchaChallenge? BuildImageCaptchaChallenge(
+        IDocument html, IElement captchaImg, Uri pageUri, IReadOnlyList<string> setCookies, IReadOnlyDictionary<string, string> requestHeaders)
+    {
+        var form = html.QuerySelector("form#f_login") ?? captchaImg.Closest("form");
+        var actionAttr = form?.GetAttribute("action") ?? string.Empty;
+        var imgSrc = captchaImg.GetAttribute("src") ?? "include/vdimgck.php";
+        if (!Uri.TryCreate(pageUri, string.IsNullOrWhiteSpace(actionAttr) ? pageUri.PathAndQuery : actionAttr, out var actionUri) ||
+            !Uri.TryCreate(pageUri, imgSrc, out var imageUri))
+            return null;
+        var codeInput = form?.QuerySelector("input[name='validate'], input#vdcode, input[type='text']");
+        var codeField = codeInput?.GetAttribute("name") is { Length: > 0 } name ? name : "validate";
+        var hidden = new List<KeyValuePair<string, string>>();
+        if (form is not null)
+        {
+            foreach (var input in form.QuerySelectorAll("input[type='hidden'][name]"))
+            {
+                var fieldName = input.GetAttribute("name");
+                if (!string.IsNullOrWhiteSpace(fieldName))
+                    hidden.Add(new KeyValuePair<string, string>(fieldName, input.GetAttribute("value") ?? string.Empty));
+            }
+        }
+        var seedCookies = SiteSessionStore.MergeCookies(string.Empty, setCookies);
+        var ua = requestHeaders.GetValueOrDefault("User-Agent") ?? BrowserUserAgent;
+        return new ImageCaptchaChallenge(actionUri, imageUri, codeField, hidden, seedCookies, pageUri, ua);
     }
 
     private static int ReadAuetePageCount(IDocument html, Uri root, int page)
@@ -191,19 +263,37 @@ public sealed class HtmlVodProvider(SourceHttpClient http) : INativePlaybackProv
 
     private async Task<(IDocument Html, Uri Uri, Uri Requested)> ReadPageAsync(SourceSite site, Layout layout, string path, CancellationToken token)
     {
-        var origin = Uri.TryCreate(site.Ext.ValueKind == System.Text.Json.JsonValueKind.String ? site.Ext.GetString() : null,
-            UriKind.Absolute, out var custom) && custom.Scheme is "http" or "https" ? custom : layout.Base;
-        if (!TryPageLink(path, origin, out var uri)) throw new InvalidDataException("站点页面地址无效。");
-        var payload = await http.GetBytesAsync(uri.AbsoluteUri, Headers(site), maxBytes: 4 * 1024 * 1024, cancellationToken: token,
-            scopeRedirectHeaders: true).ConfigureAwait(false);
-        var html = await new HtmlParser().ParseDocumentAsync(SourceHttpClient.DecodeText(payload.Content), token).ConfigureAwait(false);
-        return (html, payload.FinalUri, uri);
+        var (html, uri, requested, _) = await ReadPageWithExchangeAsync(site, layout, path, token).ConfigureAwait(false);
+        return (html, uri, requested);
     }
+
+    private async Task<(IDocument Html, Uri Uri, Uri Requested, IReadOnlyList<string> SetCookies)> ReadPageWithExchangeAsync(
+        SourceSite site, Layout layout, string path, CancellationToken token)
+    {
+        var origin = ResolveOrigin(site, layout);
+        if (!TryPageLink(path, origin, out var uri)) throw new InvalidDataException("站点页面地址无效。");
+        var exchange = await http.GetExchangeAsync(uri.AbsoluteUri, Headers(site), maxBytes: 4 * 1024 * 1024, cancellationToken: token,
+            scopeRedirectHeaders: true).ConfigureAwait(false);
+        if ((int)exchange.StatusCode >= 400)
+        {
+            if (exchange.StatusCode == HttpStatusCode.Forbidden && exchange.HasCloudflareChallenge)
+                throw new SiteVerificationRequiredException(site.Key, site.Name, uri, SiteVerificationKind.BrowserChallenge,
+                    $"{site.Name} 需要完成浏览器安全验证。");
+            throw new HttpRequestException($"站点请求失败（HTTP {(int)exchange.StatusCode}）。", null, exchange.StatusCode);
+        }
+        var html = await new HtmlParser().ParseDocumentAsync(SourceHttpClient.DecodeText(exchange.Payload.Content), token).ConfigureAwait(false);
+        return (html, exchange.Payload.FinalUri, uri, exchange.SetCookies);
+    }
+
+    private static Uri ResolveOrigin(SourceSite site, Layout layout) =>
+        Uri.TryCreate(site.Ext.ValueKind == System.Text.Json.JsonValueKind.String ? site.Ext.GetString() : null,
+            UriKind.Absolute, out var custom) && custom.Scheme is "http" or "https" ? custom : layout.Base;
 
     private static Dictionary<string, string> Headers(SourceSite site)
     {
         var headers = new Dictionary<string, string>(site.GetHeaders(), StringComparer.OrdinalIgnoreCase);
-        headers.TryAdd("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/131.0.0.0 Safari/537.36");
+        headers.TryAdd("User-Agent", BrowserUserAgent);
+        headers.TryAdd("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8");
         return headers;
     }
 

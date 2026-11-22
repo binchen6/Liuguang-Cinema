@@ -61,8 +61,8 @@ public sealed partial class SettingsViewModel : ObservableObject
     [ObservableProperty] private bool _autoSwitchLine = true;
     [ObservableProperty] private int _searchConcurrency = 3;
     [ObservableProperty] private bool _cloudAcceleration = true;
-    [ObservableProperty] private int _cloudThreads = 2;
-    [ObservableProperty] private int _cloudChunkMb = 4;
+    [ObservableProperty] private int _cloudThreads = 3;
+    [ObservableProperty] private int _cloudChunkMb = 2;
     [ObservableProperty] private int _themeIndex;
     [ObservableProperty] private int _dnsIndex;
     [ObservableProperty] private string _aliToken = string.Empty;
@@ -98,8 +98,8 @@ public sealed partial class SettingsViewModel : ObservableObject
         AutoSwitchLine = await Bool("playback.autoSwitchLine", true);
         SearchConcurrency = await Int("search.concurrency", 3);
         CloudAcceleration = await Bool("playback.cloudAcceleration", true);
-        CloudThreads = await Int("playback.cloudThreads", 2);
-        CloudChunkMb = await Int("playback.cloudChunkMb", 4);
+        CloudThreads = await Int("playback.cloudThreads", 3);
+        CloudChunkMb = await Int("playback.cloudChunkMb", 2);
         ThemeIndex = await Int("ui.theme", 0);
         DnsIndex = await Int("network.dns", 0);
         DownloadFolder = await _services.Database.GetSettingAsync("downloads.defaultFolder") ??
@@ -205,8 +205,8 @@ public sealed partial class SettingsViewModel : ObservableObject
     private void ResetCloudAcceleration()
     {
         CloudAcceleration = true;
-        CloudThreads = 2;
-        CloudChunkMb = 4;
+        CloudThreads = 3;
+        CloudChunkMb = 2;
         StatusMessage = "已恢复安全加速默认值";
     }
 
@@ -394,8 +394,8 @@ public sealed partial class SettingsViewModel : ObservableObject
     partial void OnAutoSwitchLineChanged(bool value) => Save("playback.autoSwitchLine", value);
     partial void OnSearchConcurrencyChanged(int value) => Save("search.concurrency", Math.Clamp(value, 1, 6));
     partial void OnCloudAccelerationChanged(bool value) => Save("playback.cloudAcceleration", value);
-    partial void OnCloudThreadsChanged(int value) => Save("playback.cloudThreads", Math.Clamp(value, 1, 3));
-    partial void OnCloudChunkMbChanged(int value) => Save("playback.cloudChunkMb", Math.Clamp(value, 2, 8));
+    partial void OnCloudThreadsChanged(int value) => Save("playback.cloudThreads", Math.Clamp(value, 1, 6));
+    partial void OnCloudChunkMbChanged(int value) => Save("playback.cloudChunkMb", Math.Clamp(value, 1, 8));
 
     partial void OnAnimationsEnabledChanged(bool value)
     {

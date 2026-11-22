@@ -34,8 +34,8 @@
 安装包目前未购买 Authenticode 代码签名，Windows 可能显示 SmartScreen 提示。请核对发布页提供的 SHA-256：
 
 ```powershell
-Get-FileHash .\TV-Setup-1.4.1-x64.exe -Algorithm SHA256
-Get-Content .\TV-Setup-1.4.1-x64.exe.sha256
+Get-FileHash .\TV-Setup-1.5.0-x64.exe -Algorithm SHA256
+Get-Content .\TV-Setup-1.5.0-x64.exe.sha256
 ```
 
 ## 使用指南
@@ -170,7 +170,7 @@ installer/               Inno Setup 安装器与输出完整性检查
 artifacts/qa-fixture/    隔离测试夹具与回归脚本
 ```
 
-更多技术说明见[开发指南](docs/development.md)、[站点适配矩阵](docs/site-matrix.csv)、[验收边界](docs/site-verification.md)和[设计契约](docs/design-guide.md)。当前版本说明见[1.4.1 发行说明](docs/releases/release-1.4.1.md)，历史文档索引见[docs/README](docs/README.md)。
+更多技术说明见[开发指南](docs/development.md)、[站点适配矩阵](docs/site-matrix.csv)、[验收边界](docs/site-verification.md)和[设计契约](docs/design-guide.md)。当前版本说明见[1.5.0 发行说明](docs/releases/release-1.5.0.md)，历史文档索引见[docs/README](docs/README.md)。
 
 ## 验证与贡献
 

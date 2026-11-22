@@ -17,61 +17,71 @@ namespace TV.Services;
 public sealed class AppServices : IDisposable
 {
     private readonly Lazy<PlayerService> _player;
+    private readonly Lazy<DnsResolverService> _dns;
+    private readonly Lazy<SiteSessionStore> _siteSessions;
+    private readonly Lazy<SourceHttpClient> _http;
+    private readonly Lazy<BilibiliAccountService> _bilibiliAccount;
+    private readonly Lazy<BilibiliVodProvider> _bilibili;
+    private readonly Lazy<DanmakuService> _danmaku;
+    private readonly Lazy<OnlineMediaService> _onlineMedia;
 
     public AppServices(bool playerOnly = false)
     {
         PlayerOnly = playerOnly;
         AppPaths.EnsureCreated();
         Database = new DatabaseService();
-        Dns = new DnsResolverService(Database);
-        Http = new SourceHttpClient(Dns);
+        _dns = new Lazy<DnsResolverService>(() => new DnsResolverService(Database));
+        _siteSessions = new Lazy<SiteSessionStore>(() => new SiteSessionStore(Database));
+        _http = new Lazy<SourceHttpClient>(() => new SourceHttpClient(_dns.Value, _siteSessions.Value));
+        _bilibiliAccount = new Lazy<BilibiliAccountService>(() => new BilibiliAccountService(Database, _dns.Value));
+        _danmaku = new Lazy<DanmakuService>(() => new DanmakuService(_http.Value));
+        _player = new Lazy<PlayerService>(() => new PlayerService());
         if (playerOnly)
         {
-            BilibiliAccount = new BilibiliAccountService(Database, Dns);
-            Bilibili = new BilibiliVodProvider(Http, null, BilibiliAccount);
+            _bilibili = new Lazy<BilibiliVodProvider>(() => new BilibiliVodProvider(_http.Value, null, _bilibiliAccount.Value));
+            _onlineMedia = new Lazy<OnlineMediaService>(() => new OnlineMediaService(_http.Value, _bilibili.Value));
             Playback = new PlaybackResolver(this);
-            Danmaku = new DanmakuService(Http);
-            OnlineMedia = new OnlineMediaService(Http, Bilibili);
-            _player = new Lazy<PlayerService>(() => new PlayerService());
             return;
         }
-        Config = new SourceConfigService(Http, Database);
-        Cms = new CmsClient(Http);
+        var dns = _dns.Value;
+        var http = _http.Value;
+        var bilibiliAccount = _bilibiliAccount.Value;
+        Config = new SourceConfigService(http, Database);
+        Cms = new CmsClient(http);
         SpiderRuntime = new SpiderRuntime(Database);
-        Cloud = new CloudDriveService(Database, Dns);
-        BilibiliAccount = new BilibiliAccountService(Database, Dns);
+        Cloud = new CloudDriveService(Database, dns);
         CloudLogin = new CloudLoginCoordinator(Cloud, Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread());
-        Bilibili = new BilibiliVodProvider(Http, Cloud, BilibiliAccount);
-        NativeVod = new NativeVodProviderRouter([new WoggNativeProvider(Http, Cloud), new HttpSpiderProvider(Http),
-            new HtmlVodProvider(Http), Bilibili, new ChangZhangVodProvider(Http),
-            new PanSouVodProvider(Http, Cloud), new PanTaVodProvider(Http, Cloud), new KanqiuVodProvider(Http), new MyDriveVodProvider(Cloud)]);
+        var bilibili = new BilibiliVodProvider(http, Cloud, bilibiliAccount);
+        _bilibili = new Lazy<BilibiliVodProvider>(() => bilibili);
+        NativeVod = new NativeVodProviderRouter([new WoggNativeProvider(http, Cloud), new HttpSpiderProvider(http),
+            new HtmlVodProvider(http), bilibili, new ChangZhangVodProvider(http),
+            new PanSouVodProvider(http, Cloud), new PanTaVodProvider(http, Cloud), new KanqiuVodProvider(http), new MyDriveVodProvider(Cloud)]);
         Vod = new VodClientRouter(Cms, new SpiderVodClient(SpiderRuntime), NativeVod);
-        Live = new LiveService(Http);
-        Epg = new EpgService(Http);
-        Douban = new DoubanService(Http, Database);
-        Images = new ImageCacheService(Http);
-        Resolver = new PlayUrlResolver(Http);
+        Live = new LiveService(http);
+        Epg = new EpgService(http);
+        Douban = new DoubanService(http, Database);
+        Images = new ImageCacheService(http);
+        Resolver = new PlayUrlResolver(http);
         Sniffer = new SniffService(Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread());
         Playback = new PlaybackResolver(this);
         SourceRecovery = new SourceRecoveryService(this);
-        Downloads = new VideoDownloadService(Dns);
-        Danmaku = new DanmakuService(Http);
+        Downloads = new VideoDownloadService(dns);
+        _onlineMedia = new Lazy<OnlineMediaService>(() => new OnlineMediaService(http, bilibili));
         LocalMedia = new LocalMediaService(Database);
         Cleanup = new CleanupService(Database);
-        OnlineMedia = new OnlineMediaService(Http, Bilibili);
-        _player = new Lazy<PlayerService>(() => new PlayerService());
     }
 
     public bool PlayerOnly { get; }
-    public SourceHttpClient Http { get; }
+    public SourceHttpClient Http => _http.Value;
+    public SiteSessionStore SiteSessions => _siteSessions.Value;
     public DatabaseService Database { get; }
-    public DnsResolverService Dns { get; }
+    public DnsResolverService Dns => _dns.Value;
     public SourceConfigService Config { get; } = null!;
     public CmsClient Cms { get; } = null!;
     public VodClientRouter Vod { get; } = null!;
     public SpiderRuntime SpiderRuntime { get; } = null!;
     public CloudDriveService Cloud { get; } = null!;
-    public BilibiliAccountService BilibiliAccount { get; }
+    public BilibiliAccountService BilibiliAccount => _bilibiliAccount.Value;
     public CloudLoginCoordinator CloudLogin { get; } = null!;
     public TV.Services.Vod.Native.NativeVodProviderRouter NativeVod { get; } = null!;
     public LiveService Live { get; } = null!;
@@ -83,9 +93,9 @@ public sealed class AppServices : IDisposable
     public PlaybackResolver Playback { get; }
     public SourceRecoveryService SourceRecovery { get; } = null!;
     public VideoDownloadService Downloads { get; } = null!;
-    public DanmakuService Danmaku { get; }
-    public BilibiliVodProvider Bilibili { get; }
-    public OnlineMediaService OnlineMedia { get; }
+    public DanmakuService Danmaku => _danmaku.Value;
+    public BilibiliVodProvider Bilibili => _bilibili.Value;
+    public OnlineMediaService OnlineMedia => _onlineMedia.Value;
     public LocalMediaService LocalMedia { get; } = null!;
     public CleanupService Cleanup { get; } = null!;
     public PlayerService Player => _player.Value;
@@ -103,8 +113,8 @@ public sealed class AppServices : IDisposable
             Config.Dispose();
             SpiderRuntime.Dispose();
         }
-        BilibiliAccount.Dispose();
-        Http.Dispose();
-        Dns.Dispose();
+        if (_bilibiliAccount.IsValueCreated) _bilibiliAccount.Value.Dispose();
+        if (_http.IsValueCreated) _http.Value.Dispose();
+        if (_dns.IsValueCreated) _dns.Value.Dispose();
     }
 }

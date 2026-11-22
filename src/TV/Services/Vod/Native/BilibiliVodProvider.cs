@@ -359,7 +359,8 @@ public sealed partial class BilibiliVodProvider(SourceHttpClient http, CloudDriv
         if (status == -101 && session is not null)
             return await ReadApiQueryAsync(site, path, query, token).ConfigureAwait(false);
         if (status == -412) throw new HttpRequestException("哔哩哔哩拒绝当前请求。", null, HttpStatusCode.PreconditionFailed);
-        if (status == -352) throw new InvalidDataException("站点搜索需要验证码。");
+        if (status == -352) throw new SiteVerificationRequiredException(site.Key, site.Name,
+            new Uri("https://search.bilibili.com/"), SiteVerificationKind.BrowserChallenge, "站点搜索需要验证码。");
         if (status == -101) throw new InvalidOperationException("此哔哩哔哩视频需要登录。");
         throw new InvalidDataException($"哔哩哔哩接口返回 {status}。");
     }

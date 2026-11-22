@@ -34,6 +34,20 @@ public sealed partial class VodPage : Page
     private ScrollViewer? _postersScroll;
     private bool _browseLayoutReady;
     private void OnSearchClick(object sender, RoutedEventArgs e) => App.Window.OpenSearch();
+    private async void OnVerifySiteClick(object sender, RoutedEventArgs e)
+    {
+        if (ViewModel.PendingVerification is not { } challenge || XamlRoot is null) return;
+        try
+        {
+            var dialog = new SiteVerificationDialog(App.Services, challenge, XamlRoot);
+            if (await dialog.ShowAsync() && IsLoaded)
+            {
+                ViewModel.PendingVerification = null;
+                ViewModel.ReloadCommand.Execute(null);
+            }
+        }
+        catch (Exception ex) { ViewModel.StatusMessage = "验证面板打开失败：" + ex.Message; }
+    }
     private void OnPostersLoaded(object sender, RoutedEventArgs e)
     {
         _browseLayoutReady = false;

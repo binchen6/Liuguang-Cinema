@@ -99,8 +99,8 @@ public sealed class CloudDriveService : IDisposable
         var provider = entry.File.Provider;
         var result = await play(_providers[provider], entry.File, cancellationToken).ConfigureAwait(false);
         var accelerate = !string.Equals(await _database.GetSettingAsync("playback.cloudAcceleration", cancellationToken).ConfigureAwait(false), "false", StringComparison.OrdinalIgnoreCase);
-        var threads = accelerate ? await ReadIntAsync("playback.cloudThreads", 2, 1, 3, cancellationToken).ConfigureAwait(false) : 1;
-        var chunk = await ReadIntAsync("playback.cloudChunkMb", 4, 2, 8, cancellationToken).ConfigureAwait(false);
+        var threads = accelerate ? await ReadIntAsync("playback.cloudThreads", 3, 1, 6, cancellationToken).ConfigureAwait(false) : 1;
+        var chunk = await ReadIntAsync("playback.cloudChunkMb", 2, 1, 8, cancellationToken).ConfigureAwait(false);
         return new CloudPlayResult(_mediaProxy.Value.Register(result, provider, threads, chunk,
             refresh: token => play(_providers[provider], entry.File, token)), new Dictionary<string, string>(),
             result.ContentType, SubtitleTracks: entry.Subtitles)
