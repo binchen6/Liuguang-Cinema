@@ -4,10 +4,11 @@ public static class SpiderCatalog
 {
     private static readonly HashSet<string> Available = new(StringComparer.OrdinalIgnoreCase)
     {
-        "AiDj", "Ali", "AList", "Alllive", "AppYsV2", "Bili", "BpanSo", "Dm84", "Doll", "Douban", "Doubao", "DouDou", "Eighteen", "FirstAid", "Hanime",
-        "Jable", "JavDb", "Jianpian", "JPJ", "JustLive", "Kanqiu", "KkSs", "Kugou", "Libvio", "Local", "Miss", "NewCz", "NiNi", "Nmyswv", "PanSearch",
-        "Kugou", "LiveGz", "Music", "PanSou", "Push", "ShortDrama", "SixV", "Sssp", "Star", "UpYun", "UuSs", "Wogg", "Xb6v", "XiaoZhiTiao", "XPath", "XPathFilter",
-        "XPathMac", "XPathMacFilter", "YGP", "Ying", "Yingshiche", "YiSo", "YpanSo", "Ysj", "YueTing", "Zhaozy", "Quark", "UC", "Cloud"
+        "AiDj", "Ali", "AList", "Alllive", "Appgz", "AppTT", "AppYsV2", "Auete", "Bili", "BpanSo", "Bttwoo", "Dm84", "Doll", "Douban", "Doubao", "DouDou",
+        "Eighteen", "FirstAid", "Hanime", "Hanquan", "Jable", "JavDb", "Jianpian", "JPJ", "Jpys", "JumiTv", "JustLive", "Kanqiu", "KkSs", "Kugou",
+        "Libvio", "LiveGz", "Local", "Miss", "Music", "NewCz", "NiNi", "Nmyswv", "PanSearch", "PanSou", "Push", "Seedhub", "ShortDrama", "SixV",
+        "Sssp", "Star", "UpYun", "UuSs", "Wogg", "Xb6v", "XiaoZhiTiao", "XPath", "XPathFilter", "XPathMac", "XPathMacFilter", "YGP", "Ying",
+        "Yingshiche", "YiSo", "YpanSo", "Ysj", "YueTing", "Zhaozy", "Quark", "UC", "Cloud"
     };
 
     public static bool IsAvailable(string api, System.Text.Json.JsonElement ext = default)

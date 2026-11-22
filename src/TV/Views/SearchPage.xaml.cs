@@ -17,6 +17,23 @@ public sealed partial class SearchPage : Page
     private bool _firstVisit = true;
     private CancellationTokenSource? _suggestions;
     private bool _suggestionsFromKeyboard;
+    private bool _pointerOverSuggestions;
+
+    private bool AreSuggestionsOpen => SuggestionsOverlay.Visibility == Visibility.Visible;
+
+    private void ShowSuggestions()
+    {
+        var width = QueryBox.ActualWidth;
+        if (width > 0) SuggestionsOverlay.Width = Math.Max(220, width);
+        SuggestionsOverlay.Visibility = Visibility.Visible;
+    }
+
+    private void HideSuggestions()
+    {
+        SuggestionsOverlay.Visibility = Visibility.Collapsed;
+        SuggestionList.SelectedIndex = -1;
+        _pointerOverSuggestions = false;
+    }
 
     public SearchPage()
     {
@@ -51,9 +68,8 @@ public sealed partial class SearchPage : Page
     {
         _suggestionsFromKeyboard = false;
         _suggestions?.Cancel();
-        SuggestionsFlyout.Hide();
+        HideSuggestions();
         SuggestionList.ItemsSource = null;
-        if (shutdown) SuggestionsFlyout.Content = null;
     }
 
     private void OnUnloaded(object sender, RoutedEventArgs e)
@@ -65,7 +81,7 @@ public sealed partial class SearchPage : Page
             model.Rows.CollectionChanged -= OnRowsChanged;
         }
         _observed = null;
-        SuggestionsFlyout.Hide();
+        HideSuggestions();
         if (_resultScroll is not null) _scrollOffset = _resultScroll.VerticalOffset;
         _resultScroll = null;
         if (_suggestions is not null)
@@ -76,9 +92,11 @@ public sealed partial class SearchPage : Page
         }
     }
 
-    private async void OnSuggestionTextChanged(object sender, TextChangedEventArgs args)
+    private void OnSuggestionTextChanged(object sender, TextChangedEventArgs args) => ScheduleSuggestions();
+
+    private async void ScheduleSuggestions()
     {
-        if (!_suggestionsFromKeyboard) return;
+        if (!_suggestionsFromKeyboard || QueryBox.IsComposing) return;
         var pending = _suggestions;
         _suggestions = null;
         pending?.Cancel();
@@ -87,7 +105,7 @@ public sealed partial class SearchPage : Page
         if (query.Length == 0)
         {
             SuggestionList.ItemsSource = null;
-            SuggestionsFlyout.Hide();
+            HideSuggestions();
             return;
         }
         var cts = new CancellationTokenSource();
@@ -96,16 +114,16 @@ public sealed partial class SearchPage : Page
         {
             await Task.Delay(260, cts.Token);
             var suggestions = await ViewModel.SuggestAsync(query, cts.Token);
-            if (!IsLoaded || cts.IsCancellationRequested || QueryBox.Text.Trim() != query) return;
+            if (!IsLoaded || cts.IsCancellationRequested || QueryBox.IsComposing || QueryBox.Text.Trim() != query) return;
+            if (QueryBox.FocusState == FocusState.Unfocused)
+            {
+                HideSuggestions();
+                return;
+            }
             SuggestionList.ItemsSource = suggestions;
             SuggestionList.SelectedIndex = -1;
-            if (suggestions.Count > 0)
-            {
-                SuggestionList.Width = Math.Max(200, QueryBox.ActualWidth - 8);
-                if (!SuggestionsFlyout.IsOpen) SuggestionsFlyout.ShowAt(QueryBox);
-            }
-            else SuggestionsFlyout.Hide();
-            if (SuggestionsFlyout.IsOpen && QueryBox.FocusState != FocusState.Unfocused) FocusQuery(false);
+            if (suggestions.Count > 0) ShowSuggestions();
+            else HideSuggestions();
         }
         catch (OperationCanceledException) when (cts.IsCancellationRequested) { }
         catch (Exception ex) { Services.Diagnostics.Log($"搜索建议失败: {ex.GetType().Name}"); }
@@ -120,10 +138,30 @@ public sealed partial class SearchPage : Page
     {
         if (sender is not Button { DataContext: string title }) return;
         _suggestionsFromKeyboard = false;
+        _suggestions?.Cancel();
         ViewModel.Query = title;
-        SuggestionsFlyout.Hide();
+        HideSuggestions();
+        QueryBox.SelectionStart = title.Length;
+        QueryBox.SelectionLength = 0;
         FocusQuery();
-        QueryBox.SelectAll();
+    }
+
+    private void OnQueryLostFocus(object sender, RoutedEventArgs e)
+    {
+        if (!_pointerOverSuggestions) HideSuggestions();
+    }
+
+    private void OnQuerySizeChanged(object sender, SizeChangedEventArgs e)
+    {
+        if (e.NewSize.Width > 0) SuggestionsOverlay.Width = Math.Max(220, e.NewSize.Width);
+    }
+
+    private void OnSuggestionsPointerEntered(object sender, PointerRoutedEventArgs e) => _pointerOverSuggestions = true;
+
+    private void OnSuggestionsPointerExited(object sender, PointerRoutedEventArgs e)
+    {
+        _pointerOverSuggestions = false;
+        if (QueryBox.FocusState == FocusState.Unfocused) HideSuggestions();
     }
 
     private void OnSearchChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
@@ -132,7 +170,7 @@ public sealed partial class SearchPage : Page
         {
             _suggestionsFromKeyboard = false;
             _suggestions?.Cancel();
-            SuggestionsFlyout.Hide();
+            HideSuggestions();
         }
         if (e.PropertyName is nameof(SearchViewModel.Scope) or nameof(SearchViewModel.SubmittedQuery))
         {
@@ -180,20 +218,24 @@ public sealed partial class SearchPage : Page
         QueryBox.Focus(FocusState.Programmatic);
     }
 
-    private void OnQueryTextInputReceived(object? sender, EventArgs e) => _suggestionsFromKeyboard = true;
+    private void OnQueryTextInputReceived(object? sender, EventArgs e)
+    {
+        _suggestionsFromKeyboard = true;
+        if (!QueryBox.IsComposing && QueryBox.Text.Trim().Length > 0) ScheduleSuggestions();
+    }
 
     private void OnQueryKeyDown(object sender, KeyRoutedEventArgs e)
     {
         var command = Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread(VirtualKey.Control).HasFlag(Windows.UI.Core.CoreVirtualKeyStates.Down) ||
             Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread(VirtualKey.Menu).HasFlag(Windows.UI.Core.CoreVirtualKeyStates.Down);
         _suggestionsFromKeyboard = !command;
-        if (e.Key == VirtualKey.Escape && SuggestionsFlyout.IsOpen)
+        if (e.Key == VirtualKey.Escape && AreSuggestionsOpen)
         {
-            SuggestionsFlyout.Hide();
+            HideSuggestions();
             e.Handled = true;
             return;
         }
-        if (e.Key is VirtualKey.Down or VirtualKey.Up && SuggestionsFlyout.IsOpen && SuggestionList.Items.Count > 0)
+        if (e.Key is VirtualKey.Down or VirtualKey.Up && AreSuggestionsOpen && SuggestionList.Items.Count > 0)
         {
             var delta = e.Key == VirtualKey.Down ? 1 : -1;
             SuggestionList.SelectedIndex = Math.Clamp(SuggestionList.SelectedIndex + delta, 0, SuggestionList.Items.Count - 1);
@@ -203,10 +245,10 @@ public sealed partial class SearchPage : Page
         }
         if (e.Key != VirtualKey.Enter) return;
         _suggestionsFromKeyboard = false;
-        if (SuggestionsFlyout.IsOpen && SuggestionList.SelectedItem is string title) ViewModel.Query = title;
+        if (AreSuggestionsOpen && SuggestionList.SelectedItem is string title) ViewModel.Query = title;
         else ViewModel.Query = QueryBox.Text;
         _suggestions?.Cancel();
-        SuggestionsFlyout.Hide();
+        HideSuggestions();
         ViewModel.SubmitCommand.Execute(null);
         e.Handled = true;
     }

@@ -8,16 +8,21 @@ public sealed class SearchTextBox : TextBox
 {
     public event EventHandler? TextInputReceived;
     public event EventHandler<KeyRoutedEventArgs>? EditingKeyDown;
+    public bool IsComposing { get; private set; }
 
     public SearchTextBox()
     {
-        TextCompositionStarted += (_, _) => TextInputReceived?.Invoke(this, EventArgs.Empty);
-        TextCompositionChanged += (_, _) => TextInputReceived?.Invoke(this, EventArgs.Empty);
+        TextCompositionStarted += (_, _) => IsComposing = true;
+        TextCompositionEnded += (_, _) =>
+        {
+            IsComposing = false;
+            TextInputReceived?.Invoke(this, EventArgs.Empty);
+        };
     }
 
     protected override void OnCharacterReceived(CharacterReceivedRoutedEventArgs e)
     {
-        TextInputReceived?.Invoke(this, EventArgs.Empty);
+        if (!IsComposing) TextInputReceived?.Invoke(this, EventArgs.Empty);
         base.OnCharacterReceived(e);
     }
 
@@ -25,7 +30,7 @@ public sealed class SearchTextBox : TextBox
     {
         EditingKeyDown?.Invoke(this, e);
         if (e.Handled) return;
-        if (e.Key is VirtualKey.Back or VirtualKey.Delete or VirtualKey.Space)
+        if (!IsComposing && e.Key is VirtualKey.Back or VirtualKey.Delete or VirtualKey.Space)
             TextInputReceived?.Invoke(this, EventArgs.Empty);
         base.OnKeyDown(e);
     }
