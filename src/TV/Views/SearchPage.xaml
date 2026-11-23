@@ -30,49 +30,64 @@
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
 
-        <!-- 页头：主标题 + 副信息（同一条 32px 左缘基线） -->
-        <StackPanel Spacing="{StaticResource SpaceTiny}">
+        <!-- 画册级索引报头 -->
+        <StackPanel x:Name="SearchHeader" Spacing="2">
+            <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                <Ellipse Width="5" Height="5" Fill="{ThemeResource VermilionBrush}" VerticalAlignment="Center" />
+                <TextBlock Text="INDEX · MULTI-SITE" Style="{StaticResource EyebrowText}" />
+            </StackPanel>
             <TextBlock Text="搜索" Style="{StaticResource PageTitleText}" />
             <TextBlock Text="跨站点查找片名、年份或类型，逐站显示进度与结果"
                        Style="{StaticResource SecondaryText}" />
         </StackPanel>
 
-        <!-- 搜索输入：44 高输入框 + 44 高主按钮，垂直中心对齐；回车或点按才提交 -->
-        <Grid Grid.Row="1" Margin="0,24,0,24" ColumnSpacing="{StaticResource SpaceMini}">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="*" />
-                <ColumnDefinition Width="Auto" />
-            </Grid.ColumnDefinitions>
-            <Grid>
-                <controls:SearchTextBox x:Name="QueryBox"
-                         PlaceholderText="片名、年份或类型，输入时显示建议"
-                         MaxLength="160"
-                         AutomationProperties.Name="搜索关键词"
-                         VerticalAlignment="Center"
-                         Padding="12,10"
-                         Text="{Binding Query, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                         TextChanged="OnSuggestionTextChanged"
-                         TextInputReceived="OnQueryTextInputReceived"
-                         EditingKeyDown="OnQueryKeyDown"
-                         LostFocus="OnQueryLostFocus"
-                         SizeChanged="OnQuerySizeChanged" />
+        <!-- 一体化磨砂命令搜索条：回车或点按才提交；底部内嵌细丝朱砂搜索进度线 -->
+        <Border x:Name="SearchCommandBar" Grid.Row="1" Margin="0,20,0,22"
+                Style="{StaticResource GlassBarStyle}" Padding="10,8">
+            <Grid RowSpacing="0">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+                <Grid ColumnSpacing="10">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <controls:SearchTextBox x:Name="QueryBox"
+                                            PlaceholderText="片名、年份或类型，输入时显示建议"
+                                            MaxLength="160"
+                                            AutomationProperties.Name="搜索关键词"
+                                            VerticalAlignment="Center"
+                                            Padding="14,10"
+                                            Text="{Binding Query, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                            TextChanged="OnSuggestionTextChanged"
+                                            TextInputReceived="OnQueryTextInputReceived"
+                                            EditingKeyDown="OnQueryKeyDown"
+                                            LostFocus="OnQueryLostFocus"
+                                            SizeChanged="OnQuerySizeChanged" />
+                    <Button x:Name="SearchSubmitButton" Grid.Column="1"
+                            Style="{StaticResource PrimaryButtonStyle}"
+                            VerticalAlignment="Center"
+                            Command="{Binding SubmitCommand}"
+                            AutomationProperties.Name="搜索"
+                            ToolTipService.ToolTip="搜索（回车）">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <controls:LineIcon PathData="{StaticResource IconSearch}" IconSize="15"
+                                               Foreground="{ThemeResource AccentInkBrush}" />
+                            <TextBlock Text="搜索" FontWeight="SemiBold" Foreground="{ThemeResource AccentInkBrush}" />
+                        </StackPanel>
+                    </Button>
+                </Grid>
+                <ProgressBar Grid.Row="1" IsIndeterminate="{Binding IsSearching}"
+                             Foreground="{ThemeResource VermilionBrush}"
+                             Height="2" Margin="2,8,2,0"
+                             Visibility="{Binding IsSearching, Converter={StaticResource BoolToVisibility}}" />
             </Grid>
-            <Button Grid.Column="1"
-                    Style="{StaticResource PrimaryButtonStyle}"
-                    VerticalAlignment="Center"
-                    Command="{Binding SubmitCommand}"
-                    AutomationProperties.Name="搜索"
-                    ToolTipService.ToolTip="搜索（回车）">
-                <StackPanel Orientation="Horizontal" Spacing="{StaticResource SpaceMini}">
-                    <FontIcon Glyph="&#xE721;" FontSize="16" />
-                    <TextBlock Text="搜索" FontWeight="SemiBold" />
-                </StackPanel>
-            </Button>
-        </Grid>
+        </Border>
 
-        <!-- 主体：站点列 + 历史/结果列。
-             两列共用同一行页头（标题行高由 40 高的次按钮决定），列间距 24、页头与内容间距 12。 -->
-        <Grid Grid.Row="2"
+        <!-- 主体：左侧磨砂站点遥测轨 + 右侧历史/画框结果流 -->
+        <Grid x:Name="SearchBody" Grid.Row="2"
               ColumnSpacing="{StaticResource SpaceLarge}"
               RowSpacing="{StaticResource SpaceSmall}">
             <Grid.ColumnDefinitions>
@@ -84,19 +99,19 @@
                 <RowDefinition Height="*" />
             </Grid.RowDefinitions>
 
-            <Grid Width="212"
-                  Padding="12,0"
+            <Grid Width="220"
+                  Padding="8,0"
                   ColumnSpacing="{StaticResource SpaceMini}" VerticalAlignment="Center">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*" />
                     <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
                 <TextBlock Text="站点" Style="{StaticResource LabelText}" VerticalAlignment="Center" />
-                <TextBlock Grid.Column="1" Text="逐站进度" Style="{StaticResource MetaText}"
+                <TextBlock Grid.Column="1" Text="SITES" Style="{StaticResource EyebrowText}"
                            VerticalAlignment="Center" />
             </Grid>
 
-            <!-- 右列头：历史态（搜索历史 + 清空）/ 结果态（结果标题），筛选始终在最右侧与结果区右缘同一条竖线 -->
+            <!-- 右列头 -->
             <Grid Grid.Column="1" ColumnSpacing="{StaticResource SpaceSmall}">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*" />
@@ -106,7 +121,6 @@
                 <TextBlock Text="搜索历史" Style="{StaticResource SectionTitleText}"
                            VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
                            Visibility="{Binding ShowsHistory, Converter={StaticResource BoolToVisibility}}" />
-                <!-- 结果态标题；历史态隐藏，避免空标题只剩一个孤立「·」 -->
                 <TextBlock Text="{Binding ResultsHeading}" Style="{StaticResource CardTitleText}"
                            VerticalAlignment="Center" MaxLines="1" TextTrimming="CharacterEllipsis"
                            Visibility="{Binding ShowsHistory, Converter={StaticResource BoolToVisibility}, ConverterParameter=Inverse}" />
@@ -124,13 +138,13 @@
                         VerticalAlignment="Center"
                         Visibility="{Binding ShowsHistory, Converter={StaticResource BoolToVisibility}, ConverterParameter=Inverse}">
                     <StackPanel Orientation="Horizontal" Spacing="{StaticResource SpaceMini}">
-                        <FontIcon Glyph="&#xE71C;" FontSize="16" />
+                        <controls:LineIcon PathData="{StaticResource IconFilter}" IconSize="16" />
                         <TextBlock Text="筛选" Style="{StaticResource SecondaryText}"
                                    Foreground="{ThemeResource PrimaryTextBrush}" />
                     </StackPanel>
                     <Button.Flyout>
                         <Flyout Placement="BottomEdgeAlignedRight">
-                            <StackPanel Spacing="{StaticResource SpaceSmall}" Width="240">
+                            <StackPanel Spacing="{StaticResource SpaceSmall}" Width="244">
                                 <controls:AnchoredChoice Header="类型" ItemsSource="{Binding Types}"
                                                          SelectedItem="{Binding SelectedType, Mode=TwoWay}"
                                                          HorizontalAlignment="Stretch" />
@@ -146,11 +160,11 @@
                 </Button>
             </Grid>
 
-            <!-- 站点侧栏卡片容器 -->
-            <Border Grid.Row="1" Width="212"
-                    Background="{ThemeResource SurfaceBrush}"
-                    BorderBrush="{ThemeResource SubtleBorderBrush}" BorderThickness="1"
-                    CornerRadius="{StaticResource RadiusCard}" Padding="6,8">
+            <!-- 磨砂站点遥测侧栏 -->
+            <Border Grid.Row="1" Width="220"
+                    Background="{ThemeResource GlassPanelBrush}"
+                    BorderBrush="{ThemeResource GlassEdgeBrush}" BorderThickness="1"
+                    CornerRadius="{StaticResource RadiusPanel}" Padding="6,8">
                 <ListView AutomationProperties.Name="搜索站点"
                           ItemsSource="{Binding Scopes}"
                           SelectedItem="{Binding Scope, Mode=TwoWay}"
@@ -196,7 +210,7 @@
                 </ListView>
             </Border>
 
-            <!-- 右列：历史态（搜索历史列表 / 空态） -->
+            <!-- 右列：历史态（极简 Hairline 索引列表 / 空态） -->
             <Grid Grid.Row="1" Grid.Column="1"
                   Visibility="{Binding ShowsHistory, Converter={StaticResource BoolToVisibility}}">
                 <ListView ItemsSource="{Binding RecentSearches}"
@@ -207,36 +221,40 @@
                           Visibility="{Binding HasHistory, Converter={StaticResource BoolToVisibility}}">
                     <ListView.ItemTemplate>
                         <DataTemplate>
-                            <Grid ColumnSpacing="{StaticResource SpaceMini}">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*" />
-                                    <ColumnDefinition Width="Auto" />
-                                </Grid.ColumnDefinitions>
-                                <Button Click="OnHistoryClick"
-                                        DataContext="{Binding}"
-                                        AutomationProperties.Name="{Binding}"
-                                        HorizontalAlignment="Stretch"
-                                        HorizontalContentAlignment="Left"
-                                        Background="Transparent"
-                                        BorderThickness="0"
-                                        Padding="0"
-                                        MinHeight="{StaticResource ListRowHeight}">
-                                    <StackPanel Orientation="Horizontal" Spacing="{StaticResource SpaceSmall}">
-                                        <FontIcon Glyph="&#xE81C;" FontSize="16"
-                                                  Foreground="{ThemeResource TertiaryTextBrush}" />
-                                        <TextBlock Text="{Binding}" Style="{StaticResource BodyText}"
-                                                   VerticalAlignment="Center" />
-                                    </StackPanel>
-                                </Button>
-                                <Button Grid.Column="1"
-                                        Click="OnRemoveHistoryClick"
-                                        DataContext="{Binding}"
-                                        Style="{StaticResource IconButtonStyle}"
-                                        ToolTipService.ToolTip="删除此条搜索记录"
-                                        AutomationProperties.Name="删除此条搜索记录">
-                                    <FontIcon Glyph="&#xE74D;" FontSize="16" />
-                                </Button>
-                            </Grid>
+                            <Border BorderBrush="{ThemeResource DividerBrush}" BorderThickness="0,0,0,1">
+                                <Grid ColumnSpacing="{StaticResource SpaceMini}">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <Button Click="OnHistoryClick"
+                                            DataContext="{Binding}"
+                                            AutomationProperties.Name="{Binding}"
+                                            HorizontalAlignment="Stretch"
+                                            HorizontalContentAlignment="Left"
+                                            Background="Transparent"
+                                            BorderThickness="0"
+                                            Padding="4,0"
+                                            MinHeight="{StaticResource ListRowHeight}">
+                                        <StackPanel Orientation="Horizontal" Spacing="{StaticResource SpaceSmall}">
+                                            <controls:LineIcon PathData="{StaticResource IconClock}" IconSize="16"
+                                                               Foreground="{ThemeResource TertiaryTextBrush}" />
+                                            <TextBlock Text="{Binding}" Style="{StaticResource BodyText}"
+                                                       VerticalAlignment="Center" />
+                                        </StackPanel>
+                                    </Button>
+                                    <Button Grid.Column="1"
+                                            Click="OnRemoveHistoryClick"
+                                            DataContext="{Binding}"
+                                            Style="{StaticResource IconButtonStyle}"
+                                            Background="Transparent" BorderThickness="0"
+                                            ToolTipService.ToolTip="删除此条搜索记录"
+                                            AutomationProperties.Name="删除此条搜索记录">
+                                        <controls:LineIcon PathData="{StaticResource IconTrash}" IconSize="15"
+                                                           Foreground="{ThemeResource SecondaryTextBrush}" />
+                                    </Button>
+                                </Grid>
+                            </Border>
                         </DataTemplate>
                     </ListView.ItemTemplate>
                 </ListView>
@@ -245,31 +263,25 @@
                             HorizontalAlignment="Center" VerticalAlignment="Center"
                             MaxWidth="{StaticResource TextParagraphMaxWidth}"
                             Visibility="{Binding HasHistory, Converter={StaticResource BoolToVisibility}, ConverterParameter=Inverse}">
-                    <FontIcon Glyph="&#xE81C;" FontSize="40"
-                              Foreground="{ThemeResource SecondaryTextBrush}" />
+                    <Border Width="64" Height="64" CornerRadius="32"
+                            Background="{ThemeResource GlassPanelBrush}"
+                            BorderBrush="{ThemeResource GlassEdgeBrush}" BorderThickness="1"
+                            HorizontalAlignment="Center">
+                        <controls:LineIcon PathData="{StaticResource IconClock}" IconSize="28"
+                                           Foreground="{ThemeResource SecondaryTextBrush}" />
+                    </Border>
                     <TextBlock Text="暂无搜索记录" Style="{StaticResource SectionTitleText}"
-                               HorizontalAlignment="Center" Margin="0,12,0,0" />
+                               HorizontalAlignment="Center" Margin="0,8,0,0" />
                     <TextBlock Text="搜索过的关键词会显示在这里，点一下即可再次搜索。"
                                Style="{StaticResource SecondaryText}" HorizontalAlignment="Center"
                                TextAlignment="Center" />
                 </StackPanel>
             </Grid>
 
-            <!-- 右列：结果态（并站进度 + 海报流，统一加载 / 空 / 失败状态，空态垂直居中） -->
+            <!-- 右列：结果态 -->
             <Grid Grid.Row="1" Grid.Column="1"
                   Visibility="{Binding ShowsHistory, Converter={StaticResource BoolToVisibility}, ConverterParameter=Inverse}">
-                <Grid.RowDefinitions>
-                    <RowDefinition Height="Auto" />
-                    <RowDefinition Height="*" />
-                </Grid.RowDefinitions>
-
-                <ProgressBar IsIndeterminate="{Binding IsSearching}"
-                             Foreground="{ThemeResource AccentFillBrush}"
-                             Height="3"
-                             Margin="0,0,0,8"
-                             Visibility="{Binding IsSearching, Converter={StaticResource BoolToVisibility}}" />
-
-                <Grid Grid.Row="1">
+                <Grid>
                     <GridView x:Name="ResultsList"
                               AutomationProperties.Name="搜索结果"
                               ItemsSource="{Binding Rows}"
@@ -316,34 +328,39 @@
                                         <Border Grid.Row="0"
                                                 CornerRadius="{StaticResource RadiusCard}"
                                                 BorderThickness="1"
-                                                BorderBrush="{ThemeResource SubtleBorderBrush}"
+                                                BorderBrush="{ThemeResource GlassEdgeBrush}"
                                                 Background="{ThemeResource PosterPlaceholderBrush}">
                                             <Grid>
-                                                <FontIcon Glyph="&#xE8B9;" FontSize="30"
-                                                          Foreground="{ThemeResource TertiaryTextBrush}"
-                                                          HorizontalAlignment="Center" VerticalAlignment="Center" />
-                                                <Image Source="{Binding Poster}" Stretch="UniformToFill" controls:PosterImage.AutoFit="True" />
+                                                <controls:LineIcon PathData="{StaticResource IconFilm}" IconSize="30"
+                                                                   Foreground="{ThemeResource TertiaryTextBrush}"
+                                                                   HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                                <Image x:Name="ResultArt" Source="{Binding Poster}" Stretch="UniformToFill" controls:PosterImage.AutoFit="True" />
                                                 <Border Visibility="{Binding Item.Remarks, Converter={StaticResource StringToVisibility}}"
-                                                        Background="#CC0B0D12"
-                                                        CornerRadius="{StaticResource RadiusControl}"
-                                                        Padding="8,3"
+                                                        Background="{ThemeResource GlassDarkBadgeBrush}"
+                                                        BorderBrush="#2EFFFFFF" BorderThickness="1"
+                                                        CornerRadius="5"
+                                                        Padding="7,3"
                                                         HorizontalAlignment="Left" VerticalAlignment="Top"
-                                                        Margin="10">
+                                                        Margin="9">
                                                     <TextBlock Text="{Binding Item.Remarks}"
                                                                Style="{StaticResource MetaText}"
                                                                FontWeight="SemiBold"
-                                                               Foreground="{ThemeResource PrimaryTextBrush}" />
+                                                               Foreground="{ThemeResource GlassDarkBadgeInkBrush}" />
                                                 </Border>
                                                 <Border Visibility="{Binding Rating, Converter={StaticResource StringToVisibility}}"
-                                                        Background="#CC0B0D12"
-                                                        CornerRadius="{StaticResource RadiusControl}"
-                                                        Padding="8,3"
+                                                        Background="{ThemeResource GlassDarkBadgeBrush}"
+                                                        BorderBrush="#2EFFFFFF" BorderThickness="1"
+                                                        CornerRadius="5"
+                                                        Padding="7,3"
                                                         HorizontalAlignment="Right" VerticalAlignment="Top"
-                                                        Margin="10">
-                                                    <TextBlock Text="{Binding Rating}"
-                                                               Style="{StaticResource MetaText}"
-                                                               FontWeight="SemiBold"
-                                                               Foreground="{ThemeResource RatingBrush}" />
+                                                        Margin="9">
+                                                    <StackPanel Orientation="Horizontal" Spacing="4">
+                                                        <Ellipse Width="4.5" Height="4.5" Fill="{ThemeResource VermilionBrush}" VerticalAlignment="Center" />
+                                                        <TextBlock Text="{Binding Rating}"
+                                                                   Style="{StaticResource MonoMetaText}"
+                                                                   FontWeight="SemiBold"
+                                                                   Foreground="{ThemeResource GlassDarkBadgeInkBrush}" />
+                                                    </StackPanel>
                                                 </Border>
                                             </Grid>
                                         </Border>
@@ -352,7 +369,7 @@
                                                    Style="{StaticResource CardTitleText}" />
                                         <StackPanel Grid.Row="2" Orientation="Horizontal"
                                                     Spacing="{StaticResource SpaceMini}">
-                                            <TextBlock Text="{Binding Item.Year}" Style="{StaticResource MetaText}" />
+                                            <TextBlock Text="{Binding Item.Year}" Style="{StaticResource MonoMetaText}" />
                                             <TextBlock Text="·" Style="{StaticResource MetaText}"
                                                        Visibility="{Binding Item.Year, Converter={StaticResource StringToVisibility}}" />
                                             <TextBlock Text="{Binding SearchSourceLabel}" Style="{StaticResource MetaText}"
@@ -370,7 +387,7 @@
                                 MaxWidth="{StaticResource TextParagraphMaxWidth}"
                                 HorizontalAlignment="Center" VerticalAlignment="Center">
                         <ProgressRing Width="40" Height="40" IsActive="True"
-                                      Foreground="{ThemeResource AccentFillBrush}"
+                                      Foreground="{ThemeResource VermilionBrush}"
                                       HorizontalAlignment="Center" />
                         <TextBlock Text="正在搜索…" Style="{StaticResource SectionTitleText}"
                                    HorizontalAlignment="Center" Margin="0,8,0,0" />
@@ -384,12 +401,12 @@
                                 Spacing="{StaticResource SpaceSmall}"
                                 MaxWidth="{StaticResource TextParagraphMaxWidth}"
                                 HorizontalAlignment="Center" VerticalAlignment="Center">
-                        <FontIcon x:Name="EmptyIcon" Glyph="&#xE721;" FontSize="40"
+                        <FontIcon x:Name="EmptyIcon" Glyph="&#xE721;" FontSize="38"
                                   Foreground="{ThemeResource SecondaryTextBrush}"
                                   HorizontalAlignment="Center" />
                         <TextBlock x:Name="EmptyTitle" Text="没有找到匹配的影片"
                                    Style="{StaticResource SectionTitleText}"
-                                   HorizontalAlignment="Center" Margin="0,12,0,0" />
+                                   HorizontalAlignment="Center" Margin="0,8,0,0" />
                         <TextBlock x:Name="EmptyDescription"
                                    Text="换个关键词试试，或清空筛选条件后重新搜索。"
                                    Style="{StaticResource SecondaryText}"
@@ -405,19 +422,19 @@
             </Grid>
         </Grid>
 
-        <!-- 非抢焦搜索预选浮层：直接悬浮于输入框正下方，展示预选词而不打断键盘或中文输入法输入 -->
+        <!-- 真磨砂非抢焦搜索预选浮层：以顶部为锚点弹性展开，随时可打断 -->
         <Border x:Name="SuggestionsOverlay"
                 Grid.Row="2"
                 Canvas.ZIndex="40"
                 Visibility="Collapsed"
                 HorizontalAlignment="Left"
                 VerticalAlignment="Top"
-                Margin="0,-18,0,0"
-                Background="{ThemeResource SurfaceElevatedBrush}"
-                BorderBrush="{ThemeResource SubtleBorderBrush}"
+                Margin="10,-16,0,0"
+                Background="{ThemeResource GlassOverlayBrush}"
+                BorderBrush="{ThemeResource GlassEdgeBrush}"
                 BorderThickness="1"
-                CornerRadius="{StaticResource RadiusControl}"
-                Padding="4"
+                CornerRadius="{StaticResource RadiusPanel}"
+                Padding="6"
                 AllowFocusOnInteraction="False"
                 PointerEntered="OnSuggestionsPointerEntered"
                 PointerExited="OnSuggestionsPointerExited">
@@ -436,7 +453,8 @@
                     <Style TargetType="ListViewItem" BasedOn="{StaticResource SearchRowContainer}">
                         <Setter Property="IsTabStop" Value="False" />
                         <Setter Property="AllowFocusOnInteraction" Value="False" />
-                        <Setter Property="MinHeight" Value="36" />
+                        <Setter Property="MinHeight" Value="38" />
+                        <Setter Property="CornerRadius" Value="6" />
                     </Style>
                 </ListView.ItemContainerStyle>
                 <ListView.ItemTemplate>
@@ -447,7 +465,7 @@
                                 AllowFocusOnInteraction="False"
                                 HorizontalAlignment="Stretch"
                                 HorizontalContentAlignment="Left"
-                                Padding="10,6"
+                                Padding="12,6"
                                 Background="Transparent"
                                 BorderThickness="0"
                                 AutomationProperties.Name="{Binding}" />

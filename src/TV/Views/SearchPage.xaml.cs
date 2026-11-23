@@ -19,18 +19,18 @@ public sealed partial class SearchPage : Page
     private bool _suggestionsFromKeyboard;
     private bool _pointerOverSuggestions;
 
-    private bool AreSuggestionsOpen => SuggestionsOverlay.Visibility == Visibility.Visible;
+    private bool AreSuggestionsOpen => SuggestionsOverlay.Visibility == Visibility.Visible && SuggestionsOverlay.IsHitTestVisible;
 
     private void ShowSuggestions()
     {
         var width = QueryBox.ActualWidth;
         if (width > 0) SuggestionsOverlay.Width = Math.Max(220, width);
-        SuggestionsOverlay.Visibility = Visibility.Visible;
+        MotionService.SetOverlayVisible(SuggestionsOverlay, true);
     }
 
     private void HideSuggestions()
     {
-        SuggestionsOverlay.Visibility = Visibility.Collapsed;
+        MotionService.SetOverlayVisible(SuggestionsOverlay, false);
         SuggestionList.SelectedIndex = -1;
         _pointerOverSuggestions = false;
     }
@@ -39,6 +39,8 @@ public sealed partial class SearchPage : Page
     {
         InitializeComponent();
         NavigationCacheMode = Microsoft.UI.Xaml.Navigation.NavigationCacheMode.Required;
+        MotionService.AttachTactile(SearchSubmitButton, 1.02f, 0.96f, -1f);
+        MotionService.AttachTactile(FilterButton, 1.02f, 0.96f, -1f);
     }
 
     private SearchViewModel ViewModel => (SearchViewModel)DataContext;
@@ -302,17 +304,37 @@ public sealed partial class SearchPage : Page
 
     private void OnResultContainerChanging(ListViewBase sender, ContainerContentChangingEventArgs e)
     {
-        if (!e.InRecycleQueue && e.Item is VodCardViewModel card) _ = card.LoadVisualAsync();
+        if (e.ItemContainer.ContentTemplateRoot is FrameworkElement card)
+            MotionService.ResetCard(card, artworkZoom: GetResultArt(card));
+        if (!e.InRecycleQueue && e.Item is VodCardViewModel vm) _ = vm.LoadVisualAsync();
+    }
+
+    private readonly System.Runtime.CompilerServices.ConditionalWeakTable<FrameworkElement, FrameworkElement?> _resultArts = new();
+
+    private FrameworkElement? GetResultArt(FrameworkElement card)
+    {
+        if (_resultArts.TryGetValue(card, out var cached) && cached is not null) return cached;
+        var found = FindNamedDescendant(card, "ResultArt");
+        if (found is not null) _resultArts.AddOrUpdate(card, found);
+        return found;
+    }
+
+    private static FrameworkElement? FindNamedDescendant(DependencyObject root, string name)
+    {
+        if (root is FrameworkElement fe && fe.Name == name) return fe;
+        for (var i = 0; i < VisualTreeHelper.GetChildrenCount(root); i++)
+            if (FindNamedDescendant(VisualTreeHelper.GetChild(root, i), name) is { } found) return found;
+        return null;
     }
 
     private void OnResultCardIn(object sender, PointerRoutedEventArgs e)
     {
-        if (sender is FrameworkElement element) MotionService.SetCardHover(element, null, null, true);
+        if (sender is FrameworkElement element) MotionService.SetCardHover(element, null, null, GetResultArt(element), true);
     }
 
     private void OnResultCardOut(object sender, PointerRoutedEventArgs e)
     {
-        if (sender is FrameworkElement element) MotionService.SetCardHover(element, null, null, false);
+        if (sender is FrameworkElement element) MotionService.SetCardHover(element, null, null, GetResultArt(element), false);
     }
 
     private void OnResultCardPressed(object sender, PointerRoutedEventArgs e)

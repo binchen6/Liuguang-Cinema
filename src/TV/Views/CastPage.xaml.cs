@@ -26,10 +26,34 @@ public sealed partial class CastPage : Page
     private Microsoft.UI.Dispatching.DispatcherQueueTimer? _statusClock;
     private bool _showingPosition;
 
-    public CastPage() => InitializeComponent();
+    public CastPage()
+    {
+        InitializeComponent();
+        MotionService.AttachTactile(StartButton, 1.03f, 0.96f, -1.5f);
+        MotionService.AttachTactile(SenderButton, 1.02f, 0.96f, -1f);
+    }
 
-    private void OnLoaded(object sender, RoutedEventArgs args) { }
-    private async void OnUnloaded(object sender, RoutedEventArgs args) => await StopAsync();
+    private void OnLoaded(object sender, RoutedEventArgs args)
+    {
+        MotionService.Changed -= OnMotionPreferenceChanged;
+        MotionService.Changed += OnMotionPreferenceChanged;
+    }
+
+    private async void OnUnloaded(object sender, RoutedEventArgs args)
+    {
+        MotionService.Changed -= OnMotionPreferenceChanged;
+        await StopAsync();
+    }
+
+    private void OnMotionPreferenceChanged(object? sender, EventArgs e)
+    {
+        if (!IsLoaded) return;
+        var receiving = _receiver is not null;
+        var waiting = receiving && _playing is null;
+        MotionService.SetBeaconPulsing(StatusDot, receiving);
+        MotionService.SetRadarRingPulsing(RadarRingOuter, waiting, delayMs: 0);
+        MotionService.SetRadarRingPulsing(RadarRingInner, waiting, delayMs: 1100);
+    }
 
     private void OnPageSizeChanged(object sender, SizeChangedEventArgs args)
     {
@@ -100,6 +124,10 @@ public sealed partial class CastPage : Page
             ReceiverActions.Visibility = Visibility.Visible;
             StartButton.Visibility = Visibility.Collapsed;
             StatusDot.Opacity = 1;
+            MotionService.SetBeaconPulsing(StatusDot, true);
+            MotionService.SetRadarRingPulsing(RadarRingOuter, true, delayMs: 0);
+            MotionService.SetRadarRingPulsing(RadarRingInner, true, delayMs: 1100);
+            MotionService.EnterSection(ReceiverActions, offsetY: -8);
             UpdateWaitingState();
             _statusClock = DispatcherQueue.CreateTimer();
             _statusClock.Interval = TimeSpan.FromMilliseconds(500);
@@ -131,6 +159,7 @@ public sealed partial class CastPage : Page
         _incoming = offer;
         IncomingTitle.Text = offer.Title;
         Incoming.Visibility = Visibility.Visible;
+        MotionService.EnterSection(Incoming, offsetY: 10);
         StatusText.Text = "待接收";
         if (IsLoaded) Incoming.StartBringIntoView(new BringIntoViewOptions { AnimationDesired = MotionService.CanAnimate });
     });
@@ -152,8 +181,11 @@ public sealed partial class CastPage : Page
         Feedback.IsOpen = false;
         StatusText.Text = "正在打开";
         SessionTitleText.Text = incoming.Title;
+        MotionService.SetRadarRingPulsing(RadarRingOuter, false);
+        MotionService.SetRadarRingPulsing(RadarRingInner, false);
         StageIdle.Visibility = Visibility.Collapsed;
         PreviewFrame.Visibility = Visibility.Visible;
+        MotionService.EnterSection(PreviewFrame, offsetY: 8);
         try
         {
             // 本地接收的文件用文件 URI 直接交给 MediaPlayer：未打包应用走 StorageFile 需要
@@ -300,6 +332,8 @@ public sealed partial class CastPage : Page
     {
         StageIdle.Visibility = Visibility.Visible;
         PreviewFrame.Visibility = Visibility.Collapsed;
+        MotionService.SetRadarRingPulsing(RadarRingOuter, _receiver is not null, delayMs: 0);
+        MotionService.SetRadarRingPulsing(RadarRingInner, _receiver is not null, delayMs: 1100);
         StatusText.Text = _incoming is null ? "等待投送" : "待接收";
         StageTitle.Text = "等待投送";
         StageHint.Text = _receiver?.IsDiscoverable == true ? "在手机视频应用中选择这台电脑" : "请用手机扫码发送视频";
@@ -405,6 +439,9 @@ public sealed partial class CastPage : Page
         StageIdle.Visibility = Visibility.Visible;
         StartButton.Visibility = Visibility.Visible;
         ReceiverActions.Visibility = Visibility.Collapsed;
+        MotionService.SetBeaconPulsing(StatusDot, false);
+        MotionService.SetRadarRingPulsing(RadarRingOuter, false);
+        MotionService.SetRadarRingPulsing(RadarRingInner, false);
         StatusDot.Opacity = 0.35;
         StatusText.Text = "未开启";
         StageTitle.Text = "接收手机视频";

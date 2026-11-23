@@ -1,5 +1,7 @@
-using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Input;
+using Microsoft.UI.Xaml.Media;
 using TV.Models;
 using TV.ViewModels;
 
@@ -7,24 +9,100 @@ namespace TV.Views;
 
 public sealed partial class LibraryPage : Page
 {
-    public LibraryPage() => InitializeComponent();
+    private bool _hasAnimatedPill;
+    private readonly System.Runtime.CompilerServices.ConditionalWeakTable<FrameworkElement, FrameworkElement?> _watchArts = new();
+
+    public LibraryPage()
+    {
+        InitializeComponent();
+        MotionService.AttachTactile(LibraryRefreshButton, 1.04f, 0.94f, -1f);
+        SegmentList.Loaded += (_, _) => ScheduleSegmentPillGlide(animate: false);
+    }
+
     private LibraryViewModel ViewModel => (LibraryViewModel)DataContext;
 
-    private async void OnLoaded(object sender, Microsoft.UI.Xaml.RoutedEventArgs e)
+    private async void OnLoaded(object sender, RoutedEventArgs e)
     {
         if (SegmentList.SelectedIndex != ViewModel.SelectedTab)
             SegmentList.SelectedIndex = Math.Clamp(ViewModel.SelectedTab, 0, 3);
+        ScheduleSegmentPillGlide(animate: false);
         await ViewModel.LoadCommand.ExecuteAsync(null);
     }
 
-    /// <summary>分段控件选中项同步到 ViewModel.SelectedTab（ListView 的 SelectedIndex 不可绑定）。</summary>
     private void OnSegmentSelectionChanged(object sender, SelectionChangedEventArgs e)
     {
+        var previous = ViewModel.SelectedTab;
         if (SegmentList.SelectedIndex >= 0 && ViewModel.SelectedTab != SegmentList.SelectedIndex)
         {
             ViewModel.SelectedTab = SegmentList.SelectedIndex;
-            MotionService.EnterSection(ContentHost, offsetY: 10);
+            var dir = SegmentList.SelectedIndex > previous ? 18 : -18;
+            MotionService.EnterSection(ContentHost, offsetY: 0, offsetX: dir);
         }
+        ScheduleSegmentPillGlide(animate: _hasAnimatedPill);
+        _hasAnimatedPill = true;
+    }
+
+    private void OnSegmentListSizeChanged(object sender, SizeChangedEventArgs e) =>
+        ScheduleSegmentPillGlide(animate: false);
+
+    private void ScheduleSegmentPillGlide(bool animate, int retry = 0)
+    {
+        var priority = retry == 0 ? Microsoft.UI.Dispatching.DispatcherQueuePriority.Normal : Microsoft.UI.Dispatching.DispatcherQueuePriority.Low;
+        DispatcherQueue.TryEnqueue(priority, () =>
+        {
+            if (!IsLoaded) return;
+            var selected = SegmentList.SelectedItem as FrameworkElement;
+            if (selected is null && SegmentList.SelectedIndex >= 0)
+                selected = SegmentList.ContainerFromIndex(SegmentList.SelectedIndex) as FrameworkElement;
+            if (selected is null || selected.ActualWidth <= 0)
+            {
+                if (retry < 3) ScheduleSegmentPillGlide(animate, retry + 1);
+                return;
+            }
+            try
+            {
+                var pt = selected.TransformToVisual(SegmentTrackHost).TransformPoint(new Windows.Foundation.Point(0, 0));
+                SegmentGlidePill.Opacity = 1;
+                MotionService.GlideHorizontalPill(SegmentGlidePill, pt.X, selected.ActualWidth, animate);
+            }
+            catch { }
+        });
+    }
+
+    private FrameworkElement? GetWatchArt(FrameworkElement card)
+    {
+        if (_watchArts.TryGetValue(card, out var cached) && cached is not null) return cached;
+        var found = FindDescendant(card, "WatchArt");
+        if (found is not null) _watchArts.AddOrUpdate(card, found);
+        return found;
+    }
+
+    private static FrameworkElement? FindDescendant(DependencyObject root, string name)
+    {
+        if (root is FrameworkElement fe && fe.Name == name) return fe;
+        for (var i = 0; i < VisualTreeHelper.GetChildrenCount(root); i++)
+            if (FindDescendant(VisualTreeHelper.GetChild(root, i), name) is { } found) return found;
+        return null;
+    }
+
+    private void OnWatchCardIn(object sender, PointerRoutedEventArgs e)
+    {
+        if (sender is FrameworkElement fe) MotionService.SetCardHover(fe, null, null, GetWatchArt(fe), true);
+    }
+
+    private void OnWatchCardOut(object sender, PointerRoutedEventArgs e)
+    {
+        if (sender is FrameworkElement fe) MotionService.SetCardHover(fe, null, null, GetWatchArt(fe), false);
+    }
+
+    private void OnWatchCardPressed(object sender, PointerRoutedEventArgs e)
+    {
+        if (sender is FrameworkElement fe) MotionService.SetCardPressed(fe, true);
+    }
+
+    private void OnWatchCardReleased(object sender, PointerRoutedEventArgs e)
+    {
+        if (sender is FrameworkElement fe) MotionService.SetCardPressed(fe, false);
     }
 
     private void OnHistoryClick(object sender, ItemClickEventArgs e) => ViewModel.OpenHistoryCommand.Execute(e.ClickedItem as HistoryEntry);
@@ -44,7 +122,7 @@ public sealed partial class LibraryPage : Page
     private void OnPageSizeChanged(object sender, SizeChangedEventArgs e)
     {
         var narrow = e.NewSize.Width < 760;
-        RootLayout.Padding = e.NewSize.Width < 560 ? new Thickness(16, 8, 16, 20) : new Thickness(32, 10, 32, 28);
+        RootLayout.Padding = e.NewSize.Width < 560 ? new Thickness(16, 8, 16, 20) : new Thickness(36, 10, 36, 28);
         HeaderSubtitle.Visibility = e.NewSize.Width < 560 ? Visibility.Collapsed : Visibility.Visible;
         HeaderGrid.RowSpacing = narrow ? 12 : 0;
         SearchBox.Width = narrow ? double.NaN : 240;

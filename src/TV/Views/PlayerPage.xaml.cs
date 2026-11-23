@@ -72,6 +72,13 @@ public sealed partial class PlayerPage : Page
     public PlayerPage()
     {
         InitializeComponent();
+        MotionService.AttachTactile(PlayPauseButton, 1.05f, 0.92f, 0f);
+        MotionService.AttachTactile(CenterPlayButton, 1.06f, 0.92f, 0f);
+        MotionService.AttachTactile(PlayerBackButton, 1.05f, 0.93f, 0f);
+        MotionService.AttachTactile(PlaybackOptionsButton, 1.05f, 0.93f, 0f);
+        MotionService.AttachTactile(PlaylistButton, 1.05f, 0.93f, 0f);
+        MotionService.AttachTactile(SubtitleSettingsButton, 1.05f, 0.93f, 0f);
+        MotionService.AttachTactile(DanmakuToggleButton, 1.05f, 0.93f, 0f);
         _seekPressedHandler = OnSeekPressed;
         _seekReleasedHandler = OnSeekReleased;
         _hideTimer = DispatcherQueue.CreateTimer();
@@ -264,6 +271,7 @@ public sealed partial class PlayerPage : Page
 
     private void OnPlayPauseClick(object sender, RoutedEventArgs e)
     {
+        MotionService.PulseElement(PlayPauseButton, 0.88f);
         ViewModel.TogglePauseCommand.Execute(null);
         ShowControls();
     }
@@ -275,12 +283,12 @@ public sealed partial class PlayerPage : Page
         OsdBadge.Opacity = 1;
         _osdTimer.Stop();
         _osdTimer.Start();
-        MotionService.SetFloatingVisible(OsdBadge, true, offsetY: -8, hiddenScale: 0.92f);
+        MotionService.ShowOsdToast(OsdBadge);
     }
 
     private void HideOsd()
     {
-        MotionService.SetFloatingVisible(OsdBadge, false, offsetY: -8, hiddenScale: 0.92f);
+        MotionService.HideOsdToast(OsdBadge);
     }
 
     private void OnQualityMenuOpening(object? sender, object args)
@@ -1720,6 +1728,7 @@ public sealed partial class PlayerPage : Page
         switch (e.Key)
         {
             case VirtualKey.Space:
+                MotionService.PulseElement(PlayPauseButton, 0.88f);
                 ViewModel.TogglePauseCommand.Execute(null);
                 ShowOsd(ViewModel.IsPlaying ? "继续播放" : "已暂停");
                 ShowControls();

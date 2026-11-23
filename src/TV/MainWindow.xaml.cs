@@ -62,7 +62,12 @@ public sealed partial class MainWindow : Window
         AppWindow.Changed += (_, _) => CapturePlacement();
         Title = "流光影院";
         Diagnostics.Log("MainWindow initialized");
-        if (!App.PlayerOnly) App.Services.Sniffer.Attach(ShellRoot);
+        MotionService.AttachTactile(BackButton, 1.04f, 0.94f, 0f);
+        if (!App.PlayerOnly)
+        {
+            MotionService.AttachTactile(NavSearchButton, 1.015f, 0.975f, 0f);
+            App.Services.Sniffer.Attach(ShellRoot);
+        }
         ViewModel = new MainViewModel(App.Services, DispatcherQueue);
         Diagnostics.Log("ViewModel initialized");
         ShellRoot.DataContext = ViewModel;
@@ -81,7 +86,15 @@ public sealed partial class MainWindow : Window
         ViewModel.NavigationRequested += OnNavigationRequested;
         ViewModel.Player.FullScreenRequested += OnFullScreenRequested;
         ViewModel.Player.CompactOverlayRequested += OnCompactOverlayRequested;
-        ShellRoot.ActualThemeChanged += (_, _) => UpdateCaptionTheme();
+        ShellRoot.ActualThemeChanged += (_, _) =>
+        {
+            UpdateCaptionTheme();
+            DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Normal, () =>
+            {
+                if (!_closing && !string.IsNullOrEmpty(_currentTag))
+                    UpdateNavVisuals(_currentTag);
+            });
+        };
         ShellRoot.SizeChanged += (_, _) => UpdatePaneLayout();
         var backShortcut = new KeyboardAccelerator
         {
@@ -250,7 +263,6 @@ public sealed partial class MainWindow : Window
 
     private bool _syncingNav;
     private static readonly string[] PrimaryTags = { "vod", "live", "library", "cloud", "cast" };
-    private static readonly SolidColorBrush TransparentBrush = new(Windows.UI.Color.FromArgb(0, 0, 0, 0));
     private static readonly Windows.UI.ViewManagement.AccessibilitySettings Accessibility = new();
     private readonly Dictionary<ListViewItem, (UIElement? Plate, UIElement? Indicator)> _navVisualCache = [];
     private double _cachedWidePaneWidth;
@@ -258,7 +270,7 @@ public sealed partial class MainWindow : Window
     private void SyncNavSelection(string tag)
     {
         if (App.PlayerOnly) return;
-        SettingsButton.Background = tag == "settings" ? (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["SelectionBrush"] : TransparentBrush;
+        MotionService.FadeOpacity(SettingsSelectionPlate, tag == "settings" ? 1f : 0f, 160);
         if (tag == "settings")
         {
             _syncingNav = true;
@@ -290,6 +302,8 @@ public sealed partial class MainWindow : Window
                 cached = (FindTemplateChild(item, "SelectionPlate"), FindTemplateChild(item, "Indicator"));
                 if (cached.Plate is not null) _navVisualCache[item] = cached;
             }
+            if (!active)
+                VisualStateManager.GoToState(item, "Unselected", false);
             if (cached.Plate is { } plate) plate.Opacity = active ? 1 : 0;
             // 侧栏使用全局弹簧 FloatingNavIndicator，隐藏各子项静态指示条避免双条重影
             if (cached.Indicator is { } indicator) indicator.Opacity = 0;
@@ -378,23 +392,24 @@ public sealed partial class MainWindow : Window
                     label.Measure(available);
                     if (label.DesiredSize.Width > maxText) maxText = label.DesiredSize.Width;
                 }
-                var brandWidth = BrandText.DesiredSize.Width + 56;
-                var navigationWidth = maxText + 92;
-                _cachedWidePaneWidth = Math.Clamp(Math.Max(brandWidth, navigationWidth), 196, 320);
+                var brandWidth = BrandText.DesiredSize.Width + 68;
+                var navigationWidth = maxText + 112;
+                _cachedWidePaneWidth = Math.Clamp(Math.Max(brandWidth, navigationWidth), 208, 320);
             }
             PaneColumn.Width = new GridLength(_cachedWidePaneWidth);
         }
         var labelVisibility = narrow ? Visibility.Collapsed : Visibility.Visible;
-        BrandText.Visibility = NavLabelVod.Visibility = NavLabelLive.Visibility = NavLabelLibrary.Visibility = NavLabelCloud.Visibility = NavLabelCast.Visibility = NavLabelSettings.Visibility = labelVisibility;
+        BrandTextGroup.Visibility = NavLabelVod.Visibility = NavLabelLive.Visibility = NavLabelLibrary.Visibility = NavLabelCloud.Visibility = NavLabelCast.Visibility = NavLabelSettings.Visibility = labelVisibility;
+        NavIdxVod.Visibility = NavIdxLive.Visibility = NavIdxLibrary.Visibility = NavIdxCloud.Visibility = NavIdxCast.Visibility = NavIdxSettings.Visibility = labelVisibility;
         NavSearchLabel.Visibility = NavSearchHint.Visibility = labelVisibility;
-        NavSearchButton.Margin = narrow ? new Thickness(18, 4, 18, 6) : new Thickness(10, 4, 10, 6);
-        NavSearchButton.Padding = narrow ? new Thickness(0) : new Thickness(12, 0, 12, 0);
+        NavSearchButton.Margin = narrow ? new Thickness(16, 4, 16, 10) : new Thickness(12, 4, 12, 10);
+        NavSearchButton.Padding = narrow ? new Thickness(0) : new Thickness(12, 0, 10, 0);
         NavSearchButton.HorizontalContentAlignment = narrow ? HorizontalAlignment.Center : HorizontalAlignment.Stretch;
-        var alignment = narrow ? HorizontalAlignment.Center : HorizontalAlignment.Left;
+        var alignment = narrow ? HorizontalAlignment.Center : HorizontalAlignment.Stretch;
         NavContentVod.HorizontalAlignment = NavContentLive.HorizontalAlignment = NavContentLibrary.HorizontalAlignment = NavContentCloud.HorizontalAlignment = NavContentCast.HorizontalAlignment = NavContentSettings.HorizontalAlignment = alignment;
-        SettingsButton.HorizontalContentAlignment = narrow ? HorizontalAlignment.Center : HorizontalAlignment.Left;
+        SettingsButton.HorizontalContentAlignment = narrow ? HorizontalAlignment.Center : HorizontalAlignment.Stretch;
         SettingsButton.Padding = narrow ? new Thickness(0) : new Thickness(17, 0, 14, 0);
-        BrandBlock.Margin = narrow ? new Thickness(0, 0, 0, 0) : new Thickness(20, 0, 0, 0);
+        BrandBlock.Margin = narrow ? new Thickness(0, 4, 0, 0) : new Thickness(20, 4, 12, 0);
         BrandBlock.HorizontalAlignment = narrow ? HorizontalAlignment.Center : HorizontalAlignment.Left;
         var currentNav = _currentTag == "settings"
             ? (FrameworkElement?)SettingsButton
@@ -476,13 +491,13 @@ public sealed partial class MainWindow : Window
             // 与 Styles/Tokens.xaml 的 PrimaryTextBrush / SecondaryTextBrush 保持一致。
             if (ShellRoot.ActualTheme == ElementTheme.Light)
             {
-                foreground = Windows.UI.Color.FromArgb(255, 0x17, 0x19, 0x1E);
-                inactiveForeground = Windows.UI.Color.FromArgb(255, 0x56, 0x5E, 0x6B);
+                foreground = Windows.UI.Color.FromArgb(255, 0x14, 0x14, 0x16);
+                inactiveForeground = Windows.UI.Color.FromArgb(255, 0x59, 0x59, 0x62);
             }
             else
             {
-                foreground = Windows.UI.Color.FromArgb(255, 0xF3, 0xF0, 0xE9);
-                inactiveForeground = Windows.UI.Color.FromArgb(255, 0xA6, 0xAE, 0xBC);
+                foreground = Windows.UI.Color.FromArgb(255, 0xF4, 0xF3, 0xEE);
+                inactiveForeground = Windows.UI.Color.FromArgb(255, 0x9E, 0x9E, 0xA8);
             }
         }
         var caption = AppWindow.TitleBar;

@@ -2,14 +2,29 @@
     x:Class="TV.Controls.LiquidBackdrop"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-    IsHitTestVisible="False">
-    <Border>
-        <Border.Background>
-            <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
-                <GradientStop Color="#FF22645E" Offset="0"/>
-                <GradientStop Color="#FF132B43" Offset="0.53"/>
-                <GradientStop Color="#FF08141C" Offset="1"/>
-            </LinearGradientBrush>
-        </Border.Background>
-    </Border>
+    IsHitTestVisible="False"
+    Loaded="OnLoaded">
+    <!-- 原研哉建筑感极克制画布底纹：柔和漫射纸光 + 极微弱环境色温；高对比模式下自动隐藏光晕 -->
+    <Grid Background="{ThemeResource AppCanvasGradientBrush}">
+        <Grid x:Name="AmbientLayer" IsHitTestVisible="False">
+            <Ellipse Width="780" Height="780" HorizontalAlignment="Left" VerticalAlignment="Top"
+                     Margin="-280,-320,0,0" Opacity="0.06">
+                <Ellipse.Fill>
+                    <RadialGradientBrush>
+                        <GradientStop Color="#FFFFFF" Offset="0" />
+                        <GradientStop Color="#00FFFFFF" Offset="1" />
+                    </RadialGradientBrush>
+                </Ellipse.Fill>
+            </Ellipse>
+            <Ellipse Width="640" Height="640" HorizontalAlignment="Right" VerticalAlignment="Bottom"
+                     Margin="0,0,-240,-260" Opacity="0.045">
+                <Ellipse.Fill>
+                    <RadialGradientBrush>
+                        <GradientStop Color="#E8503E" Offset="0" />
+                        <GradientStop Color="#00E8503E" Offset="1" />
+                    </RadialGradientBrush>
+                </Ellipse.Fill>
+            </Ellipse>
+        </Grid>
+    </Grid>
 </UserControl>

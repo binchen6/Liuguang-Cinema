@@ -8,10 +8,13 @@
             <ResourceDictionary.MergedDictionaries>
                 <XamlControlsResources xmlns="using:Microsoft.UI.Xaml.Controls" />
                 <ResourceDictionary Source="ms-appx:///Styles/Tokens.xaml" />
+                <ResourceDictionary Source="ms-appx:///Styles/Icons.xaml" />
                 <ResourceDictionary Source="ms-appx:///Styles/Controls.xaml" />
             </ResourceDictionary.MergedDictionaries>
 
-            <AcrylicBrush x:Key="PlayerGlassBrush" TintColor="#0B0D12" TintOpacity="0.9" FallbackColor="#F20B0D12" />
+            <!-- 播放器专用烟熏磨砂玻璃画刷 -->
+            <AcrylicBrush x:Key="PlayerGlassBrush" TintColor="#0D0D10" TintOpacity="0.76" TintLuminosityOpacity="0.82" FallbackColor="#E80C0C0F" />
+            <AcrylicBrush x:Key="PlayerGlassPillBrush" TintColor="#121216" TintOpacity="0.80" TintLuminosityOpacity="0.86" FallbackColor="#EB101014" />
             <converters:BoolToVisibilityConverter x:Key="BoolToVisibility" />
             <converters:StringToVisibilityConverter x:Key="StringToVisibility" />
             <converters:BoolToFavoriteConverter x:Key="FavoriteText" />

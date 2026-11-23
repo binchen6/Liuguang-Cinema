@@ -1,0 +1,30 @@
+<UserControl
+    x:Class="TV.Controls.BrandMark"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    IsHitTestVisible="False"
+    IsTabStop="False">
+    <!-- 「光隙 · Aperture」纯矢量建筑徽标：素墨画框 + 透光隙柱 + 光学棱镜 + 朱砂落款点 -->
+    <Viewbox x:Name="MarkBox" Width="28" Height="28" Stretch="Uniform">
+        <Grid Width="32" Height="32">
+            <Border CornerRadius="8"
+                    Background="{ThemeResource BrandMonolithBrush}"
+                    BorderBrush="{ThemeResource GlassEdgeBrush}"
+                    BorderThickness="1">
+                <Canvas Width="30" Height="30">
+                    <!-- 极细透光折面 -->
+                    <Polygon Points="0,0 19,0 11,30 0,30" Fill="#14FFFFFF" />
+                    <!-- 左侧光隙竖柱 -->
+                    <Rectangle Canvas.Left="7.5" Canvas.Top="7.5" Width="2.6" Height="15" RadiusX="1.3" RadiusY="1.3"
+                               Fill="{ThemeResource BrandMonolithInkBrush}" />
+                    <!-- 右侧光学放映棱镜 -->
+                    <Polygon Points="12.5,8.2 22.8,15 12.5,21.8"
+                             Fill="{ThemeResource BrandMonolithInkBrush}" />
+                    <!-- 朱砂落款光学红点 -->
+                    <Ellipse Canvas.Left="20.4" Canvas.Top="6.6" Width="3.6" Height="3.6"
+                             Fill="{ThemeResource VermilionBrush}" />
+                </Canvas>
+            </Border>
+        </Grid>
+    </Viewbox>
+</UserControl>

@@ -18,34 +18,39 @@
         <local:BoolToVisibilityConverter x:Key="BoolToVisibility" />
         <local:StringToVisibilityConverter x:Key="StringToVisibility" />
 
-        <!-- 播放器局部令牌：Tokens 未定义、播放器专用 -->
         <x:Double x:Key="PlayerStateIconSize">40</x:Double>
-        <x:Double x:Key="PlayerRingSize">56</x:Double>
+        <x:Double x:Key="PlayerRingSize">52</x:Double>
         <x:Double x:Key="PlayerCenterButtonSize">84</x:Double>
-        <x:Double x:Key="PlayerTextButtonWidth">72</x:Double>
+        <x:Double x:Key="PlayerTextButtonWidth">68</x:Double>
         <LinearGradientBrush x:Key="PlayerTopScrim" StartPoint="0,0" EndPoint="0,1">
-            <GradientStop Color="#CC07090E" Offset="0" />
-            <GradientStop Color="#4D07090E" Offset="0.58" />
-            <GradientStop Color="#0007090E" Offset="1" />
-        </LinearGradientBrush>
-        <LinearGradientBrush x:Key="PlayerBottomScrim" StartPoint="0,0" EndPoint="0,1">
-            <GradientStop Color="#0007090E" Offset="0" />
-            <GradientStop Color="#7307090E" Offset="0.38" />
-            <GradientStop Color="#E607090E" Offset="1" />
+            <GradientStop Color="#CC070709" Offset="0" />
+            <GradientStop Color="#44070709" Offset="0.62" />
+            <GradientStop Color="#00070709" Offset="1" />
         </LinearGradientBrush>
 
-        <!-- 中央播放/暂停大按钮：暖金主操作 -->
+        <!-- 中央光学磨砂圆镜播放键 -->
         <Style x:Key="PlayerCenterPlayButtonStyle" TargetType="Button" BasedOn="{StaticResource PlayerIconButtonStyle}">
             <Setter Property="Width" Value="{StaticResource PlayerCenterButtonSize}" />
             <Setter Property="Height" Value="{StaticResource PlayerCenterButtonSize}" />
-            <Setter Property="Background" Value="{ThemeResource AccentFillBrush}" />
-            <Setter Property="Foreground" Value="{ThemeResource AccentInkBrush}" />
-            <Setter Property="CornerRadius" Value="{StaticResource RadiusCard}" />
+            <Setter Property="Background" Value="{StaticResource PlayerGlassBrush}" />
+            <Setter Property="BorderBrush" Value="#48FFFFFF" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="Foreground" Value="#FFF4F3EE" />
+            <Setter Property="CornerRadius" Value="42" />
         </Style>
-        <Style x:Key="PlayerPrimaryTransportStyle" TargetType="Button" BasedOn="{StaticResource PlayerIconButtonStyle}">
-            <Setter Property="Background" Value="{ThemeResource AccentFillBrush}" />
-            <Setter Property="Foreground" Value="{ThemeResource AccentInkBrush}" />
+
+        <!-- 底部主播放/暂停键：墨白高反差圆角徽章 -->
+        <Style x:Key="PlayerPrimaryTransportStyle" TargetType="Button" BasedOn="{StaticResource PrimaryButtonStyle}">
+            <Setter Property="Width" Value="44" />
+            <Setter Property="Height" Value="44" />
+            <Setter Property="MinWidth" Value="44" />
+            <Setter Property="MinHeight" Value="44" />
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="CornerRadius" Value="22" />
+            <Setter Property="Background" Value="#F4F3EE" />
+            <Setter Property="Foreground" Value="#0D0D10" />
         </Style>
+
         <Style x:Key="PlayerControlGroupStyle" TargetType="Border">
             <Setter Property="Background" Value="Transparent" />
             <Setter Property="BorderThickness" Value="0" />
@@ -53,15 +58,18 @@
             <Setter Property="Padding" Value="0" />
         </Style>
 
-        <!-- 文字型播放器按钮（倍速 / 画质 / 字幕）：与图标按钮统一 44 高、8 圆角 -->
+        <!-- 文字型播放器按钮（倍速 / 画质 / 跳过） -->
         <Style x:Key="PlayerTextButtonStyle" TargetType="Button" BasedOn="{StaticResource PlayerIconButtonStyle}">
             <Setter Property="Width" Value="{StaticResource PlayerTextButtonWidth}" />
+            <Setter Property="Height" Value="38" />
+            <Setter Property="MinHeight" Value="38" />
             <Setter Property="Padding" Value="10,0" />
-            <Setter Property="CornerRadius" Value="{StaticResource RadiusControl}" />
+            <Setter Property="CornerRadius" Value="8" />
             <Setter Property="Background" Value="Transparent" />
             <Setter Property="BorderThickness" Value="0" />
-            <Setter Property="Foreground" Value="{ThemeResource PrimaryTextBrush}" />
+            <Setter Property="Foreground" Value="#F4F3EE" />
             <Setter Property="FontSize" Value="{StaticResource FontSizeSecondary}" />
+            <Setter Property="FontWeight" Value="Medium" />
             <Setter Property="HorizontalContentAlignment" Value="Center" />
             <Setter Property="VerticalContentAlignment" Value="Center" />
         </Style>
@@ -71,66 +79,72 @@
         <vlc:VideoView x:Name="VideoView" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" Initialized="OnVideoViewInitialized" />
         <controls:DanmakuOverlay x:Name="DanmakuLayer" />
 
-        <!-- 快捷操作 OSD 气泡提示 -->
+        <!-- 烟熏磨砂快捷操作 OSD 气囊（连续按键平滑微弹不闪烁） -->
         <Border x:Name="OsdBadge" HorizontalAlignment="Center" VerticalAlignment="Top" Margin="0,72,0,0"
-                Padding="16,8" CornerRadius="{StaticResource RadiusPill}"
-                Background="#CC12141A" BorderBrush="#33FFFFFF" BorderThickness="1"
+                Padding="16,8" CornerRadius="20"
+                Background="{StaticResource PlayerGlassPillBrush}" BorderBrush="#33FFFFFF" BorderThickness="1"
                 IsHitTestVisible="False" Opacity="0" Visibility="Collapsed">
-            <TextBlock x:Name="OsdText" Style="{StaticResource SecondaryText}" FontWeight="SemiBold"
-                       Foreground="{ThemeResource PrimaryTextBrush}" />
+            <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                <Ellipse Width="5.5" Height="5.5" Fill="{ThemeResource VermilionBrush}" VerticalAlignment="Center" />
+                <TextBlock x:Name="OsdText" Style="{StaticResource SecondaryText}" FontWeight="SemiBold"
+                           Foreground="#FFF4F3EE" />
+            </StackPanel>
         </Border>
 
-        <!-- AI 字幕生成 / 翻译进度浮条 -->
-        <Border x:Name="AiSubtitleBanner" HorizontalAlignment="Center" VerticalAlignment="Top" Margin="0,116,0,0"
-                Padding="14,8" CornerRadius="{StaticResource RadiusPill}"
-                Background="#DC12141A" BorderBrush="{ThemeResource AccentBrush}" BorderThickness="1"
+        <!-- AI 字幕生成 / 翻译磨砂进度浮条 -->
+        <Border x:Name="AiSubtitleBanner" HorizontalAlignment="Center" VerticalAlignment="Top" Margin="0,118,0,0"
+                Padding="14,8" CornerRadius="20"
+                Background="{StaticResource PlayerGlassPillBrush}" BorderBrush="{ThemeResource AccentBorderBrush}" BorderThickness="1"
                 Visibility="{Binding IsAiSubtitleBusy, Converter={StaticResource BoolToVisibility}}">
             <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
-                <ProgressRing Width="18" Height="18" IsActive="{Binding IsAiSubtitleBusy}" Foreground="{ThemeResource AccentBrush}" />
+                <ProgressRing Width="16" Height="16" IsActive="{Binding IsAiSubtitleBusy}" Foreground="{ThemeResource VermilionBrush}" />
                 <TextBlock Text="{Binding AiSubtitleStatus}" Style="{StaticResource MetaText}"
-                           Foreground="{ThemeResource PrimaryTextBrush}" VerticalAlignment="Center" MaxWidth="420" TextTrimming="CharacterEllipsis" />
+                           Foreground="#FFF4F3EE" VerticalAlignment="Center" MaxWidth="420" TextTrimming="CharacterEllipsis" />
                 <Button Content="取消" Command="{Binding CancelAiSubtitleCommand}"
                         Style="{StaticResource GhostButtonStyle}" MinHeight="28" Height="28" Padding="10,0" />
             </StackPanel>
         </Border>
 
-        <!-- 实时 AI 字幕浮层 (qwen3-asr-flash-realtime) -->
+        <!-- 实时 AI 字幕磨砂浮层 -->
         <Border x:Name="LiveSubtitleOverlay" HorizontalAlignment="Center" VerticalAlignment="Bottom"
-                Margin="48,0,48,128" MaxWidth="920" Padding="18,10" CornerRadius="{StaticResource RadiusControl}"
-                Background="#CC080A10" BorderBrush="#26FFFFFF" BorderThickness="1"
+                Margin="48,0,48,142" MaxWidth="920" Padding="20,11" CornerRadius="10"
+                Background="{StaticResource PlayerGlassPillBrush}" BorderBrush="#26FFFFFF" BorderThickness="1"
                 IsHitTestVisible="False"
                 Visibility="{Binding HasLiveCaption, Converter={StaticResource BoolToVisibility}}">
             <StackPanel Spacing="4" HorizontalAlignment="Center">
                 <TextBlock Text="{Binding LiveCaptionTranslated}" FontSize="22" FontWeight="SemiBold"
-                           Foreground="#FFF8E1" TextAlignment="Center" TextWrapping="Wrap"
+                           Foreground="#FFF4F3EE" TextAlignment="Center" TextWrapping="Wrap"
                            Visibility="{Binding LiveCaptionTranslated, Converter={StaticResource StringToVisibility}}" />
-                <TextBlock Text="{Binding LiveCaptionOriginal}" FontSize="19" FontWeight="SemiBold"
-                           Foreground="#FFFFFF" TextAlignment="Center" TextWrapping="Wrap"
+                <TextBlock Text="{Binding LiveCaptionOriginal}" FontSize="18" FontWeight="Medium"
+                           Foreground="#B8F4F3EE" TextAlignment="Center" TextWrapping="Wrap"
                            Visibility="{Binding LiveCaptionOriginal, Converter={StaticResource StringToVisibility}}" />
             </StackPanel>
         </Border>
 
-        <!-- 媒体信息 HUD (快捷键 I) -->
-        <Border x:Name="MediaInfoHud" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="24,72,0,0"
-                Padding="14,10" CornerRadius="{StaticResource RadiusControl}"
-                Background="#CC12141A" BorderBrush="#33FFFFFF" BorderThickness="1"
+        <!-- 媒体信息磨砂 HUD (快捷键 I) -->
+        <Border x:Name="MediaInfoHud" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="24,76,0,0"
+                Padding="16,12" CornerRadius="12"
+                Background="{StaticResource PlayerGlassPillBrush}" BorderBrush="#2CFFFFFF" BorderThickness="1"
                 IsHitTestVisible="False"
                 Visibility="{Binding ShowMediaInfo, Converter={StaticResource BoolToVisibility}}">
             <StackPanel Spacing="4">
-                <TextBlock Text="播放信息" Style="{StaticResource MetaText}" Foreground="{ThemeResource AccentBrush}" FontWeight="SemiBold" />
-                <TextBlock Text="{Binding MediaInfoText}" Style="{StaticResource MetaText}" Foreground="{ThemeResource PrimaryTextBrush}" />
-                <TextBlock x:Name="MediaInfoExtra" Style="{StaticResource MetaText}" Foreground="{ThemeResource SecondaryTextBrush}" />
+                <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                    <Ellipse Width="5" Height="5" Fill="{ThemeResource VermilionBrush}" VerticalAlignment="Center" />
+                    <TextBlock Text="TELEMETRY · 播放信息" Style="{StaticResource EyebrowText}" Foreground="#FFF4F3EE" />
+                </StackPanel>
+                <TextBlock Text="{Binding MediaInfoText}" Style="{StaticResource MonoMetaText}" Foreground="#FFF4F3EE" />
+                <TextBlock x:Name="MediaInfoExtra" Style="{StaticResource MonoMetaText}" Foreground="#A8F4F3EE" />
             </StackPanel>
         </Border>
 
-        <!-- 中央状态层：加载 / 空 / 错误，统一图标 + 标题 + 说明 + 主操作 -->
+        <!-- 中央状态层：加载 / 空 / 错误 -->
         <Grid HorizontalAlignment="Center" VerticalAlignment="Center" MaxWidth="640" Margin="24">
             <StackPanel Spacing="{StaticResource SpaceMedium}" HorizontalAlignment="Center" MaxWidth="560">
                 <!-- 加载 / 缓冲 -->
                 <StackPanel Spacing="{StaticResource SpaceSmall}" HorizontalAlignment="Center"
                             Visibility="{Binding IsBuffering, Converter={StaticResource BoolToVisibility}}">
                     <ProgressRing Width="{StaticResource PlayerRingSize}" Height="{StaticResource PlayerRingSize}"
-                                  IsActive="True" Foreground="{ThemeResource AccentBrush}" HorizontalAlignment="Center" />
+                                  IsActive="True" Foreground="{ThemeResource VermilionBrush}" HorizontalAlignment="Center" />
                     <TextBlock Text="正在加载" Style="{StaticResource SectionTitleText}"
                                TextAlignment="Center" HorizontalAlignment="Center" />
                     <TextBlock Text="{Binding BufferingText}" Style="{StaticResource SecondaryText}"
@@ -142,8 +156,8 @@
                 <!-- 空态 -->
                 <StackPanel Spacing="{StaticResource SpaceSmall}" HorizontalAlignment="Center"
                             Visibility="{Binding HasMedia, Converter={StaticResource BoolToVisibility}, ConverterParameter=Inverse}">
-                    <FontIcon Glyph="&#xE7F4;" FontSize="{StaticResource PlayerStateIconSize}"
-                              Foreground="{ThemeResource SecondaryTextBrush}" HorizontalAlignment="Center" />
+                    <controls:LineIcon PathData="{StaticResource IconVod}" IconSize="40"
+                                       Foreground="{ThemeResource SecondaryTextBrush}" HorizontalAlignment="Center" />
                     <TextBlock Text="尚未播放" Style="{StaticResource SectionTitleText}"
                                TextAlignment="Center" HorizontalAlignment="Center" />
                     <TextBlock Text="从点播或直播中选择影片，即可在此沉浸观看。" Style="{StaticResource SecondaryText}"
@@ -173,15 +187,17 @@
             </StackPanel>
         </Grid>
 
+        <!-- 中央暂停态磨砂圆镜播放键 -->
         <Button x:Name="CenterPlayButton"
                 HorizontalAlignment="Center" VerticalAlignment="Center"
                 Style="{StaticResource PlayerCenterPlayButtonStyle}"
                 Click="OnPlayPauseClick" Visibility="Collapsed"
                 ToolTipService.ToolTip="播放 / 暂停 (空格)" AutomationProperties.Name="播放">
-            <FontIcon Glyph="&#xE768;" FontSize="{StaticResource FontSizeHero}" />
+            <controls:LineIcon PathData="{StaticResource IconPlaySolid}" IconSize="30" IsFilled="True"
+                               Margin="3,0,0,0" Foreground="#FFF4F3EE" />
         </Button>
 
-        <!-- 控制层：顶部标题、底部进度和操作统一随空闲计时显隐。 -->
+        <!-- 控制层：顶部标题与悬浮式烟熏磨砂玻璃底部控制坞统一随空闲计时显隐 -->
         <Grid x:Name="ControlsLayer">
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto" />
@@ -189,30 +205,33 @@
                 <RowDefinition Height="Auto" />
             </Grid.RowDefinitions>
 
-            <!-- 顶部标题、底部进度和操作属于同一个显隐层级。 -->
-            <Border x:Name="TopChromeBar" Grid.Row="0" Background="{StaticResource PlayerTopScrim}" Padding="24,14,24,32">
+            <!-- 顶部渐隐暗纱 + 磨砂圆形返回/选项键 -->
+            <Border x:Name="TopChromeBar" Grid.Row="0" Background="{StaticResource PlayerTopScrim}" Padding="24,18,24,34">
                 <Grid ColumnSpacing="{StaticResource SpaceSmall}">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="Auto" />
                         <ColumnDefinition Width="*" />
                         <ColumnDefinition Width="Auto" />
                     </Grid.ColumnDefinitions>
-                    <Button Style="{StaticResource PlayerIconButtonStyle}" Click="OnBackClick"
+                    <Button x:Name="PlayerBackButton" Style="{StaticResource PlayerIconButtonStyle}"
+                            Background="{StaticResource PlayerGlassPillBrush}" BorderBrush="#2EFFFFFF" BorderThickness="1"
+                            Click="OnBackClick"
                             ToolTipService.ToolTip="返回 (Esc)" AutomationProperties.Name="返回">
-                        <FontIcon Glyph="&#xE72B;" FontSize="{StaticResource FontSizeSection}" />
+                        <controls:LineIcon PathData="{StaticResource IconBack}" IconSize="18" Foreground="#FFF4F3EE" />
                     </Button>
-                    <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="0">
+                    <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="1" Margin="4,0,0,0">
                         <TextBlock Text="{Binding Title}" Style="{StaticResource CardTitleText}"
-                                   MaxLines="1" TextTrimming="CharacterEllipsis" />
+                                   Foreground="#FFF4F3EE" MaxLines="1" TextTrimming="CharacterEllipsis" />
                         <TextBlock Text="{Binding Subtitle}" Style="{StaticResource MetaText}"
-                                   MaxLines="1" TextTrimming="CharacterEllipsis"
+                                   Foreground="#B8F4F3EE" MaxLines="1" TextTrimming="CharacterEllipsis"
                                    Visibility="{Binding Subtitle, Converter={StaticResource StringToVisibility}}" />
                     </StackPanel>
                     <StackPanel x:Name="TopActions" Grid.Column="2" Orientation="Horizontal"
                                 Spacing="{StaticResource SpaceSmall}" VerticalAlignment="Center">
                         <Button x:Name="PlaybackOptionsButton" Style="{StaticResource PlayerIconButtonStyle}"
+                                Background="{StaticResource PlayerGlassPillBrush}" BorderBrush="#2EFFFFFF" BorderThickness="1"
                                 ToolTipService.ToolTip="更多播放选项" AutomationProperties.Name="播放选项">
-                            <FontIcon Glyph="&#xE712;" FontSize="{StaticResource FontSizeSection}" />
+                            <controls:LineIcon PathData="{StaticResource IconMore}" IconSize="18" Foreground="#FFF4F3EE" />
                             <Button.Flyout>
                                 <MenuFlyout x:Name="PlaybackOptionsFlyout" Placement="BottomEdgeAlignedRight"
                                             Opening="OnPlaybackOptionsOpening" Closed="OnMenuFlyoutClosed">
@@ -242,15 +261,19 @@
                 </Grid>
             </Border>
 
-            <!-- 底部使用轻量渐变，不为每个分组增加厚重的容器。 -->
-            <Border x:Name="BottomChromeBar" Grid.Row="2" VerticalAlignment="Bottom" Background="{StaticResource PlayerBottomScrim}" Padding="24,32,24,18">
-                <StackPanel Spacing="{StaticResource SpaceMini}">
+            <!-- 悬浮式烟熏磨砂玻璃底部控制坞：1px 高光玻璃边 + 朱砂进度光束 + 等宽时间码 -->
+            <Border x:Name="BottomChromeBar" Grid.Row="2" VerticalAlignment="Bottom"
+                    Margin="20,0,20,18" CornerRadius="16"
+                    Background="{StaticResource PlayerGlassBrush}"
+                    BorderBrush="#2CFFFFFF" BorderThickness="1"
+                    Padding="18,12,18,12">
+                <StackPanel Spacing="6">
                     <TextBlock Text="{Binding QualityMessage}" Style="{StaticResource MetaText}"
-                               Foreground="{ThemeResource AccentBrush}" MaxLines="1" TextTrimming="CharacterEllipsis"
+                               Foreground="{ThemeResource VermilionBrush}" MaxLines="1" TextTrimming="CharacterEllipsis"
                                Visibility="{Binding QualityMessage, Converter={StaticResource StringToVisibility}}" />
 
-                    <!-- 底部第一行：播放进度 -->
-                    <Grid x:Name="ProgressRow" Height="{StaticResource IconButtonSize}"
+                    <!-- 底部第一行：播放进度 + 等宽时间码 -->
+                    <Grid x:Name="ProgressRow" Height="36"
                           ColumnSpacing="{StaticResource SpaceSmall}"
                           Visibility="{Binding DurationText, Converter={StaticResource StringToVisibility}}">
                         <Grid.ColumnDefinitions>
@@ -258,18 +281,18 @@
                             <ColumnDefinition Width="*" />
                             <ColumnDefinition Width="Auto" />
                         </Grid.ColumnDefinitions>
-                        <TextBlock Text="{Binding PositionText}" Style="{StaticResource SecondaryText}" FontWeight="SemiBold"
-                                   Foreground="{ThemeResource PrimaryTextBrush}" VerticalAlignment="Center" MinWidth="52" />
+                        <TextBlock Text="{Binding PositionText}" Style="{StaticResource MonoMetaText}" FontWeight="SemiBold"
+                                   Foreground="#FFF4F3EE" VerticalAlignment="Center" MinWidth="54" />
                         <Slider x:Name="SeekSlider" Grid.Column="1" Minimum="0" Maximum="{Binding DurationMs}" Value="{Binding PositionMs, Mode=TwoWay}"
-                                VerticalAlignment="Center" MinHeight="{StaticResource IconButtonSize}"
+                                VerticalAlignment="Center" MinHeight="36"
                                 ValueChanged="OnSeekValueChanged"
                                 StepFrequency="1000" SmallChange="5000" LargeChange="30000"
                                 AutomationProperties.Name="播放进度" />
-                        <TextBlock Grid.Column="2" Text="{Binding DurationText}" Style="{StaticResource SecondaryText}" FontWeight="SemiBold"
-                                   VerticalAlignment="Center" MinWidth="52" TextAlignment="Right" />
+                        <TextBlock Grid.Column="2" Text="{Binding DurationText}" Style="{StaticResource MonoMetaText}"
+                                   Foreground="#B0F4F3EE" VerticalAlignment="Center" MinWidth="54" TextAlignment="Right" />
                     </Grid>
 
-                    <!-- 底部第二行：播放/选集/倍速/音量；画质/片头片尾/弹幕/投屏/全屏。 -->
+                    <!-- 底部第二行：播放/选集/倍速/音量 ； 画质/跳过/字幕/弹幕/投屏/全屏 -->
                     <Grid x:Name="BottomChrome" ColumnSpacing="{StaticResource SpaceSmall}"
                           RowSpacing="{StaticResource SpaceMini}" SizeChanged="OnBottomChromeSizeChanged">
                         <Grid.RowDefinitions>
@@ -282,134 +305,134 @@
                         </Grid.ColumnDefinitions>
 
                         <Border x:Name="TransportControls" Style="{StaticResource PlayerControlGroupStyle}" VerticalAlignment="Center">
-                            <StackPanel Orientation="Horizontal" Spacing="{StaticResource SpaceTiny}">
-                            <Button x:Name="PlayPauseButton" Style="{StaticResource PlayerPrimaryTransportStyle}"
-                                    Click="OnPlayPauseClick"
-                                    ToolTipService.ToolTip="播放 / 暂停 (空格)" AutomationProperties.Name="播放暂停">
-                                <FontIcon Glyph="{Binding PlayPauseGlyph}" FontSize="{StaticResource FontSizeSection}" />
-                            </Button>
-                            <Button Style="{StaticResource PlayerIconButtonStyle}" Command="{Binding PreviousEpisodeCommand}"
-                                    IsEnabled="{Binding CanPrevious}"
-                                    Visibility="{Binding HasPlaylist, Converter={StaticResource BoolToVisibility}}"
-                                    ToolTipService.ToolTip="上一集" AutomationProperties.Name="上一集">
-                                <FontIcon Glyph="&#xE892;" FontSize="{StaticResource FontSizeSection}" />
-                            </Button>
-                            <Button Style="{StaticResource PlayerIconButtonStyle}" Command="{Binding NextEpisodeCommand}"
-                                    IsEnabled="{Binding CanNext}"
-                                    Visibility="{Binding HasPlaylist, Converter={StaticResource BoolToVisibility}}"
-                                    ToolTipService.ToolTip="下一集" AutomationProperties.Name="下一集">
-                                <FontIcon Glyph="&#xE893;" FontSize="{StaticResource FontSizeSection}" />
-                            </Button>
-                            <Button x:Name="PlaylistButton" Style="{StaticResource PlayerIconButtonStyle}"
-                                    Visibility="{Binding HasPlaylist, Converter={StaticResource BoolToVisibility}}"
-                                    ToolTipService.ToolTip="选集 (P)" AutomationProperties.Name="选集">
-                                <FontIcon Glyph="&#xE8FD;" FontSize="{StaticResource FontSizeSection}" />
-                                <Button.Flyout>
-                                    <Flyout x:Name="PlaylistFlyout" Placement="TopEdgeAlignedLeft"
-                                            Opening="OnPlaylistOpening" Closed="OnPlaylistClosed">
-                                        <StackPanel Width="256" Spacing="{StaticResource SpaceSmall}">
-                                            <controls:AnchoredChoice Header="线路" ItemsSource="{Binding Lines}" DisplayMemberPath="Name"
-                                                                     SelectedItem="{Binding SelectedLine, Mode=TwoWay}"
-                                                                     HorizontalAlignment="Stretch" PlaceholderText="选择线路"/>
-                                            <ListView x:Name="PlaylistEpisodes" ItemsSource="{Binding Episodes}" SelectedItem="{Binding SelectedEpisode, Mode=TwoWay}"
-                                                      SelectionMode="Single" AutomationProperties.Name="集数列表">
-                                                <ListView.ItemTemplate>
-                                                    <DataTemplate>
-                                                        <TextBlock Text="{Binding Name}" Padding="6,8" TextTrimming="CharacterEllipsis"/>
-                                                    </DataTemplate>
-                                                </ListView.ItemTemplate>
-                                            </ListView>
-                                        </StackPanel>
-                                    </Flyout>
-                                </Button.Flyout>
-                            </Button>
-                            <DropDownButton Style="{StaticResource PlayerTextButtonStyle}" Content="{Binding RateText}"
-                                            ToolTipService.ToolTip="倍速">
-                                <DropDownButton.Flyout>
-                                    <MenuFlyout x:Name="RateFlyout" Placement="TopEdgeAlignedLeft"
-                                                Opening="OnMenuFlyoutOpening" Closed="OnMenuFlyoutClosed" />
-                                </DropDownButton.Flyout>
-                            </DropDownButton>
-                            <Button Style="{StaticResource PlayerIconButtonStyle}"
-                                    ToolTipService.ToolTip="音量 (↑↓ 调节)" AutomationProperties.Name="音量">
-                                <FontIcon Glyph="{Binding VolumeGlyph}" FontSize="{StaticResource FontSizeSection}" />
-                                <Button.Flyout>
-                                    <Flyout x:Name="VolumeFlyout" Placement="Top"
-                                            Opening="OnMenuFlyoutOpening" Closed="OnMenuFlyoutClosed">
-                                        <Grid ColumnSpacing="{StaticResource SpaceSmall}">
-                                            <Grid.ColumnDefinitions>
-                                                <ColumnDefinition Width="Auto" />
-                                                <ColumnDefinition Width="*" />
-                                            </Grid.ColumnDefinitions>
-                                            <Button Style="{StaticResource PlayerIconButtonStyle}" Click="OnMuteClick"
-                                                    ToolTipService.ToolTip="静音 (M)" AutomationProperties.Name="静音">
-                                                <FontIcon Glyph="{Binding VolumeGlyph}" FontSize="{StaticResource FontSizeSection}" />
-                                            </Button>
-                                            <Slider Grid.Column="1" Width="140" Minimum="0" Maximum="100"
-                                                    Value="{Binding Volume, Mode=TwoWay}"
-                                                    VerticalAlignment="Center" AutomationProperties.Name="音量滑块" />
-                                        </Grid>
-                                    </Flyout>
-                                </Button.Flyout>
-                            </Button>
+                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                <Button x:Name="PlayPauseButton" Style="{StaticResource PlayerPrimaryTransportStyle}"
+                                        Click="OnPlayPauseClick"
+                                        ToolTipService.ToolTip="播放 / 暂停 (空格)" AutomationProperties.Name="播放暂停">
+                                    <FontIcon Glyph="{Binding PlayPauseGlyph}" FontSize="18" Foreground="#0D0D10" />
+                                </Button>
+                                <Button Style="{StaticResource PlayerIconButtonStyle}" Command="{Binding PreviousEpisodeCommand}"
+                                        IsEnabled="{Binding CanPrevious}"
+                                        Visibility="{Binding HasPlaylist, Converter={StaticResource BoolToVisibility}}"
+                                        ToolTipService.ToolTip="上一集" AutomationProperties.Name="上一集">
+                                    <controls:LineIcon PathData="{StaticResource IconPrevious}" IconSize="18" Foreground="#FFF4F3EE" />
+                                </Button>
+                                <Button Style="{StaticResource PlayerIconButtonStyle}" Command="{Binding NextEpisodeCommand}"
+                                        IsEnabled="{Binding CanNext}"
+                                        Visibility="{Binding HasPlaylist, Converter={StaticResource BoolToVisibility}}"
+                                        ToolTipService.ToolTip="下一集" AutomationProperties.Name="下一集">
+                                    <controls:LineIcon PathData="{StaticResource IconNext}" IconSize="18" Foreground="#FFF4F3EE" />
+                                </Button>
+                                <Button x:Name="PlaylistButton" Style="{StaticResource PlayerIconButtonStyle}"
+                                        Visibility="{Binding HasPlaylist, Converter={StaticResource BoolToVisibility}}"
+                                        ToolTipService.ToolTip="选集 (P)" AutomationProperties.Name="选集">
+                                    <controls:LineIcon PathData="{StaticResource IconPlaylist}" IconSize="19" Foreground="#FFF4F3EE" />
+                                    <Button.Flyout>
+                                        <Flyout x:Name="PlaylistFlyout" Placement="TopEdgeAlignedLeft"
+                                                Opening="OnPlaylistOpening" Closed="OnPlaylistClosed">
+                                            <StackPanel Width="256" Spacing="{StaticResource SpaceSmall}">
+                                                <controls:AnchoredChoice Header="线路" ItemsSource="{Binding Lines}" DisplayMemberPath="Name"
+                                                                         SelectedItem="{Binding SelectedLine, Mode=TwoWay}"
+                                                                         HorizontalAlignment="Stretch" PlaceholderText="选择线路"/>
+                                                <ListView x:Name="PlaylistEpisodes" ItemsSource="{Binding Episodes}" SelectedItem="{Binding SelectedEpisode, Mode=TwoWay}"
+                                                          SelectionMode="Single" AutomationProperties.Name="集数列表">
+                                                    <ListView.ItemTemplate>
+                                                        <DataTemplate>
+                                                            <TextBlock Text="{Binding Name}" Padding="6,8" TextTrimming="CharacterEllipsis"/>
+                                                        </DataTemplate>
+                                                    </ListView.ItemTemplate>
+                                                </ListView>
+                                            </StackPanel>
+                                        </Flyout>
+                                    </Button.Flyout>
+                                </Button>
+                                <DropDownButton Style="{StaticResource PlayerTextButtonStyle}" Content="{Binding RateText}"
+                                                ToolTipService.ToolTip="倍速">
+                                    <DropDownButton.Flyout>
+                                        <MenuFlyout x:Name="RateFlyout" Placement="TopEdgeAlignedLeft"
+                                                    Opening="OnMenuFlyoutOpening" Closed="OnMenuFlyoutClosed" />
+                                    </DropDownButton.Flyout>
+                                </DropDownButton>
+                                <Button Style="{StaticResource PlayerIconButtonStyle}"
+                                        ToolTipService.ToolTip="音量 (↑↓ 调节)" AutomationProperties.Name="音量">
+                                    <FontIcon Glyph="{Binding VolumeGlyph}" FontSize="19" Foreground="#FFF4F3EE" />
+                                    <Button.Flyout>
+                                        <Flyout x:Name="VolumeFlyout" Placement="Top"
+                                                Opening="OnMenuFlyoutOpening" Closed="OnMenuFlyoutClosed">
+                                            <Grid ColumnSpacing="{StaticResource SpaceSmall}">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="Auto" />
+                                                    <ColumnDefinition Width="*" />
+                                                </Grid.ColumnDefinitions>
+                                                <Button Style="{StaticResource PlayerIconButtonStyle}" Click="OnMuteClick"
+                                                        ToolTipService.ToolTip="静音 (M)" AutomationProperties.Name="静音">
+                                                    <FontIcon Glyph="{Binding VolumeGlyph}" FontSize="19" />
+                                                </Button>
+                                                <Slider Grid.Column="1" Width="140" Minimum="0" Maximum="100"
+                                                        Value="{Binding Volume, Mode=TwoWay}"
+                                                        VerticalAlignment="Center" AutomationProperties.Name="音量滑块" />
+                                            </Grid>
+                                        </Flyout>
+                                    </Button.Flyout>
+                                </Button>
                             </StackPanel>
                         </Border>
 
                         <Border x:Name="MediaControls" Grid.Column="1" Style="{StaticResource PlayerControlGroupStyle}"
                                 VerticalAlignment="Center" HorizontalAlignment="Right">
-                            <StackPanel Orientation="Horizontal" Spacing="{StaticResource SpaceTiny}">
-                            <DropDownButton Style="{StaticResource PlayerTextButtonStyle}" Content="{Binding QualityButtonText}"
-                                            ToolTipService.ToolTip="{Binding SelectedQuality.Name}" AutomationProperties.Name="清晰度">
-                                <DropDownButton.Flyout>
-                                    <MenuFlyout x:Name="QualityFlyout" Placement="TopEdgeAlignedRight"
-                                                Opening="OnQualityMenuOpening" Closed="OnMenuFlyoutClosed" />
-                                </DropDownButton.Flyout>
-                            </DropDownButton>
-                            <DropDownButton Style="{StaticResource PlayerTextButtonStyle}" Content="跳过"
-                                            ToolTipService.ToolTip="片头片尾" AutomationProperties.Name="片头片尾">
-                                <DropDownButton.Flyout>
-                                    <MenuFlyout Placement="TopEdgeAlignedRight" Opening="OnMenuFlyoutOpening" Closed="OnMenuFlyoutClosed">
-                                        <MenuFlyoutItem Text="跳过片头" Command="{Binding SkipIntroCommand}" />
-                                        <MenuFlyoutItem Text="跳过片尾" Command="{Binding SkipOutroCommand}" />
-                                        <MenuFlyoutSeparator />
-                                        <MenuFlyoutItem Text="设置片头片尾" Click="OnTimingSettingsClick" />
-                                    </MenuFlyout>
-                                </DropDownButton.Flyout>
-                            </DropDownButton>
-                            <Button x:Name="SubtitleSettingsButton" Style="{StaticResource PlayerIconButtonStyle}"
-                                    Click="OnSubtitleSettingsClick"
-                                    ToolTipService.ToolTip="字幕设置 / AI 字幕"
-                                    AutomationProperties.Name="字幕设置">
-                                <Grid>
-                                    <FontIcon Glyph="&#xED1E;" FontSize="{StaticResource FontSizeSection}" />
-                                    <Border x:Name="SubtitleActiveIndicator" Width="14" Height="2"
-                                            CornerRadius="{StaticResource RadiusTag}"
-                                            Background="{ThemeResource AccentFillBrush}"
-                                            VerticalAlignment="Bottom" HorizontalAlignment="Center"
-                                            Margin="0,0,0,5" Visibility="Collapsed" />
-                                </Grid>
-                            </Button>
-                            <Button x:Name="DanmakuToggleButton" Style="{StaticResource PlayerIconButtonStyle}"
-                                    Click="OnDanmakuToggleClick" RightTapped="OnDanmakuRightTapped"
-                                    ToolTipService.ToolTip="显示弹幕 (D · 右键设置)"
-                                    AutomationProperties.Name="弹幕开关">
-                                <Grid>
-                                    <FontIcon Glyph="&#xE8BD;" FontSize="{StaticResource FontSizeSection}" />
-                                    <Border x:Name="DanmakuOnIndicator" Width="14" Height="2"
-                                            CornerRadius="{StaticResource RadiusTag}"
-                                            Background="{ThemeResource AccentFillBrush}"
-                                            VerticalAlignment="Bottom" HorizontalAlignment="Center"
-                                            Margin="0,0,0,5" Visibility="Collapsed" />
-                                </Grid>
-                            </Button>
-                            <Button Style="{StaticResource PlayerIconButtonStyle}" Click="OnCastClick"
-                                    ToolTipService.ToolTip="投屏" AutomationProperties.Name="投屏">
-                                <FontIcon Glyph="&#xEC15;" FontSize="{StaticResource FontSizeSection}" />
-                            </Button>
-                            <Button Style="{StaticResource PlayerIconButtonStyle}" Command="{Binding FullScreenCommand}"
-                                    ToolTipService.ToolTip="全屏 (F)" AutomationProperties.Name="全屏">
-                                <FontIcon Glyph="&#xE740;" FontSize="{StaticResource FontSizeSection}" />
-                            </Button>
+                            <StackPanel Orientation="Horizontal" Spacing="4">
+                                <DropDownButton Style="{StaticResource PlayerTextButtonStyle}" Content="{Binding QualityButtonText}"
+                                                ToolTipService.ToolTip="{Binding SelectedQuality.Name}" AutomationProperties.Name="清晰度">
+                                    <DropDownButton.Flyout>
+                                        <MenuFlyout x:Name="QualityFlyout" Placement="TopEdgeAlignedRight"
+                                                    Opening="OnQualityMenuOpening" Closed="OnMenuFlyoutClosed" />
+                                    </DropDownButton.Flyout>
+                                </DropDownButton>
+                                <DropDownButton Style="{StaticResource PlayerTextButtonStyle}" Content="跳过"
+                                                ToolTipService.ToolTip="片头片尾" AutomationProperties.Name="片头片尾">
+                                    <DropDownButton.Flyout>
+                                        <MenuFlyout Placement="TopEdgeAlignedRight" Opening="OnMenuFlyoutOpening" Closed="OnMenuFlyoutClosed">
+                                            <MenuFlyoutItem Text="跳过片头" Command="{Binding SkipIntroCommand}" />
+                                            <MenuFlyoutItem Text="跳过片尾" Command="{Binding SkipOutroCommand}" />
+                                            <MenuFlyoutSeparator />
+                                            <MenuFlyoutItem Text="设置片头片尾" Click="OnTimingSettingsClick" />
+                                        </MenuFlyout>
+                                    </DropDownButton.Flyout>
+                                </DropDownButton>
+                                <Button x:Name="SubtitleSettingsButton" Style="{StaticResource PlayerIconButtonStyle}"
+                                        Click="OnSubtitleSettingsClick"
+                                        ToolTipService.ToolTip="字幕设置 / AI 字幕"
+                                        AutomationProperties.Name="字幕设置">
+                                    <Grid Width="42" Height="42">
+                                        <controls:LineIcon PathData="{StaticResource IconSubtitle}" IconSize="19" Foreground="#FFF4F3EE" />
+                                        <Border x:Name="SubtitleActiveIndicator" Width="12" Height="2"
+                                                CornerRadius="1"
+                                                Background="{ThemeResource VermilionBrush}"
+                                                VerticalAlignment="Bottom" HorizontalAlignment="Center"
+                                                Margin="0,0,0,5" Visibility="Collapsed" />
+                                    </Grid>
+                                </Button>
+                                <Button x:Name="DanmakuToggleButton" Style="{StaticResource PlayerIconButtonStyle}"
+                                        Click="OnDanmakuToggleClick" RightTapped="OnDanmakuRightTapped"
+                                        ToolTipService.ToolTip="显示弹幕 (D · 右键设置)"
+                                        AutomationProperties.Name="弹幕开关">
+                                    <Grid Width="42" Height="42">
+                                        <controls:LineIcon PathData="{StaticResource IconDanmaku}" IconSize="19" Foreground="#FFF4F3EE" />
+                                        <Border x:Name="DanmakuOnIndicator" Width="12" Height="2"
+                                                CornerRadius="1"
+                                                Background="{ThemeResource VermilionBrush}"
+                                                VerticalAlignment="Bottom" HorizontalAlignment="Center"
+                                                Margin="0,0,0,5" Visibility="Collapsed" />
+                                    </Grid>
+                                </Button>
+                                <Button Style="{StaticResource PlayerIconButtonStyle}" Click="OnCastClick"
+                                        ToolTipService.ToolTip="投屏" AutomationProperties.Name="投屏">
+                                    <controls:LineIcon PathData="{StaticResource IconCast}" IconSize="19" Foreground="#FFF4F3EE" />
+                                </Button>
+                                <Button Style="{StaticResource PlayerIconButtonStyle}" Command="{Binding FullScreenCommand}"
+                                        ToolTipService.ToolTip="全屏 (F)" AutomationProperties.Name="全屏">
+                                    <controls:LineIcon PathData="{StaticResource IconFullscreen}" IconSize="19" Foreground="#FFF4F3EE" />
+                                </Button>
                             </StackPanel>
                         </Border>
                     </Grid>

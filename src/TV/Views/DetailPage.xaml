@@ -15,7 +15,6 @@
         <local:StringToVisibilityConverter x:Key="StringToVisibility" />
         <local:IntroMaxLinesConverter x:Key="IntroMaxLines" />
         <local:IntroToggleTextConverter x:Key="IntroToggleText" />
-        <!-- 详情页专用的版式尺寸（规格：封面 240×360） -->
         <x:Double x:Key="DetailCoverWidth">240</x:Double>
         <x:Double x:Key="DetailCoverHeight">360</x:Double>
         <x:Double x:Key="EpisodePanelMaxHeight">430</x:Double>
@@ -26,32 +25,32 @@
             <Setter Property="MinHeight" Value="{StaticResource PrimaryButtonHeight}" />
             <Setter Property="Padding" Value="16,0" />
             <Setter Property="FontSize" Value="{StaticResource FontSizeBody}" />
-            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="FontWeight" Value="Medium" />
         </Style>
         <Style x:Key="DetailPrimaryButtonStyle" TargetType="Button" BasedOn="{StaticResource PrimaryButtonStyle}">
-            <Setter Property="MinWidth" Value="132" />
-            <Setter Property="Padding" Value="20,0" />
+            <Setter Property="MinWidth" Value="138" />
+            <Setter Property="Padding" Value="22,0" />
             <Setter Property="FontSize" Value="{StaticResource FontSizeBody}" />
         </Style>
     </Page.Resources>
 
     <ScrollViewer x:Name="DetailScroller" VerticalScrollBarVisibility="Auto">
-        <StackPanel Padding="{StaticResource PagePaddingStandard}" Spacing="24">
+        <StackPanel Padding="{StaticResource PagePaddingWide}" Spacing="28">
 
-            <!-- 影院氛围主信息卡：海报环境光晕 + 封面 + 完整元数据胶囊 + 主操作 -->
+            <!-- 美术馆全出血环境柔光磨砂画报区：GPU 视差底纹 + 建筑画框封面 + 朱砂引线简介 + 墨白高反差主操作 -->
             <Border x:Name="HeroBanner" CornerRadius="{StaticResource RadiusPanel}"
-                    BorderThickness="1" BorderBrush="{ThemeResource SubtleBorderBrush}"
-                    Background="{ThemeResource SurfaceBrush}">
+                    BorderThickness="1" BorderBrush="{ThemeResource GlassEdgeBrush}"
+                    Background="{ThemeResource GlassPanelBrush}">
                 <Grid>
-                    <!-- 海报环境氛围底纹（使用 ImageBrush 避免 Image 撑高容器） -->
-                    <Border IsHitTestVisible="False">
+                    <!-- 视差海报氛围底纹 -->
+                    <Border x:Name="HeroBackdropLayer" IsHitTestVisible="False" Margin="-24">
                         <Border.Background>
-                            <ImageBrush ImageSource="{Binding SelectedCard.Poster}" Stretch="UniformToFill" Opacity="0.18" />
+                            <ImageBrush ImageSource="{Binding SelectedCard.Poster}" Stretch="UniformToFill" Opacity="0.22" />
                         </Border.Background>
                     </Border>
                     <Rectangle Fill="{ThemeResource HeroScrimBrush}" IsHitTestVisible="False" />
 
-                    <Grid x:Name="HeroGrid" Padding="24" ColumnSpacing="{StaticResource SpaceXLarge}">
+                    <Grid x:Name="HeroGrid" Padding="28" ColumnSpacing="{StaticResource SpaceXLarge}">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition x:Name="CoverColumn" Width="Auto" />
                             <ColumnDefinition x:Name="InfoColumn" Width="*" />
@@ -65,19 +64,23 @@
                                 Height="{StaticResource DetailCoverHeight}"
                                 CornerRadius="{StaticResource RadiusCard}"
                                 BorderThickness="1"
-                                BorderBrush="{ThemeResource StrongBorderBrush}"
+                                BorderBrush="{ThemeResource GlassEdgeBrush}"
                                 Background="{ThemeResource PosterPlaceholderBrush}"
                                 VerticalAlignment="Top">
                             <Grid>
-                                <FontIcon Glyph="&#xE8B9;" FontSize="40"
-                                          Foreground="{ThemeResource TertiaryTextBrush}"
-                                          HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                <controls:LineIcon PathData="{StaticResource IconFilm}" IconSize="40"
+                                                   Foreground="{ThemeResource TertiaryTextBrush}"
+                                                   HorizontalAlignment="Center" VerticalAlignment="Center" />
                                 <Image Source="{Binding SelectedCard.Poster}" Stretch="UniformToFill" controls:PosterImage.AutoFit="True" />
                             </Grid>
                         </Border>
 
-                        <StackPanel x:Name="DetailInfo" Grid.Column="1" Spacing="{StaticResource SpaceMedium}" VerticalAlignment="Top">
-                            <StackPanel Spacing="{StaticResource SpaceSmall}">
+                        <StackPanel x:Name="DetailInfo" Grid.Column="1" Spacing="18" VerticalAlignment="Top">
+                            <StackPanel Spacing="10">
+                                <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                                    <Ellipse Width="5" Height="5" Fill="{ThemeResource VermilionBrush}" VerticalAlignment="Center" />
+                                    <TextBlock Text="DOSSIER · ARCHIVE" Style="{StaticResource EyebrowText}" />
+                                </StackPanel>
                                 <TextBlock Text="{Binding Detail.Name}" Style="{StaticResource DisplayText}" />
                                 <ItemsControl ItemsSource="{Binding DetailMetadata}">
                                     <ItemsControl.ItemsPanel>
@@ -87,9 +90,9 @@
                                     </ItemsControl.ItemsPanel>
                                     <ItemsControl.ItemTemplate>
                                         <DataTemplate>
-                                            <Border Padding="10,4" Background="{ThemeResource SurfaceAltBrush}"
-                                                    BorderBrush="{ThemeResource SubtleBorderBrush}" BorderThickness="1"
-                                                    CornerRadius="8">
+                                            <Border Padding="11,4" Background="{ThemeResource GlassChipBrush}"
+                                                    BorderBrush="{ThemeResource GlassEdgeBrush}" BorderThickness="1"
+                                                    CornerRadius="6">
                                                 <TextBlock Text="{Binding}" Style="{StaticResource MetaText}"
                                                            Foreground="{ThemeResource PrimaryTextBrush}" />
                                             </Border>
@@ -98,22 +101,29 @@
                                 </ItemsControl>
                             </StackPanel>
 
-                            <!-- 简介：默认最多 6 行，可展开全文 -->
-                            <StackPanel Spacing="{StaticResource SpaceMini}"
-                                        Visibility="{Binding Detail.Description, Converter={StaticResource StringToVisibility}}">
-                                <TextBlock Text="简介" Style="{StaticResource LabelText}" Foreground="{ThemeResource SecondaryTextBrush}" />
-                                <TextBlock Text="{Binding Detail.Description}" Style="{StaticResource BodyText}"
-                                           MaxLines="6" TextTrimming="CharacterEllipsis"
-                                           Visibility="{Binding IsIntroExpanded, Converter={StaticResource BoolToVisibility}, ConverterParameter=Inverse}" />
-                                <TextBlock Text="{Binding Detail.Description}" Style="{StaticResource BodyText}"
-                                           Visibility="{Binding IsIntroExpanded, Converter={StaticResource BoolToVisibility}}" />
-                                <HyperlinkButton Content="{Binding IsIntroExpanded, Converter={StaticResource IntroToggleText}}"
-                                                 Command="{Binding ToggleIntroCommand}"
-                                                 Visibility="{Binding CanExpandIntro, Converter={StaticResource BoolToVisibility}}"
-                                                 HorizontalAlignment="Left" Padding="0" />
-                            </StackPanel>
+                            <!-- 简介：左侧 2px 朱砂垂直引线，克制画册排版 -->
+                            <Grid ColumnSpacing="14"
+                                  Visibility="{Binding Detail.Description, Converter={StaticResource StringToVisibility}}">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <Border Width="2" CornerRadius="1" Background="{ThemeResource VermilionBrush}" Opacity="0.7" Margin="0,3,0,3" />
+                                <StackPanel Grid.Column="1" Spacing="{StaticResource SpaceMini}">
+                                    <TextBlock Text="SYNOPSIS · 简介" Style="{StaticResource EyebrowText}" />
+                                    <TextBlock Text="{Binding Detail.Description}" Style="{StaticResource BodyText}"
+                                               MaxLines="5" TextTrimming="CharacterEllipsis"
+                                               Visibility="{Binding IsIntroExpanded, Converter={StaticResource BoolToVisibility}, ConverterParameter=Inverse}" />
+                                    <TextBlock Text="{Binding Detail.Description}" Style="{StaticResource BodyText}"
+                                               Visibility="{Binding IsIntroExpanded, Converter={StaticResource BoolToVisibility}}" />
+                                    <HyperlinkButton Content="{Binding IsIntroExpanded, Converter={StaticResource IntroToggleText}}"
+                                                     Command="{Binding ToggleIntroCommand}"
+                                                     Visibility="{Binding CanExpandIntro, Converter={StaticResource BoolToVisibility}}"
+                                                     HorizontalAlignment="Left" Padding="0" />
+                                </StackPanel>
+                            </Grid>
 
-                            <!-- 主操作「播放」最突出，收藏 / 下载 / 投屏为次操作 -->
+                            <!-- 主操作「播放」墨白高反差，收藏 / 下载 / 投屏为轻透磨砂次操作 -->
                             <Grid x:Name="ActionButtons" ColumnSpacing="12" RowSpacing="12" Margin="0,4,0,0">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" />
@@ -127,17 +137,20 @@
                                         Style="{StaticResource DetailPrimaryButtonStyle}"
                                         Click="OnPlayFirstClick"
                                         AutomationProperties.Name="播放">
-                                    <StackPanel Orientation="Horizontal" Spacing="8">
-                                        <FontIcon Glyph="&#xE768;" FontSize="15" Foreground="{ThemeResource AccentInkBrush}" />
-                                        <TextBlock Text="{Binding PrimaryPlayText}" FontWeight="SemiBold" Foreground="{ThemeResource AccentInkBrush}" VerticalAlignment="Center" />
+                                    <StackPanel Orientation="Horizontal" Spacing="9">
+                                        <controls:LineIcon PathData="{StaticResource IconPlaySolid}" IconSize="15" IsFilled="True"
+                                                           Foreground="{ThemeResource AccentInkBrush}" />
+                                        <TextBlock Text="{Binding PrimaryPlayText}" FontWeight="SemiBold"
+                                                   Foreground="{ThemeResource AccentInkBrush}" VerticalAlignment="Center" />
                                     </StackPanel>
                                 </Button>
                                 <Button x:Name="FavoriteAction" Grid.Column="1"
                                         Command="{Binding ToggleFavoriteCommand}"
+                                        Click="OnFavoriteVisualClick"
                                         Style="{StaticResource DetailActionButtonStyle}"
                                         AutomationProperties.Name="收藏">
                                     <StackPanel Orientation="Horizontal" Spacing="8">
-                                        <FontIcon Glyph="&#xE734;" FontSize="15" />
+                                        <controls:LineIcon PathData="{StaticResource IconStar}" IconSize="16" />
                                         <TextBlock Text="{Binding IsFavorite, Converter={StaticResource FavoriteText}}" VerticalAlignment="Center" />
                                     </StackPanel>
                                 </Button>
@@ -145,8 +158,8 @@
                                         AutomationProperties.Name="下载"
                                         ToolTipService.ToolTip="选择集数并另存为本地文件">
                                     <StackPanel Orientation="Horizontal" Spacing="{StaticResource SpaceMini}">
-                                        <FontIcon Glyph="&#xE896;" FontSize="15"
-                                                  Visibility="{Binding IsDownloading, Converter={StaticResource BoolToVisibility}, ConverterParameter=Inverse}" />
+                                        <controls:LineIcon PathData="{StaticResource IconDownload}" IconSize="16"
+                                                           Visibility="{Binding IsDownloading, Converter={StaticResource BoolToVisibility}, ConverterParameter=Inverse}" />
                                         <ProgressRing Width="16" Height="16" IsActive="{Binding IsDownloading}"
                                                       Visibility="{Binding IsDownloading, Converter={StaticResource BoolToVisibility}}" />
                                         <TextBlock Text="下载" Style="{StaticResource BodyText}" VerticalAlignment="Center" />
@@ -191,7 +204,7 @@
                                         ToolTipService.ToolTip="打开投屏页"
                                         AutomationProperties.Name="投屏">
                                     <StackPanel Orientation="Horizontal" Spacing="8">
-                                        <FontIcon Glyph="&#xEC15;" FontSize="15" />
+                                        <controls:LineIcon PathData="{StaticResource IconCast}" IconSize="16" />
                                         <TextBlock Text="投屏" VerticalAlignment="Center" />
                                     </StackPanel>
                                 </Button>
@@ -204,8 +217,8 @@
                 </Grid>
             </Border>
 
-            <!-- 来源与线路 / 选集（沉稳分层卡片） -->
-            <Grid x:Name="ContentColumns" ColumnSpacing="20">
+            <!-- 非对称磨砂工作台：左侧片源检视器 + 右侧编号选集矩阵 -->
+            <Grid x:Name="ContentColumns" ColumnSpacing="24">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition x:Name="SourceColumn" Width="2*" />
                     <ColumnDefinition x:Name="EpisodeColumn" Width="3*" />
@@ -222,11 +235,15 @@
                                 <ColumnDefinition Width="*" />
                                 <ColumnDefinition Width="Auto" />
                             </Grid.ColumnDefinitions>
-                            <TextBlock Text="来源与线路" Style="{StaticResource SectionTitleText}" VerticalAlignment="Center" />
+                            <StackPanel Spacing="2" VerticalAlignment="Center">
+                                <TextBlock Text="01 · SOURCES" Style="{StaticResource EyebrowText}" />
+                                <TextBlock Text="来源与线路" Style="{StaticResource SectionTitleText}" />
+                            </StackPanel>
                             <Button Grid.Column="1" Content="查找换源" Style="{StaticResource SecondaryButtonStyle}"
-                                    Command="{Binding FindSourcesCommand}"
+                                    Command="{Binding FindSourcesCommand}" VerticalAlignment="Center"
                                     AutomationProperties.Name="查找换源" ToolTipService.ToolTip="搜索同名、同年份且包含播放线路的其他站点" />
                         </Grid>
+                        <Border Height="1" Background="{ThemeResource DividerBrush}" />
                         <Grid ColumnSpacing="{StaticResource SpaceMini}">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*" /><ColumnDefinition Width="*" />
@@ -299,11 +316,15 @@
                                 <ColumnDefinition Width="*" />
                                 <ColumnDefinition Width="Auto" />
                             </Grid.ColumnDefinitions>
-                            <TextBlock Text="选集" Style="{StaticResource SectionTitleText}" VerticalAlignment="Center" />
-                            <TextBox Grid.Column="1" Width="176" MinHeight="38" Padding="12,8"
-                                     PlaceholderText="搜索集数" AutomationProperties.Name="搜索集数"
+                            <StackPanel Spacing="2" VerticalAlignment="Center">
+                                <TextBlock Text="02 · EPISODES" Style="{StaticResource EyebrowText}" />
+                                <TextBlock Text="选集" Style="{StaticResource SectionTitleText}" />
+                            </StackPanel>
+                            <TextBox Grid.Column="1" Width="184" MinHeight="40" Padding="12,8"
+                                     PlaceholderText="搜索集数" AutomationProperties.Name="搜索集数" VerticalAlignment="Center"
                                      Text="{Binding EpisodeFilter, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
                         </Grid>
+                        <Border Height="1" Background="{ThemeResource DividerBrush}" />
                         <GridView x:Name="EpisodeGrid" ItemsSource="{Binding Episodes}"
                                   SelectionMode="None"
                                   MaxHeight="{StaticResource EpisodePanelMaxHeight}"
@@ -317,7 +338,7 @@
                                             Tag="{Binding}"
                                             Click="OnPlayEpisodeClick"
                                             Style="{StaticResource SecondaryButtonStyle}"
-                                            MinWidth="68"
+                                            MinWidth="74"
                                             Margin="0,0,8,8" />
                                 </DataTemplate>
                             </GridView.ItemTemplate>
@@ -326,9 +347,19 @@
                 </Border>
             </Grid>
 
-            <!-- 相关推荐：复用点播浏览池的横排海报流 -->
+            <!-- 相关推荐：画册横排陈列 -->
             <StackPanel x:Name="RelatedSection" Spacing="{StaticResource SpaceMedium}">
-                <TextBlock Text="相关推荐" Style="{StaticResource SectionTitleText}" />
+                <StackPanel Spacing="6">
+                    <TextBlock Text="03 · RELATED" Style="{StaticResource EyebrowText}" />
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="相关推荐" Style="{StaticResource SectionTitleText}" Margin="0,0,16,0" />
+                        <Border Grid.Column="1" Height="1" Background="{ThemeResource DividerBrush}" VerticalAlignment="Center" />
+                    </Grid>
+                </StackPanel>
                 <ListView x:Name="RelatedList"
                           ItemsSource="{Binding Items}"
                           SelectionMode="None"
@@ -368,27 +399,29 @@
                                     <Border Height="{StaticResource PosterHeightCompact}"
                                             CornerRadius="{StaticResource RadiusCard}"
                                             BorderThickness="1"
-                                            BorderBrush="{ThemeResource SubtleBorderBrush}"
+                                            BorderBrush="{ThemeResource GlassEdgeBrush}"
                                             Background="{ThemeResource PosterPlaceholderBrush}">
                                         <Grid>
-                                            <FontIcon Glyph="&#xE8B9;" FontSize="28"
-                                                      Foreground="{ThemeResource TertiaryTextBrush}"
-                                                      HorizontalAlignment="Center" VerticalAlignment="Center" />
-                                            <Image Source="{Binding Poster}" Stretch="UniformToFill" controls:PosterImage.AutoFit="True" />
+                                            <controls:LineIcon PathData="{StaticResource IconFilm}" IconSize="28"
+                                                               Foreground="{ThemeResource TertiaryTextBrush}"
+                                                               HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                            <Image x:Name="RelatedArt" Source="{Binding Poster}" Stretch="UniformToFill" controls:PosterImage.AutoFit="True" />
                                             <Border Visibility="{Binding Rating, Converter={StaticResource StringToVisibility}}"
-                                                    Background="#D6090B10" BorderBrush="#26FFFFFF" BorderThickness="1"
-                                                    CornerRadius="7" Padding="7,3"
+                                                    Background="{ThemeResource GlassDarkBadgeBrush}" BorderBrush="#2EFFFFFF" BorderThickness="1"
+                                                    CornerRadius="5" Padding="7,3"
                                                     HorizontalAlignment="Right" VerticalAlignment="Top"
                                                     Margin="9">
-                                                <TextBlock Text="{Binding Rating}" Style="{StaticResource MetaText}"
-                                                           FontWeight="SemiBold"
-                                                           Foreground="{ThemeResource RatingBrush}" />
+                                                <StackPanel Orientation="Horizontal" Spacing="4">
+                                                    <Ellipse Width="4.5" Height="4.5" Fill="{ThemeResource VermilionBrush}" VerticalAlignment="Center" />
+                                                    <TextBlock Text="{Binding Rating}" Style="{StaticResource MonoMetaText}"
+                                                               FontWeight="SemiBold" Foreground="{ThemeResource GlassDarkBadgeInkBrush}" />
+                                                </StackPanel>
                                             </Border>
                                         </Grid>
                                     </Border>
                                     <TextBlock Text="{Binding Item.Name}" Style="{StaticResource CardTitleText}" MaxLines="1" />
                                     <StackPanel Orientation="Horizontal" Spacing="6">
-                                        <TextBlock Text="{Binding Item.Year}" Style="{StaticResource MetaText}"
+                                        <TextBlock Text="{Binding Item.Year}" Style="{StaticResource MonoMetaText}"
                                                    Visibility="{Binding Item.Year, Converter={StaticResource StringToVisibility}}" />
                                         <TextBlock Text="·" Style="{StaticResource MetaText}"
                                                    Visibility="{Binding Item.Year, Converter={StaticResource StringToVisibility}}" />

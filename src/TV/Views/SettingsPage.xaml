@@ -4,15 +4,15 @@
       xmlns:controls="using:TV.Controls"
       Background="Transparent" Loaded="OnLoaded">
     <Page.Resources>
-        <!-- 设置页尺寸：左侧分区导航、表单标签列、内容最大宽度 -->
-        <x:Double x:Key="SettingsNavWidth">172</x:Double>
+        <!-- 设置页尺寸：左侧磨砂分区导轨、表单标签列、内容最大宽度 -->
+        <x:Double x:Key="SettingsNavWidth">188</x:Double>
         <x:Double x:Key="SettingsFormLabelWidth">124</x:Double>
         <x:Double x:Key="SettingsFormControlWidth">300</x:Double>
         <x:Double x:Key="SettingsContentMaxWidth">820</x:Double>
         <x:Double x:Key="SettingsRowMinHeight">52</x:Double>
         <Thickness x:Key="SettingsScrollPadding">4,0,20,24</Thickness>
 
-        <!-- 左侧分区导航项：48 高、选中态＝暖金底 + 金色指示条；点击/展开切换右侧内容 -->
+        <!-- 左侧分区导航项：48 高、极轻磨砂选中底板；全局朱砂指示条由 SettingsNavIndicator 弹簧驱动 -->
         <Style x:Key="SettingsNavSectionStyle" TargetType="Expander">
             <Setter Property="HorizontalAlignment" Value="Stretch" />
             <Setter Property="HorizontalContentAlignment" Value="Stretch" />
@@ -36,17 +36,14 @@
                                     <Grid x:Name="Root" Background="{TemplateBinding Background}"
                                           CornerRadius="{TemplateBinding CornerRadius}"
                                           Padding="{TemplateBinding Padding}">
-                                        <Grid.ColumnDefinitions>
-                                            <ColumnDefinition Width="3" />
-                                            <ColumnDefinition Width="*" />
-                                        </Grid.ColumnDefinitions>
-                                        <Border x:Name="Indicator" Width="3" Height="20" CornerRadius="{StaticResource RadiusTag}"
-                                                Background="{ThemeResource SelectionIndicatorBrush}" Opacity="0"
-                                                VerticalAlignment="Center" />
-                                        <ContentPresenter x:Name="Presenter" Grid.Column="1"
+                                        <Border x:Name="CheckedPlate" CornerRadius="{TemplateBinding CornerRadius}"
+                                                Background="{ThemeResource GlassActivePlateBrush}"
+                                                BorderBrush="{ThemeResource SubtleBorderBrush}" BorderThickness="1"
+                                                Opacity="0" />
+                                        <ContentPresenter x:Name="Presenter"
                                                           Content="{TemplateBinding Content}"
                                                           ContentTemplate="{TemplateBinding ContentTemplate}"
-                                                          Margin="8,0,0,0"
+                                                          Margin="14,0,0,0"
                                                           HorizontalAlignment="Left" VerticalAlignment="Center" />
                                         <VisualStateManager.VisualStateGroups>
                                             <VisualStateGroup x:Name="CommonStates">
@@ -67,8 +64,7 @@
                                                 <VisualState x:Name="Unchecked" />
                                                 <VisualState x:Name="Checked">
                                                     <VisualState.Setters>
-                                                        <Setter Target="Root.Background" Value="{ThemeResource SelectionBrush}" />
-                                                        <Setter Target="Indicator.Opacity" Value="1" />
+                                                        <Setter Target="CheckedPlate.Opacity" Value="1" />
                                                     </VisualState.Setters>
                                                 </VisualState>
                                                 <VisualState x:Name="Indeterminate" />
@@ -84,108 +80,124 @@
         </Style>
     </Page.Resources>
 
-    <Grid Padding="{StaticResource PagePaddingWide}" RowSpacing="{StaticResource SpaceLarge}">
+    <Grid Padding="{StaticResource PagePaddingWide}" RowSpacing="20">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
 
-        <!-- 页头 -->
-        <StackPanel Spacing="{StaticResource SpaceTiny}">
+        <!-- 画册偏好设置报头 -->
+        <StackPanel Spacing="2">
+            <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                <Ellipse Width="5" Height="5" Fill="{ThemeResource VermilionBrush}" VerticalAlignment="Center" />
+                <TextBlock Text="06 · PREFERENCES" Style="{StaticResource EyebrowText}" />
+            </StackPanel>
             <TextBlock Text="设置" Style="{StaticResource PageTitleText}" />
-            <TextBlock Text="片源、播放、弹幕与 AI、网盘、网络与外观设置，按分区切换查看。" Style="{StaticResource SecondaryText}" />
+            <TextBlock Text="片源、播放、弹幕与 AI、网盘、网络与外观设置，按分区切换查看" Style="{StaticResource SecondaryText}" />
         </StackPanel>
 
-        <!-- 左侧分区导航 + 右侧内容 -->
+        <!-- 左侧磨砂分区导轨 + 右侧内容 -->
         <Grid Grid.Row="1" ColumnSpacing="{StaticResource SpaceLarge}">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="*" />
             </Grid.ColumnDefinitions>
 
-            <Border Width="{StaticResource SettingsNavWidth}" BorderBrush="{ThemeResource DividerBrush}" BorderThickness="0,0,1,0" Padding="0,0,16,0">
-                <StackPanel Spacing="{StaticResource SpaceTiny}">
-                    <!-- 片源 -->
-                    <Expander x:Name="SourceSection" Style="{StaticResource SettingsNavSectionStyle}"
-                              AutomationProperties.Name="片源" ToolTipService.ToolTip="片源">
-                        <Expander.Header>
-                            <StackPanel Orientation="Horizontal" Spacing="{StaticResource SpaceSmall}">
-                                <FontIcon Glyph="&#xE774;" FontSize="18" Foreground="{ThemeResource SecondaryTextBrush}" />
-                                <TextBlock Text="片源" Style="{StaticResource BodyText}" VerticalAlignment="Center" />
-                            </StackPanel>
-                        </Expander.Header>
-                    </Expander>
-                    <!-- 播放 -->
-                    <Expander x:Name="PlaybackSection" Style="{StaticResource SettingsNavSectionStyle}"
-                              AutomationProperties.Name="播放" ToolTipService.ToolTip="播放">
-                        <Expander.Header>
-                            <StackPanel Orientation="Horizontal" Spacing="{StaticResource SpaceSmall}">
-                                <FontIcon Glyph="&#xE768;" FontSize="18" Foreground="{ThemeResource SecondaryTextBrush}" />
-                                <TextBlock Text="播放" Style="{StaticResource BodyText}" VerticalAlignment="Center" />
-                            </StackPanel>
-                        </Expander.Header>
-                    </Expander>
-                    <!-- 弹幕与 AI -->
-                    <Expander x:Name="AiSection" Style="{StaticResource SettingsNavSectionStyle}"
-                              AutomationProperties.Name="弹幕与 AI" ToolTipService.ToolTip="AI 字幕、翻译与弹弹play 弹幕">
-                        <Expander.Header>
-                            <StackPanel Orientation="Horizontal" Spacing="{StaticResource SpaceSmall}">
-                                <FontIcon Glyph="&#xED1E;" FontSize="18" Foreground="{ThemeResource SecondaryTextBrush}" />
-                                <TextBlock Text="弹幕与 AI" Style="{StaticResource BodyText}" VerticalAlignment="Center" />
-                            </StackPanel>
-                        </Expander.Header>
-                    </Expander>
-                    <!-- 网盘 -->
-                    <Expander x:Name="CloudSection" Style="{StaticResource SettingsNavSectionStyle}"
-                              AutomationProperties.Name="网盘" ToolTipService.ToolTip="网盘">
-                        <Expander.Header>
-                            <StackPanel Orientation="Horizontal" Spacing="{StaticResource SpaceSmall}">
-                                <FontIcon Glyph="&#xE753;" FontSize="18" Foreground="{ThemeResource SecondaryTextBrush}" />
-                                <TextBlock Text="网盘" Style="{StaticResource BodyText}" VerticalAlignment="Center" />
-                            </StackPanel>
-                        </Expander.Header>
-                    </Expander>
-                    <!-- 网络 -->
-                    <Expander x:Name="NetworkSection" Style="{StaticResource SettingsNavSectionStyle}"
-                              AutomationProperties.Name="网络" ToolTipService.ToolTip="网络">
-                        <Expander.Header>
-                            <StackPanel Orientation="Horizontal" Spacing="{StaticResource SpaceSmall}">
-                                <FontIcon Glyph="&#xE839;" FontSize="18" Foreground="{ThemeResource SecondaryTextBrush}" />
-                                <TextBlock Text="网络" Style="{StaticResource BodyText}" VerticalAlignment="Center" />
-                            </StackPanel>
-                        </Expander.Header>
-                    </Expander>
-                    <!-- 外观与内容 -->
-                    <Expander x:Name="AppearanceSection" Style="{StaticResource SettingsNavSectionStyle}"
-                              AutomationProperties.Name="外观与内容" ToolTipService.ToolTip="外观与内容">
-                        <Expander.Header>
-                            <StackPanel Orientation="Horizontal" Spacing="{StaticResource SpaceSmall}">
-                                <FontIcon Glyph="&#xE790;" FontSize="18" Foreground="{ThemeResource SecondaryTextBrush}" />
-                                <TextBlock Text="外观与内容" Style="{StaticResource BodyText}" VerticalAlignment="Center" />
-                            </StackPanel>
-                        </Expander.Header>
-                    </Expander>
-                    <!-- 存储 -->
-                    <Expander x:Name="StorageSection" Style="{StaticResource SettingsNavSectionStyle}"
-                              AutomationProperties.Name="存储" ToolTipService.ToolTip="存储">
-                        <Expander.Header>
-                            <StackPanel Orientation="Horizontal" Spacing="{StaticResource SpaceSmall}">
-                                <FontIcon Glyph="&#xE7B8;" FontSize="18" Foreground="{ThemeResource SecondaryTextBrush}" />
-                                <TextBlock Text="存储" Style="{StaticResource BodyText}" VerticalAlignment="Center" />
-                            </StackPanel>
-                        </Expander.Header>
-                    </Expander>
-                    <!-- 关于 -->
-                    <Expander x:Name="AboutSection" Style="{StaticResource SettingsNavSectionStyle}"
-                              AutomationProperties.Name="关于" ToolTipService.ToolTip="关于">
-                        <Expander.Header>
-                            <StackPanel Orientation="Horizontal" Spacing="{StaticResource SpaceSmall}">
-                                <FontIcon Glyph="&#xE946;" FontSize="18" Foreground="{ThemeResource SecondaryTextBrush}" />
-                                <TextBlock Text="关于" Style="{StaticResource BodyText}" VerticalAlignment="Center" />
-                            </StackPanel>
-                        </Expander.Header>
-                    </Expander>
-                </StackPanel>
+            <Border Width="{StaticResource SettingsNavWidth}"
+                    Background="{ThemeResource GlassPanelBrush}"
+                    BorderBrush="{ThemeResource GlassEdgeBrush}" BorderThickness="1"
+                    CornerRadius="{StaticResource RadiusPanel}" Padding="8,10" VerticalAlignment="Top">
+                <Grid x:Name="SettingsNavHost">
+                    <StackPanel Spacing="2">
+                        <!-- 片源 -->
+                        <Expander x:Name="SourceSection" Style="{StaticResource SettingsNavSectionStyle}"
+                                  AutomationProperties.Name="片源" ToolTipService.ToolTip="片源">
+                            <Expander.Header>
+                                <StackPanel Orientation="Horizontal" Spacing="{StaticResource SpaceSmall}">
+                                    <controls:LineIcon PathData="{StaticResource IconGlobe}" IconSize="17" Foreground="{ThemeResource SecondaryTextBrush}" />
+                                    <TextBlock Text="片源" Style="{StaticResource BodyText}" VerticalAlignment="Center" />
+                                </StackPanel>
+                            </Expander.Header>
+                        </Expander>
+                        <!-- 播放 -->
+                        <Expander x:Name="PlaybackSection" Style="{StaticResource SettingsNavSectionStyle}"
+                                  AutomationProperties.Name="播放" ToolTipService.ToolTip="播放">
+                            <Expander.Header>
+                                <StackPanel Orientation="Horizontal" Spacing="{StaticResource SpaceSmall}">
+                                    <controls:LineIcon PathData="{StaticResource IconPlayOutline}" IconSize="17" Foreground="{ThemeResource SecondaryTextBrush}" />
+                                    <TextBlock Text="播放" Style="{StaticResource BodyText}" VerticalAlignment="Center" />
+                                </StackPanel>
+                            </Expander.Header>
+                        </Expander>
+                        <!-- 弹幕与 AI -->
+                        <Expander x:Name="AiSection" Style="{StaticResource SettingsNavSectionStyle}"
+                                  AutomationProperties.Name="弹幕与 AI" ToolTipService.ToolTip="AI 字幕、翻译与弹弹play 弹幕">
+                            <Expander.Header>
+                                <StackPanel Orientation="Horizontal" Spacing="{StaticResource SpaceSmall}">
+                                    <controls:LineIcon PathData="{StaticResource IconSpark}" IconSize="17" Foreground="{ThemeResource SecondaryTextBrush}" />
+                                    <TextBlock Text="弹幕与 AI" Style="{StaticResource BodyText}" VerticalAlignment="Center" />
+                                </StackPanel>
+                            </Expander.Header>
+                        </Expander>
+                        <!-- 网盘 -->
+                        <Expander x:Name="CloudSection" Style="{StaticResource SettingsNavSectionStyle}"
+                                  AutomationProperties.Name="网盘" ToolTipService.ToolTip="网盘">
+                            <Expander.Header>
+                                <StackPanel Orientation="Horizontal" Spacing="{StaticResource SpaceSmall}">
+                                    <controls:LineIcon PathData="{StaticResource IconCloud}" IconSize="17" Foreground="{ThemeResource SecondaryTextBrush}" />
+                                    <TextBlock Text="网盘" Style="{StaticResource BodyText}" VerticalAlignment="Center" />
+                                </StackPanel>
+                            </Expander.Header>
+                        </Expander>
+                        <!-- 网络 -->
+                        <Expander x:Name="NetworkSection" Style="{StaticResource SettingsNavSectionStyle}"
+                                  AutomationProperties.Name="网络" ToolTipService.ToolTip="网络">
+                            <Expander.Header>
+                                <StackPanel Orientation="Horizontal" Spacing="{StaticResource SpaceSmall}">
+                                    <controls:LineIcon PathData="{StaticResource IconNetwork}" IconSize="17" Foreground="{ThemeResource SecondaryTextBrush}" />
+                                    <TextBlock Text="网络" Style="{StaticResource BodyText}" VerticalAlignment="Center" />
+                                </StackPanel>
+                            </Expander.Header>
+                        </Expander>
+                        <!-- 外观与内容 -->
+                        <Expander x:Name="AppearanceSection" Style="{StaticResource SettingsNavSectionStyle}"
+                                  AutomationProperties.Name="外观与内容" ToolTipService.ToolTip="外观与内容">
+                            <Expander.Header>
+                                <StackPanel Orientation="Horizontal" Spacing="{StaticResource SpaceSmall}">
+                                    <controls:LineIcon PathData="{StaticResource IconPalette}" IconSize="17" Foreground="{ThemeResource SecondaryTextBrush}" />
+                                    <TextBlock Text="外观与内容" Style="{StaticResource BodyText}" VerticalAlignment="Center" />
+                                </StackPanel>
+                            </Expander.Header>
+                        </Expander>
+                        <!-- 存储 -->
+                        <Expander x:Name="StorageSection" Style="{StaticResource SettingsNavSectionStyle}"
+                                  AutomationProperties.Name="存储" ToolTipService.ToolTip="存储">
+                            <Expander.Header>
+                                <StackPanel Orientation="Horizontal" Spacing="{StaticResource SpaceSmall}">
+                                    <controls:LineIcon PathData="{StaticResource IconStorage}" IconSize="17" Foreground="{ThemeResource SecondaryTextBrush}" />
+                                    <TextBlock Text="存储" Style="{StaticResource BodyText}" VerticalAlignment="Center" />
+                                </StackPanel>
+                            </Expander.Header>
+                        </Expander>
+                        <!-- 关于 -->
+                        <Expander x:Name="AboutSection" Style="{StaticResource SettingsNavSectionStyle}"
+                                  AutomationProperties.Name="关于" ToolTipService.ToolTip="关于">
+                            <Expander.Header>
+                                <StackPanel Orientation="Horizontal" Spacing="{StaticResource SpaceSmall}">
+                                    <controls:LineIcon PathData="{StaticResource IconInfo}" IconSize="17" Foreground="{ThemeResource SecondaryTextBrush}" />
+                                    <TextBlock Text="关于" Style="{StaticResource BodyText}" VerticalAlignment="Center" />
+                                </StackPanel>
+                            </Expander.Header>
+                        </Expander>
+                    </StackPanel>
+
+                    <!-- 物理弹性朱砂分区滑轨 -->
+                    <Border x:Name="SettingsNavIndicator"
+                            Width="3" Height="20" CornerRadius="1.5"
+                            Background="{ThemeResource SelectionIndicatorBrush}"
+                            HorizontalAlignment="Left" VerticalAlignment="Top"
+                            Margin="2,0,0,0" Opacity="0" IsHitTestVisible="False" />
+                </Grid>
             </Border>
 
             <Grid Grid.Column="1" RowSpacing="{StaticResource SpaceSmall}">
@@ -900,10 +912,23 @@
 
                         <!-- ============ 关于 ============ -->
                         <StackPanel x:Name="AboutPane" Spacing="16" Visibility="Collapsed">
-                            <StackPanel Spacing="4">
-                                <TextBlock Text="关于" Style="{StaticResource SectionTitleText}" />
-                                <TextBlock Text="流光影院 · 深墨底与暖金流光的桌面影院。" Style="{StaticResource SecondaryText}" />
-                            </StackPanel>
+                            <Border Style="{StaticResource SettingsCardStyle}" Padding="24,22">
+                                <Grid ColumnSpacing="20">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <controls:BrandMark MarkSize="56" VerticalAlignment="Center" />
+                                    <StackPanel Grid.Column="1" Spacing="4" VerticalAlignment="Center">
+                                        <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                                            <Ellipse Width="5" Height="5" Fill="{ThemeResource VermilionBrush}" VerticalAlignment="Center" />
+                                            <TextBlock Text="SHIRO · MA · GLASS" Style="{StaticResource EyebrowText}" />
+                                        </StackPanel>
+                                        <TextBlock Text="流光影院 · LIUGUANG CINEMA" Style="{StaticResource SectionTitleText}" TextWrapping="Wrap" />
+                                        <TextBlock Text="以原研哉「白与余白」哲学融合现代平面排版与建筑磨砂玻璃的桌面放映厅。" Style="{StaticResource SecondaryText}" TextWrapping="Wrap" />
+                                    </StackPanel>
+                                </Grid>
+                            </Border>
                             <Border Style="{StaticResource SettingsCardStyle}">
                                 <StackPanel Spacing="6">
                                     <Grid MinHeight="{StaticResource SettingsRowMinHeight}" ColumnSpacing="{StaticResource SpaceLarge}">
@@ -915,13 +940,13 @@
                                     <Grid MinHeight="{StaticResource SettingsRowMinHeight}" ColumnSpacing="{StaticResource SpaceLarge}">
                                         <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
                                         <TextBlock Text="版本" Style="{StaticResource LabelText}" Width="{StaticResource SettingsFormLabelWidth}" VerticalAlignment="Center" />
-                                        <TextBlock x:Name="AppVersionText" Grid.Column="1" Style="{StaticResource MetaText}" VerticalAlignment="Center" />
+                                        <TextBlock x:Name="AppVersionText" Grid.Column="1" Style="{StaticResource MonoMetaText}" VerticalAlignment="Center" />
                                     </Grid>
                                     <Border Height="1" Background="{ThemeResource DividerBrush}" />
                                     <Grid MinHeight="{StaticResource SettingsRowMinHeight}" ColumnSpacing="{StaticResource SpaceLarge}">
                                         <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
                                         <TextBlock Text="视觉语言" Style="{StaticResource LabelText}" Width="{StaticResource SettingsFormLabelWidth}" VerticalAlignment="Center" />
-                                        <TextBlock Grid.Column="1" Text="深墨底 · 暖金流光" Style="{StaticResource BodyText}" VerticalAlignment="Center" />
+                                        <TextBlock Grid.Column="1" Text="白 · 隙 · 镜（素墨 / 宣纸 · 磨砂玻璃 · 朱砂落款）" Style="{StaticResource BodyText}" VerticalAlignment="Center" />
                                     </Grid>
                                     <Border Height="1" Background="{ThemeResource DividerBrush}" />
                                     <Grid MinHeight="{StaticResource SettingsRowMinHeight}" ColumnSpacing="{StaticResource SpaceLarge}">

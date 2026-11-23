@@ -36,8 +36,8 @@
 社区开源构建默认尚未附带商业 Authenticode 代码签名证书，在开启 Windows 11 **智能应用控制（Smart App Control）** 或 SmartScreen 的设备上可能出现提示或拦截。详情与合规处理/签名路径请见 [Windows 智能应用控制与签名说明](docs/smart-app-control.md)。下载后请务必核对发布页提供的 SHA-256：
 
 ```powershell
-Get-FileHash .\TV-Setup-1.8.1-x64.exe -Algorithm SHA256
-Get-Content .\TV-Setup-1.8.1-x64.exe.sha256
+Get-FileHash .\TV-Setup-1.9.0-x64.exe -Algorithm SHA256
+Get-Content .\TV-Setup-1.9.0-x64.exe.sha256
 ```
 
 ## 使用指南
@@ -182,7 +182,7 @@ installer/               Inno Setup 安装器与输出完整性检查
 artifacts/qa-fixture/    隔离测试夹具与回归脚本
 ```
 
-更多技术说明见[开发指南](docs/development.md)、[智能应用控制与签名说明](docs/smart-app-control.md)、[站点适配矩阵](docs/site-matrix.csv)、[验收边界](docs/site-verification.md)和[设计契约](docs/design-guide.md)。当前版本说明见[1.8.1 发行说明](docs/releases/release-1.8.1.md)，历史文档索引见[docs/README](docs/README.md)。
+更多技术说明见[开发指南](docs/development.md)、[智能应用控制与签名说明](docs/smart-app-control.md)、[站点适配矩阵](docs/site-matrix.csv)、[验收边界](docs/site-verification.md)、[设计契约](docs/design-guide.md)、[品牌设计语言规范](docs/brand-design-system.md)和[动效工程规范](docs/motion-spec.md)。当前版本说明见[1.9.0 发行说明](docs/releases/release-1.9.0.md)，历史文档索引见[docs/README](docs/README.md)。
 
 ## 验证与贡献
 

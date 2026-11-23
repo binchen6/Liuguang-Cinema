@@ -13,9 +13,9 @@
         <local:StringToVisibilityConverter x:Key="StringToVisibility" />
         <local:BoolToFavoriteConverter x:Key="FavoriteText" />
         <Style x:Key="ChannelRowStyle" TargetType="ListViewItem" BasedOn="{StaticResource NavRailItemStyle}">
-            <Setter Property="Padding" Value="0" />
+            <Setter Property="Padding" Value="10,0,12,0" />
             <Setter Property="Margin" Value="0,0,0,4" />
-            <Setter Property="MinHeight" Value="{StaticResource ListRowHeight}" />
+            <Setter Property="MinHeight" Value="58" />
             <Setter Property="Height" Value="NaN" />
             <Setter Property="HorizontalContentAlignment" Value="Stretch" />
             <Setter Property="CornerRadius" Value="{StaticResource RadiusControl}" />
@@ -30,38 +30,47 @@
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
-        <!-- 页头：标题 / 副信息 + 搜索 / 刷新 / 网络串流 -->
-        <Grid Margin="0,4,0,0">
+        <!-- 广播控制台报头：呼吸朱砂 ON AIR 徽标 + 磨砂搜索与串流工具 -->
+        <Grid x:Name="LiveHeader" Margin="0,0,0,4">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*" />
                 <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
-            <StackPanel Spacing="{StaticResource SpaceTiny}" VerticalAlignment="Center">
-                <StackPanel Orientation="Horizontal" Spacing="{StaticResource SpaceSmall}" VerticalAlignment="Center">
+            <StackPanel Spacing="2" VerticalAlignment="Center">
+                <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                    <Ellipse Width="5" Height="5" Fill="{ThemeResource VermilionBrush}" VerticalAlignment="Center" />
+                    <TextBlock Text="02 · BROADCAST" Style="{StaticResource EyebrowText}" />
+                </StackPanel>
+                <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
                     <TextBlock Text="直播" Style="{StaticResource PageTitleText}" VerticalAlignment="Center" />
-                    <Border Background="{ThemeResource AccentSoftBrush}" CornerRadius="{StaticResource RadiusTag}"
-                            Padding="10,3" VerticalAlignment="Center">
-                        <TextBlock Text="LIVE" Style="{StaticResource MetaText}" FontWeight="SemiBold"
-                                   Foreground="{ThemeResource AccentBrush}" />
+                    <Border Background="{ThemeResource VermilionSoftBrush}"
+                            BorderBrush="{ThemeResource AccentBorderBrush}" BorderThickness="1"
+                            CornerRadius="12" Padding="10,4" VerticalAlignment="Center">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <Ellipse x:Name="LiveBeacon" Width="6" Height="6"
+                                     Fill="{ThemeResource VermilionBrush}" VerticalAlignment="Center" />
+                            <TextBlock Text="ON AIR" Style="{StaticResource MonoMetaText}" FontWeight="SemiBold"
+                                       Foreground="{ThemeResource VermilionBrush}" VerticalAlignment="Center" />
+                        </StackPanel>
                     </Border>
                 </StackPanel>
                 <TextBlock Text="{Binding StatusMessage}" Style="{StaticResource SecondaryText}"
                            TextTrimming="CharacterEllipsis" />
             </StackPanel>
             <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="{StaticResource SpaceMini}" VerticalAlignment="Center">
-                <TextBox Width="220" PlaceholderText="搜索频道"
+                <TextBox Width="224" PlaceholderText="搜索频道"
                          AutomationProperties.Name="搜索"
                          Text="{Binding SearchText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
-                <Button Style="{StaticResource IconButtonStyle}" Command="{Binding ReloadCommand}"
+                <Button x:Name="LiveReloadButton" Style="{StaticResource IconButtonStyle}" Command="{Binding ReloadCommand}"
                         ToolTipService.ToolTip="刷新" AutomationProperties.Name="刷新">
-                    <FontIcon Glyph="&#xE72C;" FontSize="18" />
+                    <controls:LineIcon PathData="{StaticResource IconRefresh}" IconSize="17" />
                 </Button>
-                <Button Style="{StaticResource IconButtonStyle}" ToolTipService.ToolTip="打开网络串流"
+                <Button x:Name="LiveStreamButton" Style="{StaticResource IconButtonStyle}" ToolTipService.ToolTip="打开网络串流"
                         AutomationProperties.Name="打开网络串流">
-                    <FontIcon Glyph="&#xE71B;" FontSize="18" />
+                    <controls:LineIcon PathData="{StaticResource IconLink}" IconSize="17" />
                     <Button.Flyout>
                         <Flyout Placement="BottomEdgeAlignedRight">
-                            <StackPanel Width="288" Spacing="{StaticResource SpaceSmall}">
+                            <StackPanel Width="292" Spacing="{StaticResource SpaceSmall}">
                                 <TextBox Header="网络串流" PlaceholderText="https://"
                                          Text="{Binding DirectUrl, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
                                 <Button Content="播放" Command="{Binding PlayDirectCommand}"
@@ -74,37 +83,36 @@
             </StackPanel>
         </Grid>
 
-        <!-- 窄窗返回条：源/分组 → 频道 → 详情 单任务切换 -->
+        <!-- 窄窗分步返回条 -->
         <StackPanel x:Name="NarrowNav" Grid.Row="1" Orientation="Horizontal"
                     Spacing="{StaticResource SpaceSmall}" Margin="0,12,0,0" Visibility="Collapsed">
             <Button x:Name="NarrowBackButton" Style="{StaticResource IconButtonStyle}" Click="OnNarrowBackClick"
                     ToolTipService.ToolTip="返回" AutomationProperties.Name="返回上级">
-                <FontIcon Glyph="&#xE72B;" FontSize="18" />
+                <controls:LineIcon PathData="{StaticResource IconBack}" IconSize="17" />
             </Button>
             <TextBlock x:Name="NarrowStageText" Style="{StaticResource SecondaryText}" VerticalAlignment="Center" />
         </StackPanel>
 
-        <!-- 主体：源 / 分组 + 频道 + 频道详情，三列顶部对齐、列间距 24 -->
-        <Grid x:Name="BodyGrid" Grid.Row="2" Margin="0,16,0,0"
+        <!-- 主体三区：磨砂源组导轨 + 开放式频道流 + 磨砂节目单检视面板 -->
+        <Grid x:Name="BodyGrid" Grid.Row="2" Margin="0,18,0,0"
               ColumnSpacing="{StaticResource SpaceLarge}">
             <Grid.ColumnDefinitions>
-                <ColumnDefinition x:Name="SourcesColumn" Width="280" />
+                <ColumnDefinition x:Name="SourcesColumn" Width="272" />
                 <ColumnDefinition x:Name="ChannelsColumn" Width="*" />
                 <ColumnDefinition x:Name="DetailColumn" Width="360" />
             </Grid.ColumnDefinitions>
 
-            <Border x:Name="LeftPanel" Background="{ThemeResource SurfaceBrush}"
-                    BorderBrush="{ThemeResource SubtleBorderBrush}" BorderThickness="1"
-                    CornerRadius="{StaticResource RadiusPanel}" Padding="14">
+            <Border x:Name="LeftPanel" Background="{ThemeResource GlassPanelBrush}"
+                    BorderBrush="{ThemeResource GlassEdgeBrush}" BorderThickness="1"
+                    CornerRadius="{StaticResource RadiusPanel}" Padding="16">
                 <Grid RowSpacing="{StaticResource SpaceMedium}">
                     <Grid.RowDefinitions>
                         <RowDefinition x:Name="SourceRow" Height="Auto" />
                         <RowDefinition x:Name="GroupRow" Height="*" />
                     </Grid.RowDefinitions>
 
-                    <!-- 内置与导入直播源共用一个选择器。 -->
                     <StackPanel x:Name="SourceSection" Spacing="{StaticResource SpaceSmall}">
-                        <TextBlock Text="直播源" Style="{StaticResource LabelText}" />
+                        <TextBlock Text="SOURCES · 直播源" Style="{StaticResource EyebrowText}" />
                         <controls:AnchoredChoice ItemsSource="{Binding AvailableSources}"
                                                  SelectedItem="{Binding SelectedRepository, Mode=TwoWay}"
                                                  DisplayMemberPath="Name" PlaceholderText="内置直播源"
@@ -114,22 +122,22 @@
                                 <ColumnDefinition Width="*" />
                                 <ColumnDefinition Width="Auto" />
                             </Grid.ColumnDefinitions>
-                            <TextBlock Text="无导入源时默认使用内置源" Style="{StaticResource MetaText}"
+                            <TextBlock Text="无导入源时使用内置源" Style="{StaticResource MetaText}"
                                        VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
                             <Button Grid.Column="1" Content="查看内置频道"
                                     Command="{Binding SelectBuiltInCommand}"
                                     Style="{StaticResource GhostButtonStyle}"
                                     AutomationProperties.Name="查看内置频道" />
                         </Grid>
+                        <Border Height="1" Background="{ThemeResource DividerBrush}" Margin="0,4,0,0" />
                     </StackPanel>
 
-                    <!-- 第二级：分组（分组列表为空时由 code-behind 隐藏整块，不再出现只有标题的空分组区） -->
                     <Grid x:Name="GroupSection" Grid.Row="1">
                         <Grid.RowDefinitions>
                             <RowDefinition Height="Auto" />
                             <RowDefinition Height="*" />
                         </Grid.RowDefinitions>
-                        <TextBlock Text="分组" Style="{StaticResource LabelText}" Margin="0,0,0,8" />
+                        <TextBlock Text="GROUPS · 分组" Style="{StaticResource EyebrowText}" Margin="0,0,0,8" />
                         <ListView Grid.Row="1" ItemsSource="{Binding Groups}"
                                   SelectedItem="{Binding SelectedGroup, Mode=TwoWay}"
                                   SelectionMode="Single" Background="Transparent" BorderThickness="0"
@@ -140,23 +148,25 @@
                 </Grid>
             </Border>
 
-            <!-- 频道列表（每项为聚合后的频道，含线路数与清晰度） -->
+            <!-- 中央开放频道区 -->
             <Grid x:Name="ChannelsPanel" Grid.Column="1">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="*" />
                 </Grid.RowDefinitions>
-                <Grid ColumnSpacing="{StaticResource SpaceMini}">
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="*" />
-                        <ColumnDefinition Width="Auto" />
-                    </Grid.ColumnDefinitions>
-                    <TextBlock Text="频道" Style="{StaticResource SectionTitleText}" VerticalAlignment="Center" />
-                    <TextBlock Grid.Column="1" Text="{Binding ChannelsSummary}" Style="{StaticResource MetaText}"
-                               VerticalAlignment="Center" />
-                </Grid>
+                <Border BorderBrush="{ThemeResource DividerBrush}" BorderThickness="0,0,0,1" Padding="0,0,0,10">
+                    <Grid ColumnSpacing="{StaticResource SpaceMini}">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="频道" Style="{StaticResource SectionTitleText}" VerticalAlignment="Center" />
+                        <TextBlock Grid.Column="1" Text="{Binding ChannelsSummary}" Style="{StaticResource MonoMetaText}"
+                                   VerticalAlignment="Center" />
+                    </Grid>
+                </Border>
 
-                <Grid Grid.Row="1" Margin="0,12,0,0">
+                <Grid Grid.Row="1" Margin="0,10,0,0">
                     <ListView x:Name="ChannelList" ItemsSource="{Binding Channels}"
                               ItemContainerStyle="{StaticResource ChannelRowStyle}"
                               SelectedItem="{Binding SelectedItem, Mode=TwoWay}"
@@ -167,49 +177,52 @@
                               Visibility="{Binding HasChannels, Converter={StaticResource BoolToVisibility}}">
                         <ListView.ItemTemplate>
                             <DataTemplate>
-                                <Grid MinHeight="{StaticResource ListRowHeight}" ColumnSpacing="{StaticResource SpaceSmall}"
-                                      Padding="0,6">
+                                <Grid MinHeight="52" ColumnSpacing="{StaticResource SpaceSmall}" Padding="0,6">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="Auto" />
                                         <ColumnDefinition Width="*" />
                                         <ColumnDefinition Width="Auto" />
                                     </Grid.ColumnDefinitions>
-                                    <Border Width="44" Height="44" CornerRadius="10" Padding="5"
-                                            Background="{ThemeResource SurfaceAltBrush}"
-                                            BorderBrush="{ThemeResource SubtleBorderBrush}" BorderThickness="1">
+                                    <Border Width="44" Height="44" CornerRadius="8" Padding="5"
+                                            Background="{ThemeResource GlassChipBrush}"
+                                            BorderBrush="{ThemeResource GlassEdgeBrush}" BorderThickness="1">
                                         <Grid>
-                                            <FontIcon Glyph="&#xE7F4;" FontSize="18" Foreground="{ThemeResource SecondaryTextBrush}" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                            <controls:LineIcon PathData="{StaticResource IconLive}" IconSize="18"
+                                                               Foreground="{ThemeResource TertiaryTextBrush}" />
                                             <Image controls:PosterImage.CachedSource="{Binding Logo}" Stretch="Uniform" />
                                         </Grid>
                                     </Border>
-                                    <StackPanel Grid.Column="1" Spacing="{StaticResource SpaceTiny}" VerticalAlignment="Center">
+                                    <StackPanel Grid.Column="1" Spacing="2" VerticalAlignment="Center">
                                         <TextBlock Text="{Binding Name}" Style="{StaticResource BodyText}"
                                                    FontWeight="SemiBold" MaxLines="1" TextTrimming="CharacterEllipsis" />
                                         <TextBlock Text="{Binding MetaText}" Style="{StaticResource MetaText}"
                                                    MaxLines="1" TextTrimming="CharacterEllipsis" />
                                     </StackPanel>
-                                    <FontIcon Grid.Column="2" Glyph="&#xE768;" FontSize="16"
-                                              Foreground="{ThemeResource TertiaryTextBrush}" VerticalAlignment="Center" />
+                                    <controls:LineIcon Grid.Column="2" PathData="{StaticResource IconChevronRight}" IconSize="15"
+                                                       Foreground="{ThemeResource TertiaryTextBrush}" VerticalAlignment="Center" />
                                 </Grid>
                             </DataTemplate>
                         </ListView.ItemTemplate>
                     </ListView>
 
-                    <!-- 加载态 -->
                     <StackPanel Orientation="Horizontal" Spacing="{StaticResource SpaceSmall}"
                                 HorizontalAlignment="Center" VerticalAlignment="Center"
                                 Visibility="{Binding IsLoading, Converter={StaticResource BoolToVisibility}}">
-                        <ProgressRing IsActive="True" Width="24" Height="24" />
+                        <ProgressRing IsActive="True" Width="24" Height="24" Foreground="{ThemeResource VermilionBrush}" />
                         <TextBlock Text="正在加载直播频道…" Style="{StaticResource SecondaryText}"
                                    VerticalAlignment="Center" />
                     </StackPanel>
 
-                    <!-- 空 / 错误态 -->
                     <StackPanel MaxWidth="400" Spacing="{StaticResource SpaceSmall}"
                                 HorizontalAlignment="Center" VerticalAlignment="Center"
                                 Visibility="{Binding IsEmpty, Converter={StaticResource BoolToVisibility}}">
-                        <FontIcon Glyph="&#xE783;" FontSize="40"
-                                  Foreground="{ThemeResource SecondaryTextBrush}" HorizontalAlignment="Center" />
+                        <Border Width="64" Height="64" CornerRadius="32"
+                                Background="{ThemeResource GlassPanelBrush}"
+                                BorderBrush="{ThemeResource GlassEdgeBrush}" BorderThickness="1"
+                                HorizontalAlignment="Center">
+                            <controls:LineIcon PathData="{StaticResource IconLive}" IconSize="28"
+                                               Foreground="{ThemeResource SecondaryTextBrush}" />
+                        </Border>
                         <TextBlock Text="{Binding EmptyTitle}" Style="{StaticResource SectionTitleText}"
                                    HorizontalAlignment="Center" TextAlignment="Center" />
                         <TextBlock Text="{Binding EmptyHint}" Style="{StaticResource SecondaryText}"
@@ -221,22 +234,27 @@
                 </Grid>
             </Grid>
 
-            <!-- 频道详情：节目单、线路（清晰度 13px）与播放/收藏 -->
+            <!-- 右侧磨砂频道检视面板 -->
             <Border x:Name="DetailPanel" Grid.Column="2" Style="{StaticResource PanelCardStyle}"
                     VerticalAlignment="Stretch">
                 <Grid>
                     <StackPanel MaxWidth="280" Spacing="{StaticResource SpaceSmall}"
                                 HorizontalAlignment="Center" VerticalAlignment="Center"
                                 Visibility="{Binding HasSelectedChannel, Converter={StaticResource BoolToVisibility}, ConverterParameter=Inverse}">
-                        <FontIcon Glyph="&#xE7F4;" FontSize="40"
-                                  Foreground="{ThemeResource SecondaryTextBrush}" HorizontalAlignment="Center" />
+                        <Border Width="64" Height="64" CornerRadius="32"
+                                Background="{ThemeResource GlassChipBrush}"
+                                BorderBrush="{ThemeResource GlassEdgeBrush}" BorderThickness="1"
+                                HorizontalAlignment="Center">
+                            <controls:LineIcon PathData="{StaticResource IconLive}" IconSize="28"
+                                               Foreground="{ThemeResource SecondaryTextBrush}" />
+                        </Border>
                         <TextBlock Text="选择一个频道" Style="{StaticResource SectionTitleText}"
                                    HorizontalAlignment="Center" TextAlignment="Center" />
                         <TextBlock Text="查看节目单与全部线路，双击频道可直接播放" Style="{StaticResource SecondaryText}"
                                    HorizontalAlignment="Center" TextAlignment="Center" TextWrapping="Wrap" />
                     </StackPanel>
 
-                    <Grid Visibility="{Binding HasSelectedChannel, Converter={StaticResource BoolToVisibility}}"
+                    <Grid x:Name="ChannelDetailContent" Visibility="{Binding HasSelectedChannel, Converter={StaticResource BoolToVisibility}}"
                           RowSpacing="{StaticResource SpaceMedium}">
                         <Grid.RowDefinitions>
                             <RowDefinition Height="Auto" />
@@ -244,26 +262,37 @@
                             <RowDefinition Height="Auto" />
                         </Grid.RowDefinitions>
 
-                        <StackPanel Spacing="{StaticResource SpaceTiny}">
+                        <StackPanel Spacing="8">
+                            <TextBlock Text="CHANNEL · 检视" Style="{StaticResource EyebrowText}" />
                             <TextBlock Text="{Binding SelectedChannel.Name}" Style="{StaticResource SectionTitleText}"
                                        TextWrapping="Wrap" />
                             <StackPanel Orientation="Horizontal" Spacing="{StaticResource SpaceMini}">
-                                <TextBlock Text="{Binding SelectedItem.MetaText}" Style="{StaticResource MetaText}" />
+                                <TextBlock Text="{Binding SelectedItem.MetaText}" Style="{StaticResource MonoMetaText}" />
                                 <TextBlock Text="·" Style="{StaticResource MetaText}" />
                                 <TextBlock Text="{Binding SelectedChannel.Group}" Style="{StaticResource MetaText}"
                                            TextTrimming="CharacterEllipsis" />
                             </StackPanel>
-                            <TextBlock Text="{Binding ProgramInfo}" Style="{StaticResource SecondaryText}"
-                                       Margin="0,4,0,0" MaxLines="4" TextTrimming="CharacterEllipsis"
-                                       Visibility="{Binding ProgramInfo, Converter={StaticResource StringToVisibility}}" />
+                            <Grid ColumnSpacing="10" Margin="0,4,0,0"
+                                  Visibility="{Binding ProgramInfo, Converter={StaticResource StringToVisibility}}">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <Border Width="2" CornerRadius="1" Background="{ThemeResource VermilionBrush}" Opacity="0.75" />
+                                <TextBlock Grid.Column="1" Text="{Binding ProgramInfo}" Style="{StaticResource SecondaryText}"
+                                           MaxLines="4" TextTrimming="CharacterEllipsis" />
+                            </Grid>
                         </StackPanel>
 
-                        <Grid Grid.Row="1" Margin="0,16,0,0">
+                        <Grid Grid.Row="1" Margin="0,8,0,0">
                             <Grid.RowDefinitions>
                                 <RowDefinition Height="Auto" />
                                 <RowDefinition Height="*" />
                             </Grid.RowDefinitions>
-                            <TextBlock Text="线路" Style="{StaticResource LabelText}" Margin="0,0,0,8" />
+                            <StackPanel Spacing="6" Margin="0,0,0,8">
+                                <Border Height="1" Background="{ThemeResource DividerBrush}" />
+                                <TextBlock Text="SIGNALS · 可用线路" Style="{StaticResource EyebrowText}" Margin="0,4,0,0" />
+                            </StackPanel>
                             <ListView Grid.Row="1" ItemsSource="{Binding SelectedItem.Lines}"
                                       SelectionMode="None" IsItemClickEnabled="True" ItemClick="OnLineClick"
                                       Background="Transparent" BorderThickness="0"
@@ -271,41 +300,50 @@
                                       ScrollViewer.VerticalScrollBarVisibility="Auto">
                                 <ListView.ItemTemplate>
                                     <DataTemplate>
-                                        <Grid MinHeight="{StaticResource ListRowHeight}"
-                                              ColumnSpacing="{StaticResource SpaceSmall}" Padding="0,4">
-                                            <Grid.ColumnDefinitions>
-                                                <ColumnDefinition Width="*" />
-                                                <ColumnDefinition Width="Auto" />
-                                            </Grid.ColumnDefinitions>
-                                            <StackPanel VerticalAlignment="Center" Spacing="0">
-                                                <TextBlock Text="{Binding Meta}" Style="{StaticResource BodyText}"
-                                                           MaxLines="1" TextTrimming="CharacterEllipsis" />
-                                                <TextBlock Text="{Binding Detail}" Style="{StaticResource MetaText}"
-                                                           MaxLines="1" TextTrimming="CharacterEllipsis" />
-                                            </StackPanel>
-                                            <FontIcon Grid.Column="1" Glyph="&#xE768;" FontSize="16"
-                                                      Foreground="{ThemeResource AccentBrush}" VerticalAlignment="Center" />
-                                        </Grid>
+                                        <Border BorderBrush="{ThemeResource DividerBrush}" BorderThickness="0,0,0,1" Padding="4,6">
+                                            <Grid MinHeight="42" ColumnSpacing="{StaticResource SpaceSmall}">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*" />
+                                                    <ColumnDefinition Width="Auto" />
+                                                </Grid.ColumnDefinitions>
+                                                <StackPanel VerticalAlignment="Center" Spacing="1">
+                                                    <TextBlock Text="{Binding Meta}" Style="{StaticResource BodyText}"
+                                                               FontWeight="Medium" MaxLines="1" TextTrimming="CharacterEllipsis" />
+                                                    <TextBlock Text="{Binding Detail}" Style="{StaticResource MonoMetaText}"
+                                                               MaxLines="1" TextTrimming="CharacterEllipsis" />
+                                                </StackPanel>
+                                                <controls:LineIcon Grid.Column="1" PathData="{StaticResource IconPlaySolid}" IconSize="14"
+                                                                   IsFilled="True" Foreground="{ThemeResource VermilionBrush}" VerticalAlignment="Center" />
+                                            </Grid>
+                                        </Border>
                                     </DataTemplate>
                                 </ListView.ItemTemplate>
                             </ListView>
                         </Grid>
 
-                        <StackPanel Grid.Row="2" Orientation="Horizontal" Spacing="{StaticResource SpaceSmall}"
-                                    Margin="0,16,0,0">
-                            <Button Content="播放" Command="{Binding PlayChannelCommand}"
-                                    Style="{StaticResource PrimaryButtonStyle}"
-                                    AutomationProperties.Name="播放频道" />
-                            <Button Content="{Binding IsFavorite, Converter={StaticResource FavoriteText}}"
+                        <Grid Grid.Row="2" ColumnSpacing="10" Margin="0,8,0,0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <Button x:Name="PlayChannelButton" Command="{Binding PlayChannelCommand}"
+                                    Style="{StaticResource PrimaryButtonStyle}" HorizontalAlignment="Stretch"
+                                    AutomationProperties.Name="播放频道">
+                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                    <controls:LineIcon PathData="{StaticResource IconPlaySolid}" IconSize="14" IsFilled="True"
+                                                       Foreground="{ThemeResource AccentInkBrush}" />
+                                    <TextBlock Text="播放" FontWeight="SemiBold" Foreground="{ThemeResource AccentInkBrush}" />
+                                </StackPanel>
+                            </Button>
+                            <Button Grid.Column="1" Content="{Binding IsFavorite, Converter={StaticResource FavoriteText}}"
                                     Height="{StaticResource PrimaryButtonHeight}" MinHeight="{StaticResource PrimaryButtonHeight}"
                                     Command="{Binding ToggleFavoriteCommand}"
                                     Style="{StaticResource SecondaryButtonStyle}"
                                     AutomationProperties.Name="收藏频道" />
-                        </StackPanel>
+                        </Grid>
                     </Grid>
                 </Grid>
             </Border>
         </Grid>
-
     </Grid>
 </Page>

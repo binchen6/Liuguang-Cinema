@@ -11,7 +11,11 @@ public sealed partial class CloudDrivePage : Page
 {
     private ContentDialog? _loginDialog;
 
-    public CloudDrivePage() => InitializeComponent();
+    public CloudDrivePage()
+    {
+        InitializeComponent();
+        MotionService.AttachTactile(CloudRefreshButton, 1.04f, 0.94f, -1f);
+    }
     private CloudDriveViewModel ViewModel => (CloudDriveViewModel)DataContext;
 
     private async void OnLoaded(object sender, RoutedEventArgs e)

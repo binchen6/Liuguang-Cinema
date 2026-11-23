@@ -12,12 +12,21 @@ public sealed partial class LivePage : Page
     private bool _ready;
     private int _stage;
 
-    public LivePage() => InitializeComponent();
+    public LivePage()
+    {
+        InitializeComponent();
+        MotionService.AttachTactile(LiveReloadButton, 1.04f, 0.94f, -1f);
+        MotionService.AttachTactile(LiveStreamButton, 1.04f, 0.94f, -1f);
+        MotionService.AttachTactile(PlayChannelButton, 1.02f, 0.96f, -1f);
+    }
 
     private LiveViewModel ViewModel => (LiveViewModel)DataContext;
 
-    private async void OnLoaded(object sender, Microsoft.UI.Xaml.RoutedEventArgs e)
+    private async void OnLoaded(object sender, RoutedEventArgs e)
     {
+        MotionService.Changed -= OnMotionPreferenceChanged;
+        MotionService.Changed += OnMotionPreferenceChanged;
+        MotionService.SetBeaconPulsing(LiveBeacon, true);
         ViewModel.Groups.CollectionChanged -= OnGroupsChanged;
         ViewModel.Groups.CollectionChanged += OnGroupsChanged;
         UpdateGroupSection();
@@ -32,20 +41,25 @@ public sealed partial class LivePage : Page
         ApplyLayout(ActualWidth);
     }
 
-    private void OnUnloaded(object sender, Microsoft.UI.Xaml.RoutedEventArgs e)
+    private void OnUnloaded(object sender, RoutedEventArgs e)
     {
+        MotionService.Changed -= OnMotionPreferenceChanged;
+        MotionService.SetBeaconPulsing(LiveBeacon, false);
         if (DataContext is LiveViewModel model) model.Groups.CollectionChanged -= OnGroupsChanged;
+    }
+
+    private void OnMotionPreferenceChanged(object? sender, EventArgs e)
+    {
+        if (IsLoaded) MotionService.SetBeaconPulsing(LiveBeacon, true);
     }
 
     private void OnGroupsChanged(object? sender, NotifyCollectionChangedEventArgs e) => UpdateGroupSection();
 
-    /// <summary>分组列表为空（未加载 / 加载失败）时隐藏整块「分组」，避免只留标题、下方空一片。</summary>
     private void UpdateGroupSection() =>
         GroupSection.Visibility = ViewModel.Groups.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
 
     private void OnPageSizeChanged(object sender, SizeChangedEventArgs e) => ApplyLayout(e.NewSize.Width);
 
-    /// <summary>宽窗三栏；窄窗退化为「源/分组 → 频道 → 详情」单任务切换。</summary>
     private void ApplyLayout(double width)
     {
         _narrow = width > 0 && width < 940;
@@ -59,14 +73,14 @@ public sealed partial class LivePage : Page
             Grid.SetColumn(ChannelsPanel, 0);
             Grid.SetColumn(DetailPanel, 0);
             NarrowNav.Visibility = Visibility.Visible;
-            ShowStage(_stage);
+            ShowStage(_stage, animate: false);
             return;
         }
 
-        SourcesColumn.Width = new GridLength(280);
+        SourcesColumn.Width = new GridLength(272);
         ChannelsColumn.Width = new GridLength(1, GridUnitType.Star);
         DetailColumn.Width = new GridLength(360);
-        BodyGrid.ColumnSpacing = 24; // 与 XAML 的 SpaceLarge 一致
+        BodyGrid.ColumnSpacing = 24;
         Grid.SetColumn(LeftPanel, 0);
         Grid.SetColumn(ChannelsPanel, 1);
         Grid.SetColumn(DetailPanel, 2);
@@ -77,8 +91,9 @@ public sealed partial class LivePage : Page
         _stage = 0;
     }
 
-    private void ShowStage(int stage)
+    private void ShowStage(int stage, bool animate = true)
     {
+        var prev = _stage;
         _stage = Math.Clamp(stage, 0, 2);
         if (!_narrow)
         {
@@ -98,9 +113,16 @@ public sealed partial class LivePage : Page
             1 => "频道",
             _ => "频道详情"
         };
+
+        if (animate && _stage != prev)
+        {
+            var dir = _stage > prev ? 22 : -22;
+            FrameworkElement active = _stage switch { 0 => LeftPanel, 1 => ChannelsPanel, _ => DetailPanel };
+            MotionService.EnterSection(active, offsetY: 0, offsetX: dir);
+        }
     }
 
-    private void OnNarrowBackClick(object sender, Microsoft.UI.Xaml.RoutedEventArgs e)
+    private void OnNarrowBackClick(object sender, RoutedEventArgs e)
     {
         if (_narrow && _stage > 0) ShowStage(_stage - 1);
     }
@@ -113,8 +135,9 @@ public sealed partial class LivePage : Page
 
     private void OnChannelSelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        if (!_narrow || _stage != 1 || e.AddedItems.Count == 0) return;
-        ShowStage(2);
+        if (e.AddedItems.Count == 0) return;
+        if (_narrow && _stage == 1) ShowStage(2);
+        else if (!_narrow) MotionService.EnterSection(ChannelDetailContent, offsetY: 8);
     }
 
     private void OnChannelDoubleTapped(object sender, DoubleTappedRoutedEventArgs e)

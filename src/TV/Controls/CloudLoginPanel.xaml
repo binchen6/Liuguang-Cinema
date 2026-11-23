@@ -8,7 +8,8 @@
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
-        <StackPanel Spacing="{StaticResource SpaceTiny}">
+        <StackPanel Spacing="2">
+            <TextBlock Text="AUTH · 扫码认证" Style="{StaticResource EyebrowText}" />
             <TextBlock Text="网盘扫码登录" Style="{StaticResource SectionTitleText}" />
             <TextBlock Text="登录凭据仅加密保存在当前 Windows 用户下。" Style="{StaticResource MetaText}" TextWrapping="Wrap" />
         </StackPanel>
@@ -18,13 +19,15 @@
                     Height="{StaticResource PrimaryButtonHeight}" MinHeight="{StaticResource PrimaryButtonHeight}"
                     AutomationProperties.Name="关闭扫码" />
         </StackPanel>
-        <Grid Grid.Row="2" MinHeight="220">
-            <Border Width="220" Height="220" HorizontalAlignment="Center"
-                    Background="{ThemeResource PosterPlaceholderBrush}" CornerRadius="{StaticResource RadiusCard}"
+        <Grid Grid.Row="2" MinHeight="224">
+            <Border Width="224" Height="224" HorizontalAlignment="Center" Padding="10"
+                    Background="{ThemeResource SurfaceBrush}" BorderBrush="{ThemeResource GlassEdgeBrush}" BorderThickness="1"
+                    CornerRadius="{StaticResource RadiusPanel}"
                     Visibility="{Binding IsWebLogin, Converter={StaticResource BoolToVisibility}, ConverterParameter=Inverse}">
                 <Image Source="{Binding QrImage}" Stretch="Uniform" AutomationProperties.Name="等待扫码" />
             </Border>
             <ProgressRing Width="32" Height="32" IsActive="{Binding IsBusy}"
+                          Foreground="{ThemeResource VermilionBrush}"
                           HorizontalAlignment="Center" VerticalAlignment="Center" />
         </Grid>
         <TextBlock Grid.Row="3" Text="{Binding Status}" Style="{StaticResource BodyText}"

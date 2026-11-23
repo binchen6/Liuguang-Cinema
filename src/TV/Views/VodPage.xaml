@@ -22,40 +22,46 @@
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
-        <!-- 页头 -->
-        <Grid x:Name="BrowseHeader" Grid.Row="0" Margin="0,0,0,0">
+        <!-- 现代平面画册报头：左画册索引 + 主标题 + 磨砂站点标 / 右极简磨砂操作 -->
+        <Grid x:Name="BrowseHeader" Grid.Row="0" Margin="0,0,0,6">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*" />
                 <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
-            <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
-                <TextBlock Text="点播" Style="{StaticResource PageTitleText}" VerticalAlignment="Center" />
-                <Border Background="{ThemeResource SurfaceAltBrush}" BorderBrush="{ThemeResource SubtleBorderBrush}"
-                        BorderThickness="1" CornerRadius="12" Padding="10,3" VerticalAlignment="Center"
-                        Visibility="{Binding SelectedSite.DisplayName, Converter={StaticResource StringToVisibility}}">
-                    <TextBlock Text="{Binding SelectedSite.DisplayName}" Style="{StaticResource MetaText}"
-                               Foreground="{ThemeResource SecondaryTextBrush}" MaxWidth="200" TextTrimming="CharacterEllipsis" />
-                </Border>
+            <StackPanel Spacing="2" VerticalAlignment="Center">
+                <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                    <Ellipse Width="5" Height="5" Fill="{ThemeResource VermilionBrush}" VerticalAlignment="Center" />
+                    <TextBlock Text="01 · ARCHIVE" Style="{StaticResource EyebrowText}" VerticalAlignment="Center" />
+                </StackPanel>
+                <StackPanel Orientation="Horizontal" Spacing="14" VerticalAlignment="Center">
+                    <TextBlock Text="点播" Style="{StaticResource PageTitleText}" VerticalAlignment="Center" />
+                    <Border Background="{ThemeResource GlassChipBrush}" BorderBrush="{ThemeResource GlassEdgeBrush}"
+                            BorderThickness="1" CornerRadius="14" Padding="12,4" VerticalAlignment="Center"
+                            Visibility="{Binding SelectedSite.DisplayName, Converter={StaticResource StringToVisibility}, FallbackValue=Collapsed, TargetNullValue=Collapsed}">
+                        <TextBlock Text="{Binding SelectedSite.DisplayName}" Style="{StaticResource MetaText}"
+                                   Foreground="{ThemeResource PrimaryTextBrush}" MaxWidth="220" TextTrimming="CharacterEllipsis" />
+                    </Border>
+                </StackPanel>
             </StackPanel>
             <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                <Button Style="{StaticResource SecondaryButtonStyle}" Click="OnSearchClick"
+                <Button x:Name="HeaderSearchButton" Style="{StaticResource SecondaryButtonStyle}" Click="OnSearchClick"
                         AutomationProperties.Name="打开搜索">
                     <StackPanel Orientation="Horizontal" Spacing="8">
-                        <FontIcon Glyph="&#xE721;" FontSize="15" />
+                        <controls:LineIcon PathData="{StaticResource IconSearch}" IconSize="15" />
                         <TextBlock Text="搜索" Style="{StaticResource SecondaryText}"
                                    Foreground="{ThemeResource PrimaryTextBrush}" />
                     </StackPanel>
                 </Button>
-                <Button Style="{StaticResource IconButtonStyle}" Command="{Binding ReloadCommand}"
+                <Button x:Name="HeaderReloadButton" Style="{StaticResource IconButtonStyle}" Command="{Binding ReloadCommand}"
                         ToolTipService.ToolTip="重新加载" AutomationProperties.Name="重新加载">
-                    <FontIcon Glyph="&#xE72C;" FontSize="17" />
+                    <controls:LineIcon PathData="{StaticResource IconRefresh}" IconSize="17" />
                 </Button>
             </StackPanel>
         </Grid>
 
-        <!-- 精选横向画廊 -->
-        <Grid x:Name="GalleryHost" Grid.Row="1" Margin="0,12,0,0">
-            <ScrollViewer Height="174"
+        <!-- 美术馆宽幅展陈画廊：磨砂铭牌 + 内嵌图景微缩放 -->
+        <Grid x:Name="GalleryHost" Grid.Row="1" Margin="0,10,0,0">
+            <ScrollViewer Height="186"
                           Visibility="{Binding ShowGallery, Converter={StaticResource BoolToVisibility}}"
                           HorizontalScrollMode="Enabled" HorizontalScrollBarVisibility="Hidden"
                           VerticalScrollMode="Disabled" VerticalScrollBarVisibility="Disabled">
@@ -67,45 +73,52 @@
                     </ItemsControl.ItemsPanel>
                     <ItemsControl.ItemTemplate>
                         <DataTemplate>
-                            <Button Width="308" Height="164" Margin="0,4,16,6" Padding="0" BorderThickness="0"
+                            <Button Width="332" Height="174" Margin="0,4,18,8" Padding="0" BorderThickness="0"
                                     Background="Transparent"
                                     HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch"
                                     AutomationProperties.Name="{Binding Item.Name}"
                                     Loaded="OnFeaturedLoaded" Click="OnCardClick"
                                     PointerEntered="OnFeaturedIn" PointerExited="OnFeaturedOut"
                                     PointerPressed="OnCardPressed" PointerReleased="OnCardReleased" PointerCanceled="OnCardReleased">
-                                <Border CornerRadius="{StaticResource RadiusCard}" BorderThickness="1"
-                                        BorderBrush="{ThemeResource SubtleBorderBrush}"
+                                <Border CornerRadius="{StaticResource RadiusPanel}" BorderThickness="1"
+                                        BorderBrush="{ThemeResource GlassEdgeBrush}"
                                         Background="{ThemeResource PosterPlaceholderBrush}">
                                     <Grid>
-                                        <Image Source="{Binding Poster}" Stretch="UniformToFill" controls:PosterImage.AutoFit="True" />
-                                        <Rectangle>
+                                        <Image x:Name="GalleryArt" Source="{Binding Poster}" Stretch="UniformToFill" controls:PosterImage.AutoFit="True" />
+                                        <Rectangle IsHitTestVisible="False">
                                             <Rectangle.Fill>
                                                 <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
-                                                    <GradientStop Color="#00000000" Offset="0.32" />
-                                                    <GradientStop Color="#B3090B10" Offset="0.72" />
-                                                    <GradientStop Color="#F0090B10" Offset="1" />
+                                                    <GradientStop Color="#000B0B0D" Offset="0.25" />
+                                                    <GradientStop Color="#990B0B0D" Offset="1" />
                                                 </LinearGradientBrush>
                                             </Rectangle.Fill>
                                         </Rectangle>
+                                        <!-- 右上极简磨砂评分印记 -->
                                         <Border Visibility="{Binding Rating, Converter={StaticResource StringToVisibility}}"
-                                                Background="#D6090B10" BorderBrush="#26FFFFFF" BorderThickness="1"
-                                                CornerRadius="8" Padding="8,3"
-                                                HorizontalAlignment="Right" VerticalAlignment="Top" Margin="10">
-                                            <StackPanel Orientation="Horizontal" Spacing="4">
-                                                <FontIcon Glyph="&#xE735;" FontSize="10" Foreground="{ThemeResource RatingBrush}" VerticalAlignment="Center" />
-                                                <TextBlock Text="{Binding Rating}" FontSize="{StaticResource FontSizeMeta}"
-                                                           FontWeight="SemiBold" Foreground="{ThemeResource RatingBrush}" />
+                                                Background="{ThemeResource GlassDarkBadgeBrush}" BorderBrush="#33FFFFFF" BorderThickness="1"
+                                                CornerRadius="6" Padding="8,3"
+                                                HorizontalAlignment="Right" VerticalAlignment="Top" Margin="12">
+                                            <StackPanel Orientation="Horizontal" Spacing="5">
+                                                <Ellipse Width="5" Height="5" Fill="{ThemeResource VermilionBrush}" VerticalAlignment="Center" />
+                                                <TextBlock Text="{Binding Rating}" Style="{StaticResource MonoMetaText}"
+                                                           FontWeight="SemiBold" Foreground="{ThemeResource GlassDarkBadgeInkBrush}" />
                                             </StackPanel>
                                         </Border>
-                                        <StackPanel VerticalAlignment="Bottom" Padding="14,12" Spacing="3">
-                                            <TextBlock Text="{Binding Item.Remarks}" FontSize="{StaticResource FontSizeMeta}"
-                                                       FontWeight="SemiBold" Foreground="{ThemeResource AccentBrush}"
-                                                       Visibility="{Binding Item.Remarks, Converter={StaticResource StringToVisibility}}" />
-                                            <TextBlock Text="{Binding Item.Name}" FontSize="{StaticResource FontSizeCardTitle}"
-                                                       LineHeight="{StaticResource LineHeightCardTitle}" FontWeight="SemiBold"
-                                                       Foreground="#FFFFFF" MaxLines="1" TextTrimming="CharacterEllipsis" />
-                                        </StackPanel>
+                                        <!-- 底部磨砂展陈铭牌 -->
+                                        <Border VerticalAlignment="Bottom" Margin="10"
+                                                Background="{ThemeResource GlassDarkBadgeBrush}"
+                                                BorderBrush="#26FFFFFF" BorderThickness="1"
+                                                CornerRadius="9" Padding="12,8">
+                                            <StackPanel Spacing="2">
+                                                <TextBlock Text="{Binding Item.Remarks}" Style="{StaticResource MetaText}"
+                                                           FontWeight="SemiBold" Foreground="{ThemeResource GlassDarkBadgeAccentBrush}"
+                                                           MaxLines="1" TextTrimming="CharacterEllipsis"
+                                                           Visibility="{Binding Item.Remarks, Converter={StaticResource StringToVisibility}}" />
+                                                <TextBlock Text="{Binding Item.Name}" FontSize="{StaticResource FontSizeCardTitle}"
+                                                           LineHeight="{StaticResource LineHeightCardTitle}" FontWeight="SemiBold"
+                                                           Foreground="{ThemeResource GlassDarkBadgeInkBrush}" MaxLines="1" TextTrimming="CharacterEllipsis" />
+                                            </StackPanel>
+                                        </Border>
                                     </Grid>
                                 </Border>
                             </Button>
@@ -115,71 +128,81 @@
             </ScrollViewer>
         </Grid>
 
-        <!-- 分类与筛选（滚动后吸顶） -->
-        <Grid x:Name="FilterBar" Grid.Row="2" Margin="0,12,0,12">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="*" />
-                <ColumnDefinition Width="Auto" />
-            </Grid.ColumnDefinitions>
-            <ScrollViewer HorizontalScrollMode="Enabled" HorizontalScrollBarVisibility="Hidden"
-                          VerticalScrollMode="Disabled" VerticalAlignment="Center">
-                <ItemsControl ItemsSource="{Binding Categories}">
-                    <ItemsControl.ItemsPanel>
-                        <ItemsPanelTemplate>
-                            <StackPanel Orientation="Horizontal" />
-                        </ItemsPanelTemplate>
-                    </ItemsControl.ItemsPanel>
-                    <ItemsControl.ItemTemplate>
-                        <DataTemplate>
-                            <ToggleButton Style="{StaticResource FilterChipStyle}" Content="{Binding Name}" Tag="{Binding}"
-                                          IsChecked="{Binding IsSelected, Mode=OneWay}"
-                                          Click="OnCategoryPillClick" Margin="0,0,8,0" />
-                        </DataTemplate>
-                    </ItemsControl.ItemTemplate>
-                </ItemsControl>
-            </ScrollViewer>
-            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="12" HorizontalAlignment="Right" VerticalAlignment="Center">
-                <controls:AnchoredChoice Header="站点" ItemsSource="{Binding Sites}" MaxWidth="200"
-                                         DisplayMemberPath="DisplayName" SelectedItem="{Binding SelectedSite, Mode=TwoWay}"
-                                         PlaceholderText="选择站点" />
-                <Button Style="{StaticResource SecondaryButtonStyle}" VerticalAlignment="Center"
-                        AutomationProperties.Name="筛选">
-                    <StackPanel Orientation="Horizontal" Spacing="8">
-                        <FontIcon Glyph="&#xE71C;" FontSize="16" />
-                        <TextBlock Text="筛选" Style="{StaticResource BodyText}" VerticalAlignment="Center" />
-                    </StackPanel>
-                    <Button.Flyout>
-                        <Flyout Placement="BottomEdgeAlignedRight">
-                            <StackPanel Width="280" Spacing="14">
-                                <StackPanel Spacing="{StaticResource SpaceSmall}"
-                                            Visibility="{Binding HasCategoryFilters, Converter={StaticResource BoolToVisibility}, ConverterParameter=Inverse}">
-                                    <controls:AnchoredChoice Header="类型" ItemsSource="{Binding TypeFilters}"
-                                                             SelectedItem="{Binding TypeFilter, Mode=TwoWay}" HorizontalAlignment="Stretch" />
-                                    <TextBox Header="年份" Text="{Binding YearFilter, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
-                                    <controls:AnchoredChoice Header="排序" SelectedIndex="{Binding SortIndex, Mode=TwoWay}"
-                                                             Options="默认|年份" HorizontalAlignment="Stretch" />
+        <!-- 分类与筛选坞：常规态为极简 Hairline 带，滚动后平滑转入悬浮磨砂玻璃坞（纯 ThemeResource 自动响应深浅/高对比主题切换） -->
+        <Grid x:Name="FilterDock" Grid.Row="2" Margin="0,10,0,12">
+            <Border x:Name="FilterDockGlass"
+                    Background="{ThemeResource GlassPanelBrush}"
+                    BorderBrush="{ThemeResource GlassEdgeBrush}" BorderThickness="1"
+                    CornerRadius="12" Opacity="0" IsHitTestVisible="False" />
+            <Border x:Name="FilterDockDivider" Height="1"
+                    Background="{ThemeResource DividerBrush}"
+                    VerticalAlignment="Bottom" IsHitTestVisible="False" />
+            <Grid x:Name="FilterBar" Padding="0,6,0,12">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <ScrollViewer HorizontalScrollMode="Enabled" HorizontalScrollBarVisibility="Hidden"
+                              VerticalScrollMode="Disabled" VerticalAlignment="Center">
+                    <ItemsControl ItemsSource="{Binding Categories}">
+                        <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <StackPanel Orientation="Horizontal" />
+                            </ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <ToggleButton Style="{StaticResource FilterChipStyle}" Content="{Binding Name}" Tag="{Binding}"
+                                              IsChecked="{Binding IsSelected, Mode=OneWay}"
+                                              Click="OnCategoryPillClick" Margin="0,0,8,0" />
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </ScrollViewer>
+                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="10" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="12,0,0,0">
+                    <controls:AnchoredChoice Header="站点" ItemsSource="{Binding Sites}" MaxWidth="204"
+                                             DisplayMemberPath="DisplayName" SelectedItem="{Binding SelectedSite, Mode=TwoWay}"
+                                             PlaceholderText="选择站点" />
+                    <Button x:Name="FilterButton" Style="{StaticResource SecondaryButtonStyle}" VerticalAlignment="Center"
+                            AutomationProperties.Name="筛选">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <controls:LineIcon PathData="{StaticResource IconFilter}" IconSize="16" />
+                            <TextBlock Text="筛选" Style="{StaticResource SecondaryText}"
+                                       Foreground="{ThemeResource PrimaryTextBrush}" VerticalAlignment="Center" />
+                        </StackPanel>
+                        <Button.Flyout>
+                            <Flyout Placement="BottomEdgeAlignedRight">
+                                <StackPanel Width="284" Spacing="14">
+                                    <StackPanel Spacing="{StaticResource SpaceSmall}"
+                                                Visibility="{Binding HasCategoryFilters, Converter={StaticResource BoolToVisibility}, ConverterParameter=Inverse}">
+                                        <controls:AnchoredChoice Header="类型" ItemsSource="{Binding TypeFilters}"
+                                                                 SelectedItem="{Binding TypeFilter, Mode=TwoWay}" HorizontalAlignment="Stretch" />
+                                        <TextBox Header="年份" Text="{Binding YearFilter, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                                        <controls:AnchoredChoice Header="排序" SelectedIndex="{Binding SortIndex, Mode=TwoWay}"
+                                                                 Options="默认|年份" HorizontalAlignment="Stretch" />
+                                    </StackPanel>
+                                    <ItemsControl ItemsSource="{Binding CategoryFilters}"
+                                                  Visibility="{Binding HasCategoryFilters, Converter={StaticResource BoolToVisibility}}">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate>
+                                                <controls:AnchoredChoice Header="{Binding Name}" ItemsSource="{Binding Values}" DisplayMemberPath="Name"
+                                                                         SelectedItem="{Binding Selected, Mode=TwoWay}" HorizontalAlignment="Stretch" Margin="0,0,0,8" />
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
                                 </StackPanel>
-                                <ItemsControl ItemsSource="{Binding CategoryFilters}"
-                                              Visibility="{Binding HasCategoryFilters, Converter={StaticResource BoolToVisibility}}">
-                                    <ItemsControl.ItemTemplate>
-                                        <DataTemplate>
-                                            <controls:AnchoredChoice Header="{Binding Name}" ItemsSource="{Binding Values}" DisplayMemberPath="Name"
-                                                                     SelectedItem="{Binding Selected, Mode=TwoWay}" HorizontalAlignment="Stretch" Margin="0,0,0,8" />
-                                        </DataTemplate>
-                                    </ItemsControl.ItemTemplate>
-                                </ItemsControl>
-                            </StackPanel>
-                        </Flyout>
-                    </Button.Flyout>
-                </Button>
-            </StackPanel>
+                            </Flyout>
+                        </Button.Flyout>
+                    </Button>
+                </StackPanel>
+            </Grid>
         </Grid>
 
-        <ProgressBar Grid.Row="3" IsIndeterminate="{Binding IsLoading}" Height="3" Margin="0,0,0,12"
-                     Foreground="{ThemeResource AccentFillBrush}"
+        <ProgressBar Grid.Row="3" IsIndeterminate="{Binding IsLoading}" Height="2" Margin="0,0,0,10"
+                     Foreground="{ThemeResource VermilionBrush}"
                      Visibility="{Binding IsLoading, Converter={StaticResource BoolToVisibility}}" />
 
-        <!-- 海报流 -->
+        <!-- 画框质感海报网格：内嵌艺术图景微缩放 + 磨砂圆镜播放徽章 -->
         <Grid Grid.Row="4">
             <GridView x:Name="Posters" AutomationProperties.Name="点播海报" Loaded="OnPostersLoaded"
                       Unloaded="OnPostersUnloaded" ItemsSource="{Binding Items}" SelectionMode="None"
@@ -189,7 +212,7 @@
                       ScrollViewer.IsVerticalScrollChainingEnabled="False">
                 <GridView.ItemsPanel>
                     <ItemsPanelTemplate>
-                        <ItemsWrapGrid ItemWidth="206" ItemHeight="346" Orientation="Horizontal" />
+                        <ItemsWrapGrid ItemWidth="206" ItemHeight="350" Orientation="Horizontal" />
                     </ItemsPanelTemplate>
                 </GridView.ItemsPanel>
                 <GridView.ItemContainerStyle>
@@ -205,52 +228,56 @@
                         <Button Padding="0" BorderThickness="0" Background="Transparent"
                                 HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
                                 AutomationProperties.Name="{Binding Item.Name}"
-                                Margin="0,4,18,18" Click="OnCardClick"
+                                Margin="0,4,18,20" Click="OnCardClick"
                                 PointerEntered="OnCardIn" PointerExited="OnCardOut"
                                 PointerPressed="OnCardPressed" PointerReleased="OnCardReleased" PointerCanceled="OnCardReleased">
-                            <Grid RowSpacing="8">
+                            <Grid RowSpacing="9">
                                 <Grid.RowDefinitions>
-                                    <RowDefinition Height="268" />
+                                    <RowDefinition Height="270" />
                                     <RowDefinition Height="Auto" />
                                     <RowDefinition Height="Auto" />
                                 </Grid.RowDefinitions>
 
                                 <Border x:Name="PosterFrame" Grid.Row="0" CornerRadius="{StaticResource RadiusCard}"
-                                        BorderThickness="1" BorderBrush="{ThemeResource SubtleBorderBrush}"
+                                        BorderThickness="1" BorderBrush="{ThemeResource GlassEdgeBrush}"
                                         Background="{ThemeResource PosterPlaceholderBrush}">
                                     <Grid>
-                                        <FontIcon Glyph="&#xE8B9;" FontSize="30"
-                                                  Foreground="{ThemeResource TertiaryTextBrush}"
-                                                  HorizontalAlignment="Center" VerticalAlignment="Center" />
-                                        <Image Source="{Binding Poster}" Stretch="UniformToFill" controls:PosterImage.AutoFit="True" />
-                                        <Rectangle VerticalAlignment="Bottom" Height="56" IsHitTestVisible="False">
+                                        <controls:LineIcon PathData="{StaticResource IconFilm}" IconSize="30"
+                                                           Foreground="{ThemeResource TertiaryTextBrush}"
+                                                           HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                        <Image x:Name="PosterArt" Source="{Binding Poster}" Stretch="UniformToFill" controls:PosterImage.AutoFit="True" />
+                                        <Rectangle VerticalAlignment="Bottom" Height="52" IsHitTestVisible="False">
                                             <Rectangle.Fill>
                                                 <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
-                                                    <GradientStop Color="#00090B10" Offset="0" />
-                                                    <GradientStop Color="#7A090B10" Offset="1" />
+                                                    <GradientStop Color="#000B0B0D" Offset="0" />
+                                                    <GradientStop Color="#6E0B0B0D" Offset="1" />
                                                 </LinearGradientBrush>
                                             </Rectangle.Fill>
                                         </Rectangle>
                                         <Border Visibility="{Binding Item.Remarks, Converter={StaticResource StringToVisibility}}"
-                                                Background="#D6090B10" BorderBrush="#26FFFFFF" BorderThickness="1"
-                                                CornerRadius="7" Padding="7,3"
+                                                Background="{ThemeResource GlassDarkBadgeBrush}" BorderBrush="#2EFFFFFF" BorderThickness="1"
+                                                CornerRadius="5" Padding="7,3"
                                                 HorizontalAlignment="Left" VerticalAlignment="Top" Margin="9">
                                             <TextBlock Text="{Binding Item.Remarks}" FontSize="{StaticResource FontSizeMeta}"
-                                                       FontWeight="SemiBold" Foreground="#FFF5F2EC" MaxWidth="112" TextTrimming="CharacterEllipsis" />
+                                                       FontWeight="SemiBold" Foreground="{ThemeResource GlassDarkBadgeInkBrush}" MaxWidth="112" TextTrimming="CharacterEllipsis" />
                                         </Border>
                                         <Border Visibility="{Binding Rating, Converter={StaticResource StringToVisibility}}"
-                                                Background="#D6090B10" BorderBrush="#26FFFFFF" BorderThickness="1"
-                                                CornerRadius="7" Padding="7,3"
+                                                Background="{ThemeResource GlassDarkBadgeBrush}" BorderBrush="#2EFFFFFF" BorderThickness="1"
+                                                CornerRadius="5" Padding="7,3"
                                                 HorizontalAlignment="Right" VerticalAlignment="Top" Margin="9">
-                                            <TextBlock Text="{Binding Rating}" FontSize="{StaticResource FontSizeMeta}"
-                                                       FontWeight="SemiBold" Foreground="{ThemeResource RatingBrush}" />
+                                            <StackPanel Orientation="Horizontal" Spacing="4">
+                                                <Ellipse Width="4.5" Height="4.5" Fill="{ThemeResource VermilionBrush}" VerticalAlignment="Center" />
+                                                <TextBlock Text="{Binding Rating}" Style="{StaticResource MonoMetaText}"
+                                                           FontWeight="SemiBold" Foreground="{ThemeResource GlassDarkBadgeInkBrush}" />
+                                            </StackPanel>
                                         </Border>
-                                        <Grid x:Name="PlayOverlay" Background="#80090B10" Opacity="0">
-                                            <Border x:Name="PlayBadge" Width="50" Height="50" CornerRadius="25"
-                                                    Background="{ThemeResource AccentFillBrush}"
+                                        <!-- 磨砂圆镜播放浮层 -->
+                                        <Grid x:Name="PlayOverlay" Background="#660B0B0D" Opacity="0">
+                                            <Border x:Name="PlayBadge" Width="52" Height="52" CornerRadius="26"
+                                                    Background="#E8F4F3EE" BorderBrush="#66FFFFFF" BorderThickness="1"
                                                     HorizontalAlignment="Center" VerticalAlignment="Center">
-                                                <FontIcon Glyph="&#xE768;" FontSize="19" Margin="2,0,0,0"
-                                                          Foreground="{ThemeResource AccentInkBrush}" />
+                                                <controls:LineIcon PathData="{StaticResource IconPlaySolid}" IconSize="20" IsFilled="True"
+                                                                   Margin="2,0,0,0" Foreground="#0D0D10" />
                                             </Border>
                                         </Grid>
                                     </Grid>
@@ -258,7 +285,7 @@
 
                                 <TextBlock Grid.Row="1" Text="{Binding Item.Name}" Style="{StaticResource CardTitleText}" MaxLines="1" />
                                 <StackPanel Grid.Row="2" Orientation="Horizontal" Spacing="6">
-                                    <TextBlock Text="{Binding Item.Year}" Style="{StaticResource MetaText}"
+                                    <TextBlock Text="{Binding Item.Year}" Style="{StaticResource MonoMetaText}"
                                                Visibility="{Binding Item.Year, Converter={StaticResource StringToVisibility}}" />
                                     <TextBlock Text="·" Style="{StaticResource MetaText}"
                                                Visibility="{Binding Item.Year, Converter={StaticResource StringToVisibility}}" />
@@ -272,16 +299,14 @@
             </GridView>
 
             <Button x:Name="BackToTop" Visibility="Collapsed" Click="OnTopClick"
+                    Style="{StaticResource GlassFabButtonStyle}"
                     AutomationProperties.Name="回到顶部" ToolTipService.ToolTip="回到顶部"
-                    Width="44" Height="44" Padding="0" CornerRadius="22"
-                    HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,6,18"
-                    Background="{ThemeResource SurfaceBrush}" BorderBrush="{ThemeResource StrongBorderBrush}"
-                    BorderThickness="1">
-                <FontIcon Glyph="&#xE74A;" FontSize="18" />
+                    HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,8,18">
+                <controls:LineIcon PathData="{StaticResource IconArrowUp}" IconSize="18" />
             </Button>
         </Grid>
 
-        <StackPanel Grid.Row="5" Orientation="Horizontal" HorizontalAlignment="Center" Spacing="16" Margin="0,16,0,0">
+        <StackPanel Grid.Row="5" Orientation="Horizontal" HorizontalAlignment="Center" Spacing="16" Margin="0,14,0,0">
             <TextBlock Text="{Binding StatusMessage}" Style="{StaticResource MetaText}" VerticalAlignment="Center"
                        MaxWidth="460" TextTrimming="CharacterEllipsis" />
             <Button Content="完成验证" Style="{StaticResource PrimaryButtonStyle}"

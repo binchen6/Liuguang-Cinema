@@ -16,7 +16,8 @@ public sealed class AnchoredChoice : DropDownButton
     };
     private readonly Border _labelDivider = new()
     {
-        Width = 1, Margin = new Thickness(8, 9, 8, 9), Visibility = Visibility.Collapsed, Opacity = 0.28
+        Width = 1, Height = 14, Margin = new Thickness(8, 0, 8, 0),
+        VerticalAlignment = VerticalAlignment.Center, Visibility = Visibility.Collapsed, Opacity = 0.28
     };
     private readonly MenuFlyout _menu = new() { Placement = FlyoutPlacementMode.BottomEdgeAlignedLeft };
     private bool _synchronizing;
@@ -41,7 +42,14 @@ public sealed class AnchoredChoice : DropDownButton
         FontSize = Size("FontSizeSecondary");
         Flyout = _menu;
         _menu.Opening += (_, _) => BuildMenu();
-        Loaded += (_, _) => Synchronize();
+        Loaded += (_, _) => { UpdateDividerBrush(); Synchronize(); };
+        ActualThemeChanged += (_, _) => UpdateDividerBrush();
+        TV.Views.MotionService.AttachTactile(this, 1.015f, 0.975f, 0f);
+    }
+
+    private void UpdateDividerBrush()
+    {
+        _labelDivider.Background = Foreground;
     }
 
     private static double Size(string key) =>

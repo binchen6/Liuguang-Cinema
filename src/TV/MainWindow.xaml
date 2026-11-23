@@ -1,45 +1,48 @@
 <Window
     x:Class="TV.MainWindow"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:controls="using:TV.Controls">
     <Grid x:Name="ShellRoot" Background="{ThemeResource AppBackgroundBrush}">
         <Grid.ColumnDefinitions>
-            <ColumnDefinition x:Name="PaneColumn" Width="196" />
+            <ColumnDefinition x:Name="PaneColumn" Width="208" />
             <ColumnDefinition Width="*" />
         </Grid.ColumnDefinitions>
 
-        <!-- 侧栏：品牌 + 全局搜索 + 一级导航（点播/直播/媒体库/云盘/投屏）+ 设置 -->
-        <Border x:Name="NavPane" Grid.Column="0" Background="{ThemeResource SurfaceBrush}"
-                BorderBrush="{ThemeResource DividerBrush}" BorderThickness="0,0,1,0">
+        <!-- 极克制建筑宣纸/暗室底纹：为全站磨砂玻璃提供柔和透光纵深 -->
+        <controls:LiquidBackdrop Grid.ColumnSpan="2" />
+
+        <!-- 磨砂玻璃导航导轨：光隙品牌 + 键帽搜索 + 画册编号一级导航 + 设置 -->
+        <Border x:Name="NavPane" Grid.Column="0"
+                Background="{ThemeResource GlassRailBrush}"
+                BorderBrush="{ThemeResource GlassEdgeBrush}"
+                BorderThickness="0,0,1,0">
             <Grid x:Name="NavPaneContent">
                 <Grid.RowDefinitions>
-                    <RowDefinition Height="52" />
+                    <RowDefinition Height="64" />
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="*" />
                     <RowDefinition Height="Auto" />
                 </Grid.RowDefinitions>
 
-                <StackPanel x:Name="BrandBlock" Grid.Row="0" Orientation="Horizontal" Spacing="11"
-                            Margin="20,0,0,0" VerticalAlignment="Center" IsHitTestVisible="False">
-                    <Border Width="28" Height="28" CornerRadius="8" VerticalAlignment="Center">
-                        <Border.Background>
-                            <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
-                                <GradientStop Color="#FFD68A" Offset="0" />
-                                <GradientStop Color="#E8A442" Offset="1" />
-                            </LinearGradientBrush>
-                        </Border.Background>
-                        <FontIcon Glyph="&#xE768;" FontSize="12" Margin="2,0,0,0"
-                                  Foreground="{ThemeResource AccentInkBrush}"
-                                  HorizontalAlignment="Center" VerticalAlignment="Center" />
-                    </Border>
-                    <TextBlock x:Name="BrandText" Text="流光影院" FontSize="{StaticResource FontSizeCardTitle}" FontWeight="SemiBold"
-                               FontFamily="{StaticResource DisplayFontFamily}" CharacterSpacing="20"
-                               Foreground="{ThemeResource PrimaryTextBrush}" VerticalAlignment="Center" />
+                <!-- 品牌标识：纯矢量「光隙 · Aperture」+ 画册体字标 -->
+                <StackPanel x:Name="BrandBlock" Grid.Row="0" Orientation="Horizontal" Spacing="12"
+                            Margin="20,4,12,0" VerticalAlignment="Center" IsHitTestVisible="False">
+                    <controls:BrandMark MarkSize="30" VerticalAlignment="Center" />
+                    <StackPanel x:Name="BrandTextGroup" Spacing="0" VerticalAlignment="Center">
+                        <TextBlock x:Name="BrandText" Text="流光影院"
+                                   FontSize="{StaticResource FontSizeCardTitle}" FontWeight="SemiBold"
+                                   FontFamily="{StaticResource DisplayFontFamily}" CharacterSpacing="30"
+                                   Foreground="{ThemeResource PrimaryTextBrush}" />
+                        <TextBlock x:Name="BrandSubText" Text="LIUGUANG"
+                                   FontFamily="{StaticResource MonoFontFamily}" FontSize="12"
+                                   CharacterSpacing="140" Foreground="{ThemeResource TertiaryTextBrush}" />
+                    </StackPanel>
                 </StackPanel>
 
-                <!-- 全局快捷搜索入口（Ctrl+F），窄窗自动折叠为图标 -->
+                <!-- 全局快捷搜索入口（Ctrl+F），窄窗折叠为磨砂图标 -->
                 <Button x:Name="NavSearchButton" Grid.Row="1" Style="{StaticResource SecondaryButtonStyle}"
-                        Margin="10,4,10,6" Height="38" MinHeight="38" Padding="12,0"
+                        Margin="12,4,12,10" Height="40" MinHeight="40" Padding="12,0"
                         HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
                         Click="OnSearchNavClick"
                         ToolTipService.ToolTip="全站搜索 (Ctrl+F)" AutomationProperties.Name="全站搜索">
@@ -49,15 +52,21 @@
                             <ColumnDefinition Width="*" />
                             <ColumnDefinition Width="Auto" />
                         </Grid.ColumnDefinitions>
-                        <FontIcon Glyph="&#xE721;" FontSize="15" Foreground="{ThemeResource SecondaryTextBrush}" VerticalAlignment="Center" />
+                        <controls:LineIcon PathData="{StaticResource IconSearch}" IconSize="15"
+                                           Foreground="{ThemeResource SecondaryTextBrush}" VerticalAlignment="Center" />
                         <TextBlock x:Name="NavSearchLabel" Grid.Column="1" Text="搜索片库" Style="{StaticResource SecondaryText}"
                                    VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
-                        <TextBlock x:Name="NavSearchHint" Grid.Column="2" Text="Ctrl+F" Style="{StaticResource MetaText}"
-                                   Opacity="0.65" VerticalAlignment="Center" />
+                        <Border x:Name="NavSearchHint" Grid.Column="2" CornerRadius="4"
+                                Background="{ThemeResource SurfaceAltBrush}"
+                                BorderBrush="{ThemeResource SubtleBorderBrush}" BorderThickness="1"
+                                Padding="6,2" VerticalAlignment="Center">
+                            <TextBlock Text="Ctrl F" FontFamily="{StaticResource MonoFontFamily}"
+                                       FontSize="12" Foreground="{ThemeResource TertiaryTextBrush}" />
+                        </Border>
                     </Grid>
                 </Button>
 
-                <ListView x:Name="NavList" Grid.Row="2" Margin="0,4,0,0" Padding="0,0,0,8"
+                <ListView x:Name="NavList" Grid.Row="2" Margin="0,2,0,0" Padding="0,0,0,8"
                           Background="Transparent" BorderThickness="0"
                           SelectionMode="Single" IsItemClickEnabled="False"
                           ScrollViewer.VerticalScrollBarVisibility="Disabled"
@@ -69,56 +78,99 @@
                         <TransitionCollection />
                     </ListView.ItemContainerTransitions>
                     <ListViewItem Tag="vod" AutomationProperties.Name="点播" ToolTipService.ToolTip="点播">
-                        <StackPanel x:Name="NavContentVod" Orientation="Horizontal" Spacing="14">
-                            <FontIcon Glyph="&#xE8B2;" FontSize="19" Width="24" />
-                            <TextBlock x:Name="NavLabelVod" Text="点播" Style="{StaticResource BodyText}" VerticalAlignment="Center" />
-                        </StackPanel>
+                        <Grid x:Name="NavContentVod" ColumnSpacing="12">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <controls:LineIcon PathData="{StaticResource IconVod}" IconSize="19" Width="22" />
+                            <TextBlock x:Name="NavLabelVod" Grid.Column="1" Text="点播" Style="{StaticResource BodyText}" VerticalAlignment="Center" />
+                            <TextBlock x:Name="NavIdxVod" Grid.Column="2" Text="01" Style="{StaticResource MonoMetaText}" Opacity="0.45" VerticalAlignment="Center" />
+                        </Grid>
                     </ListViewItem>
                     <ListViewItem Tag="live" AutomationProperties.Name="直播" ToolTipService.ToolTip="直播">
-                        <StackPanel x:Name="NavContentLive" Orientation="Horizontal" Spacing="14">
-                            <FontIcon Glyph="&#xE7F4;" FontSize="19" Width="24" />
-                            <TextBlock x:Name="NavLabelLive" Text="直播" Style="{StaticResource BodyText}" VerticalAlignment="Center" />
-                        </StackPanel>
+                        <Grid x:Name="NavContentLive" ColumnSpacing="12">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <controls:LineIcon PathData="{StaticResource IconLive}" IconSize="19" Width="22" />
+                            <TextBlock x:Name="NavLabelLive" Grid.Column="1" Text="直播" Style="{StaticResource BodyText}" VerticalAlignment="Center" />
+                            <TextBlock x:Name="NavIdxLive" Grid.Column="2" Text="02" Style="{StaticResource MonoMetaText}" Opacity="0.45" VerticalAlignment="Center" />
+                        </Grid>
                     </ListViewItem>
                     <ListViewItem Tag="library" AutomationProperties.Name="媒体库" ToolTipService.ToolTip="媒体库">
-                        <StackPanel x:Name="NavContentLibrary" Orientation="Horizontal" Spacing="14">
-                            <FontIcon Glyph="&#xE8A9;" FontSize="19" Width="24" />
-                            <TextBlock x:Name="NavLabelLibrary" Text="媒体库" Style="{StaticResource BodyText}" VerticalAlignment="Center" />
-                        </StackPanel>
+                        <Grid x:Name="NavContentLibrary" ColumnSpacing="12">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <controls:LineIcon PathData="{StaticResource IconLibrary}" IconSize="19" Width="22" />
+                            <TextBlock x:Name="NavLabelLibrary" Grid.Column="1" Text="媒体库" Style="{StaticResource BodyText}" VerticalAlignment="Center" />
+                            <TextBlock x:Name="NavIdxLibrary" Grid.Column="2" Text="03" Style="{StaticResource MonoMetaText}" Opacity="0.45" VerticalAlignment="Center" />
+                        </Grid>
                     </ListViewItem>
                     <ListViewItem Tag="cloud" AutomationProperties.Name="云盘" ToolTipService.ToolTip="我的云盘">
-                        <StackPanel x:Name="NavContentCloud" Orientation="Horizontal" Spacing="14">
-                            <FontIcon Glyph="&#xE753;" FontSize="19" Width="24" />
-                            <TextBlock x:Name="NavLabelCloud" Text="云盘" Style="{StaticResource BodyText}" VerticalAlignment="Center" />
-                        </StackPanel>
+                        <Grid x:Name="NavContentCloud" ColumnSpacing="12">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <controls:LineIcon PathData="{StaticResource IconCloud}" IconSize="19" Width="22" />
+                            <TextBlock x:Name="NavLabelCloud" Grid.Column="1" Text="云盘" Style="{StaticResource BodyText}" VerticalAlignment="Center" />
+                            <TextBlock x:Name="NavIdxCloud" Grid.Column="2" Text="04" Style="{StaticResource MonoMetaText}" Opacity="0.45" VerticalAlignment="Center" />
+                        </Grid>
                     </ListViewItem>
                     <ListViewItem Tag="cast" AutomationProperties.Name="投屏" ToolTipService.ToolTip="投屏">
-                        <StackPanel x:Name="NavContentCast" Orientation="Horizontal" Spacing="14">
-                            <FontIcon Glyph="&#xEC15;" FontSize="19" Width="24" />
-                            <TextBlock x:Name="NavLabelCast" Text="投屏" Style="{StaticResource BodyText}" VerticalAlignment="Center" />
-                        </StackPanel>
+                        <Grid x:Name="NavContentCast" ColumnSpacing="12">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <controls:LineIcon PathData="{StaticResource IconCast}" IconSize="19" Width="22" />
+                            <TextBlock x:Name="NavLabelCast" Grid.Column="1" Text="投屏" Style="{StaticResource BodyText}" VerticalAlignment="Center" />
+                            <TextBlock x:Name="NavIdxCast" Grid.Column="2" Text="05" Style="{StaticResource MonoMetaText}" Opacity="0.45" VerticalAlignment="Center" />
+                        </Grid>
                     </ListViewItem>
                 </ListView>
 
-                <StackPanel Grid.Row="3" Margin="0,0,0,12">
-                    <Border Height="1" Background="{ThemeResource DividerBrush}" Margin="16,4,16,8" />
-                    <Button x:Name="SettingsButton" Style="{StaticResource GhostButtonStyle}"
-                            Margin="8,0,8,0" Height="{StaticResource NavItemHeight}" Padding="17,0,14,0"
-                            HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
-                            Click="OnSettingsClick" AutomationProperties.Name="设置" ToolTipService.ToolTip="设置">
-                        <StackPanel x:Name="NavContentSettings" Orientation="Horizontal" Spacing="14">
-                            <FontIcon Glyph="&#xE713;" FontSize="19" Width="24" />
-                            <TextBlock x:Name="NavLabelSettings" Text="设置" Style="{StaticResource BodyText}" VerticalAlignment="Center" />
-                        </StackPanel>
-                    </Button>
+                <StackPanel Grid.Row="3" Margin="0,0,0,14">
+                    <Border Height="1" Background="{ThemeResource DividerBrush}" Margin="16,4,16,10" />
+                    <Grid Margin="10,0,10,0">
+                        <Border x:Name="SettingsSelectionPlate"
+                                Background="{ThemeResource GlassActivePlateBrush}"
+                                BorderBrush="{ThemeResource SubtleBorderBrush}"
+                                BorderThickness="1" CornerRadius="8"
+                                Opacity="0" IsHitTestVisible="False" />
+                        <Button x:Name="SettingsButton" Style="{StaticResource GhostButtonStyle}"
+                                Height="{StaticResource NavItemHeight}" Padding="17,0,14,0"
+                                HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
+                                Click="OnSettingsClick" AutomationProperties.Name="设置" ToolTipService.ToolTip="设置">
+                            <Grid x:Name="NavContentSettings" ColumnSpacing="12">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <controls:LineIcon PathData="{StaticResource IconSettings}" IconSize="19" Width="22" />
+                                <TextBlock x:Name="NavLabelSettings" Grid.Column="1" Text="设置" Style="{StaticResource BodyText}" VerticalAlignment="Center" />
+                                <TextBlock x:Name="NavIdxSettings" Grid.Column="2" Text="06" Style="{StaticResource MonoMetaText}" Opacity="0.45" VerticalAlignment="Center" />
+                            </Grid>
+                        </Button>
+                    </Grid>
                 </StackPanel>
 
-                <!-- 物理弹簧滑行的全局侧栏指示条（跨点播/直播/媒体库/云盘/投屏/设置丝滑过渡） -->
+                <!-- 物理弹性变形朱砂导航滑轨（随跳转距离轻微拉伸并丝滑落定） -->
                 <Border x:Name="FloatingNavIndicator" Grid.RowSpan="4"
-                        Width="3.5" Height="22" CornerRadius="2"
+                        Width="3" Height="20" CornerRadius="1.5"
                         Background="{ThemeResource SelectionIndicatorBrush}"
                         HorizontalAlignment="Left" VerticalAlignment="Top"
-                        Margin="8,0,0,0" Opacity="0" IsHitTestVisible="False" />
+                        Margin="10,0,0,0" Opacity="0" IsHitTestVisible="False" />
             </Grid>
         </Border>
 
@@ -137,12 +189,12 @@
                 </Grid.ColumnDefinitions>
 
                 <Button x:Name="BackButton" Grid.Column="0" Style="{StaticResource IconButtonStyle}"
-                        Background="Transparent" BorderThickness="0" Opacity="0" IsHitTestVisible="False"
-                        Margin="12,0,0,0" Click="OnBackClick"
+                        Background="{ThemeResource GlassChipBrush}" BorderBrush="{ThemeResource GlassEdgeBrush}"
+                        BorderThickness="1" CornerRadius="20" Opacity="0" IsHitTestVisible="False"
+                        Margin="16,0,0,0" Click="OnBackClick"
                         ToolTipService.ToolTip="返回 (Alt+←)" AutomationProperties.Name="返回">
-                    <FontIcon Glyph="&#xE72B;" FontSize="18" />
+                    <controls:LineIcon PathData="{StaticResource IconBack}" IconSize="17" />
                 </Button>
-
             </Grid>
 
             <Frame x:Name="ContentFrame" Grid.Row="1" Background="Transparent" />
