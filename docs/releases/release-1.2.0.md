@@ -8,7 +8,7 @@
 
 - 安装包在普通 Windows 目录生成，打包脚本核对发布目录及 EXE 的完整性标记。原安装路径已完成 1.1.8 到 1.2.0 的静默覆盖，验证卸载记录、开始菜单快捷方式、965 个文件哈希和用户数据库。
 - 打包保留临时目录回退。现用安装目录拒绝写入时，安装器在替换文件前报告 Windows 错误码。
-- 下载遇到不完整的 HTTP 206 时保留已有文件。比特的单页分类到达末页后结束加载，奥特仍可按原站翻页。[开发指南](../development.md) · [后台调试证据](../archive/site-verification-history.md) · [发布包校验](../../artifacts/qa-site-fidelity-20261121/installer-destination/standard-release-manifest.csv)
+- 下载遇到不完整的 HTTP 206 时保留已有文件。比特的单页分类到达末页后结束加载，奥特仍可按原站翻页。[开发指南](../development.md) · [后台调试证据](../archive/site-verification-history.md) · 发布包校验记录（历史本地验收）
 
 ## 一、视觉与布局
 

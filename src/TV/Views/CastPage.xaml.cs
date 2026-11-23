@@ -232,7 +232,7 @@ public sealed partial class CastPage : Page
         PreviewPosition.IsEnabled = session.CanSeek;
         PreviewPosition.Maximum = Math.Max(1, session.NaturalDuration.TotalSeconds);
         PreviewPosition.Value = Math.Clamp(session.Position.TotalSeconds, 0, PreviewPosition.Maximum);
-        PreviewTime.Text = session.Position.ToString(session.Position.TotalHours >= 1 ? @"h\:mm\:ss" : @"mm\:ss");
+        PreviewTime.Text = session.Position.ToString(session.Position.TotalHours >= 1 ? @"h\:mm\:ss" : @"mm\:ss", System.Globalization.CultureInfo.InvariantCulture);
         _showingPosition = false;
         StatusText.Text = _incoming is not null ? "待接收" : state switch
         {

@@ -48,9 +48,9 @@ public sealed class CleanupService(DatabaseService database)
         categories.Add(new CleanupCategory(Subtitles, "在线与 AI 字幕缓存", "包含在线字幕、AI 生成/翻译字幕及临时提取音轨，可随时重新生成", subtitle.Bytes, subtitle.Files, true));
         var temporary = await Task.Run(() => Measure(Path.Combine(AppPaths.Root, "cache"), path =>
             !IsUnder(path, AppPaths.Images) && !IsUnder(path, subtitles) && !IsUnder(path, aiSubtitles) &&
-            (Path.GetFileName(path).StartsWith("cast-", StringComparison.OrdinalIgnoreCase) ||
+            (IsUnder(path, AppPaths.UpdateCache) || Path.GetFileName(path).StartsWith("cast-", StringComparison.OrdinalIgnoreCase) ||
             Path.GetExtension(path) is ".tmp" or ".partial")), token);
-        categories.Add(new CleanupCategory(AppTemporary, "应用临时文件", "投屏接收残留和未完成的应用缓存", temporary.Bytes, temporary.Files, true));
+        categories.Add(new CleanupCategory(AppTemporary, "应用临时文件", "投屏接收残留、更新安装包和未完成的应用缓存", temporary.Bytes, temporary.Files, true));
         var directory = await DownloadDirectoryAsync(token);
         var partial = await Task.Run(() => Measure(directory, path => path.EndsWith(".partial", StringComparison.OrdinalIgnoreCase), recursive: false), token);
         categories.Add(new CleanupCategory(PartialDownloads, "未完成下载", "仅删除下载目录中的 .partial 文件", partial.Bytes, partial.Files));
@@ -117,7 +117,7 @@ public sealed class CleanupService(DatabaseService database)
             var subtitles = Path.Combine(AppPaths.Root, "cache", "subtitles");
             var aiSubtitles = Path.Combine(AppPaths.Root, "cache", "ai-subtitles");
             await DeleteFilesAsync(Files(Path.Combine(AppPaths.Root, "cache"), path => !IsUnder(path, images) && !IsUnder(path, subtitles) && !IsUnder(path, aiSubtitles) &&
-                (Path.GetFileName(path).StartsWith("cast-", StringComparison.OrdinalIgnoreCase) || Path.GetExtension(path) is ".tmp" or ".partial")));
+                (IsUnder(path, AppPaths.UpdateCache) || Path.GetFileName(path).StartsWith("cast-", StringComparison.OrdinalIgnoreCase) || Path.GetExtension(path) is ".tmp" or ".partial")));
         }
         var directory = await DownloadDirectoryAsync(token);
         if (ids.Contains(PartialDownloads))
@@ -181,7 +181,7 @@ public sealed class CleanupService(DatabaseService database)
     private async Task<string> DownloadDirectoryAsync(CancellationToken token)
     {
         var configured = await database.GetSettingAsync("downloads.defaultFolder", token);
-        return string.IsNullOrWhiteSpace(configured) ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyVideos), "流光影院") : configured;
+        return string.IsNullOrWhiteSpace(configured) ? AppPaths.DefaultDownloads : configured;
     }
 
     private static (long Bytes, int Files) Measure(string root, Func<string, bool> predicate, bool recursive = true, int limit = 10000)

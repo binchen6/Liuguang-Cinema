@@ -233,7 +233,7 @@ public sealed partial class LiveViewModel : ObservableObject
         }
         SelectedItem = selectedName is null
             ? null
-            : Channels.FirstOrDefault(item => item.Name.Equals(selectedName, StringComparison.CurrentCultureIgnoreCase));
+            : Channels.FirstOrDefault(item => item.Name.Equals(selectedName, StringComparison.OrdinalIgnoreCase));
         HasChannels = Channels.Count > 0;
         ChannelsSummary = Channels.Count == 0 ? "没有匹配的频道" : $"共 {Channels.Count} 个频道";
     }

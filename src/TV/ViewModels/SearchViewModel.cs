@@ -359,7 +359,7 @@ public sealed partial class SearchViewModel(AppServices services, Action<VodCard
     private async Task RememberAsync(string query)
     {
         await (_readHistory ??= ReadHistoryAsync());
-        var match = RecentSearches.FirstOrDefault(word => word.Equals(query, StringComparison.CurrentCultureIgnoreCase));
+        var match = RecentSearches.FirstOrDefault(word => word.Equals(query, StringComparison.OrdinalIgnoreCase));
         if (match is not null) RecentSearches.Remove(match);
         RecentSearches.Insert(0, query);
         if (RecentSearches.Count > 10) RecentSearches.RemoveAt(10);

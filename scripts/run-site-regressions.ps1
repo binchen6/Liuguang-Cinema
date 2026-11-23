@@ -27,7 +27,7 @@ $app, $WindowBaseline | ForEach-Object {
 $summary = Join-Path $report.FullName 'results.csv'
 'script,status,exit_code,elapsed_seconds' | Set-Content -LiteralPath $summary -Encoding UTF8
 $failed = $false
-foreach ($name in 'workspace_layout','search','cast','window','close_dialog','recommendation','library','popup','hdr_desktop') {
+foreach ($name in 'workspace_layout','search','cast','window','close_dialog','recommendation','library','poster','update','popup','hdr_desktop') {
     $arguments = @("artifacts/qa-fixture/${name}_regression.py", $app)
     if ($name -eq 'window') { $arguments += $WindowBaseline }
     $started = Get-Date

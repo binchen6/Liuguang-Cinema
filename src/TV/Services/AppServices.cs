@@ -12,6 +12,7 @@ using TV.Services.Playback;
 using TV.Services.Spider;
 using TV.Services.Vod;
 using TV.Services.Vod.Native;
+using TV.Services.Updates;
 
 namespace TV.Services;
 
@@ -66,6 +67,7 @@ public sealed class AppServices : IDisposable
         Epg = new EpgService(http);
         Douban = new DoubanService(http, Database);
         Images = new ImageCacheService(http, Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread(), dns);
+        Updates = new AppUpdateService(http, dns, Database);
         Resolver = new PlayUrlResolver(http);
         Sniffer = new SniffService(Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread());
         Playback = new PlaybackResolver(this);
@@ -93,6 +95,7 @@ public sealed class AppServices : IDisposable
     public EpgService Epg { get; } = null!;
     public DoubanService Douban { get; } = null!;
     public ImageCacheService Images { get; } = null!;
+    public AppUpdateService Updates { get; } = null!;
     public PlayUrlResolver Resolver { get; } = null!;
     public SniffService Sniffer { get; } = null!;
     public PlaybackResolver Playback { get; }
@@ -117,6 +120,7 @@ public sealed class AppServices : IDisposable
         if (!PlayerOnly)
         {
             Images.Dispose();
+            Updates.Dispose();
             Downloads.Dispose();
             LocalMedia.Dispose();
             CloudLogin.Dispose();

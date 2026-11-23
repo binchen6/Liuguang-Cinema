@@ -316,7 +316,7 @@ public sealed class DatabaseService
         command.CommandText = "SELECT EXISTS(SELECT 1 FROM favorites WHERE id=$id)";
         command.Parameters.AddWithValue("$id", id);
         var value = await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
-        return Convert.ToInt32(value) == 1;
+        return Convert.ToInt64(value, System.Globalization.CultureInfo.InvariantCulture) == 1;
     }
 
     public async Task SetFavoriteAsync(string id, string title, string picture, string kind, string subtitle, string dataJson, bool favorite, CancellationToken cancellationToken = default)

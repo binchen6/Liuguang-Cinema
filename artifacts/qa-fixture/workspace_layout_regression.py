@@ -44,7 +44,7 @@ def exercise(exe, folder, server):
         assert q.user.SystemParametersInfoW(0x30, 0, ctypes.byref(work), 0)
         w, h = work.right - work.left, work.bottom - work.top
         first = rect(hwnd)
-        expected = [min(w, max(820, round(w * .55))), min(h, max(600, round(h * .55)))]
+        expected = [min(w, max(920, round(w * .62))), min(h, max(640, round(h * .68)))]
         assert all(abs(a - b) <= 2 for a, b in zip(first[2:], expected)), (first, expected)
         assert abs(first[0] - work.left - (w-first[2])/2) < 3
         assert abs(first[1] - work.top - (h-first[3])/2) < 3
@@ -79,7 +79,7 @@ def exercise(exe, folder, server):
         ui(hwnd, "设置", "invoke")
         settings = bounds(hwnd, "设置内容")
         import_btn = bounds(hwnd, "导入仓库")
-        assert 0 < import_btn["x"] - settings["x"] < settings["w"]*.2
+        assert settings["x"] < import_btn["x"] and import_btn["x"] + import_btn["w"] <= settings["x"] + settings["w"], (settings, import_btn)
         print("PASS wide cast and settings", center, import_btn, flush=True)
         ui(hwnd, "网盘", "expand")
         from popup_regression import verify

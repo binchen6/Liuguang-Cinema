@@ -7,6 +7,7 @@ using Microsoft.UI.Dispatching;
 using TV.Models;
 using TV.Services;
 using TV.Services.Http;
+using TV.Services.Persistence;
 
 namespace TV.ViewModels;
 
@@ -777,8 +778,7 @@ public sealed partial class VodViewModel : ObservableObject
         try
         {
             var configured = await _services.Database.GetSettingAsync("downloads.defaultFolder", token);
-            var directory = string.IsNullOrWhiteSpace(configured)
-                ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyVideos), "流光影院") : configured;
+            var directory = string.IsNullOrWhiteSpace(configured) ? AppPaths.DefaultDownloads : configured;
             Directory.CreateDirectory(directory);
             for (var index = 0; index < requests.Count; index++)
             {

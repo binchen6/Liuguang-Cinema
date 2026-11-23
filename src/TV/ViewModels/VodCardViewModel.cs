@@ -39,7 +39,7 @@ public sealed partial class VodCardViewModel : ObservableObject
 
     public Task LoadVisualAsync(bool priority = false)
     {
-        if (_visualLoad is not null && (!priority || _priorityLoaded)) return _visualLoad;
+        if (_visualLoad is not null && (Poster is not null || !_visualLoad.IsCompleted) && (!priority || _priorityLoaded)) return _visualLoad;
         if (priority) _priorityLoaded = true;
         _visualLoad = LoadCoreAsync(priority);
         return _visualLoad;

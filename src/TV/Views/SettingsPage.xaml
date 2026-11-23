@@ -932,6 +932,37 @@
                                     </Grid>
                                 </StackPanel>
                             </Border>
+                            <Border Style="{StaticResource SettingsCardStyle}">
+                                <StackPanel Spacing="12">
+                                    <Grid ColumnSpacing="{StaticResource SpaceSmall}">
+                                        <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                        <StackPanel Spacing="{StaticResource SpaceTiny}" VerticalAlignment="Center">
+                                            <TextBlock Text="软件更新" Style="{StaticResource LabelText}" />
+                                            <TextBlock Text="从 GitHub Releases 检查正式版本；下载校验后可自动安装。" Style="{StaticResource MetaText}" TextWrapping="Wrap" />
+                                        </StackPanel>
+                                        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="{StaticResource SpaceMini}" VerticalAlignment="Center">
+                                            <Button Content="下载安装" Command="{Binding ShowUpdateCommand}" Style="{StaticResource PrimaryButtonStyle}"
+                                                    AutomationProperties.Name="下载安装更新"
+                                                    Visibility="{Binding HasAvailableUpdate, Converter={StaticResource BoolToVisibility}}" />
+                                            <Button Content="检查更新" Command="{Binding CheckUpdateCommand}" Style="{StaticResource SecondaryButtonStyle}"
+                                                    AutomationProperties.Name="检查更新" />
+                                        </StackPanel>
+                                    </Grid>
+                                    <Border Height="1" Background="{ThemeResource DividerBrush}" />
+                                    <Grid MinHeight="{StaticResource SettingsRowMinHeight}" ColumnSpacing="{StaticResource SpaceLarge}">
+                                        <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                        <StackPanel VerticalAlignment="Center" Spacing="{StaticResource SpaceTiny}">
+                                            <TextBlock Text="自动检查更新" Style="{StaticResource LabelText}" />
+                                            <TextBlock Text="默认开启；启动时低频检查，播放中不会弹出更新窗口。" Style="{StaticResource MetaText}" TextWrapping="Wrap" />
+                                        </StackPanel>
+                                        <ToggleSwitch Grid.Column="1" IsOn="{Binding AutoCheckUpdates, Mode=TwoWay}" OnContent="" OffContent=""
+                                                      MinWidth="0" HorizontalAlignment="Right" VerticalAlignment="Center"
+                                                      AutomationProperties.Name="自动检查更新" />
+                                    </Grid>
+                                    <ProgressBar Height="3" IsIndeterminate="True" Visibility="{Binding IsCheckingUpdates, Converter={StaticResource BoolToVisibility}}" />
+                                    <TextBlock Text="{Binding UpdateStatus}" Style="{StaticResource MetaText}" TextWrapping="Wrap" />
+                                </StackPanel>
+                            </Border>
                             <StackPanel Orientation="Horizontal" Spacing="{StaticResource SpaceMini}">
                                 <Button Content="打开数据目录" Command="{Binding OpenDataFolderCommand}" Style="{StaticResource SecondaryButtonStyle}" />
                                 <Button Content="查看诊断日志" Command="{Binding OpenDiagnosticsCommand}" Style="{StaticResource SecondaryButtonStyle}" AutomationProperties.Name="查看诊断日志" />

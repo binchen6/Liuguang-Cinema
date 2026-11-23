@@ -48,6 +48,19 @@ jobs:
             "has_cert=false" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
           }
 
+      - name: Download previous release for incremental package
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $version = ([xml](Get-Content 'Directory.Build.props' -Raw)).Project.PropertyGroup.Version
+          $previous = gh release view --json tagName --jq .tagName
+          if ($LASTEXITCODE -eq 0 -and $previous -and $previous -ne "v$version") {
+            New-Item -ItemType Directory -Force 'artifacts/prerequisites/update-base' | Out-Null
+            gh release download $previous --pattern '*-win-x64-portable.zip' --dir 'artifacts/prerequisites/update-base' --clobber
+            if ($LASTEXITCODE -ne 0) { throw 'Failed to download incremental base package' }
+          }
+
       - name: Build installer and portable package
         shell: pwsh
         env:
@@ -80,6 +93,8 @@ jobs:
           subject-path: |
             artifacts/installers/TV-Setup-*-x64.exe
             artifacts/installers/TV-*-win-x64-portable.zip
+            artifacts/installers/TV-Update-*-x64.exe
+            artifacts/installers/TV-Update-*-x64.exe.sha256
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
@@ -89,4 +104,6 @@ jobs:
             artifacts/installers/TV-Setup-*-x64.exe
             artifacts/installers/TV-Setup-*-x64.exe.sha256
             artifacts/installers/TV-*-win-x64-portable.zip
+            artifacts/installers/TV-Update-*-x64.exe
+            artifacts/installers/TV-Update-*-x64.exe.sha256
             artifacts/installers/TV-*-win-x64-portable.zip.sha256

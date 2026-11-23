@@ -5,6 +5,7 @@ param(
     [switch]$MavenOffline,
     [switch]$NoRestore,
     [switch]$SkipPortableZip,
+    [string]$IncrementalBaseZip,
     [string]$ReleaseDirectory,
     [string]$CertThumbprint = $env:TV_SIGN_THUMBPRINT,
     [string]$PfxPath = $env:TV_SIGN_PFX,
@@ -365,6 +366,64 @@ if (-not $SkipPortableZip) {
     $zipHash = Get-FileHash $zipFile.FullName -Algorithm SHA256
     "$($zipHash.Hash.ToLowerInvariant()) *$portableName.zip" | Set-Content "$portableZip.sha256" -Encoding ascii
     Write-Host ("Portable ZIP created: {0} ({1:N2} MB)" -f $zipFile.FullName, ($zipFile.Length / 1MB)) -ForegroundColor Green
+}
+
+if (-not $IncrementalBaseZip) {
+    $baseDirectories = @($release, (Join-Path $root 'artifacts/prerequisites/update-base'))
+    $IncrementalBaseZip = Get-ChildItem -LiteralPath $baseDirectories -Filter 'TV-*-win-x64-portable.zip' -File -ErrorAction SilentlyContinue |
+        Where-Object { $_.Name -ne "$portableName.zip" } |
+        Sort-Object { [regex]::Match($_.Name, '(?<=^TV-)\d+\.\d+\.\d+(?=-win-x64)').Value -as [version] } -Descending |
+        Select-Object -First 1 -ExpandProperty FullName
+}
+if ($IncrementalBaseZip -and (Test-Path -LiteralPath $IncrementalBaseZip)) {
+    $baseExtract = Join-Path $root "artifacts/update-base-$publishId"
+    $patchPublish = Join-Path $root "artifacts/update-patch-$publishId"
+    try {
+        Add-Type -AssemblyName System.IO.Compression.FileSystem
+        [IO.Compression.ZipFile]::ExtractToDirectory((Resolve-Path -LiteralPath $IncrementalBaseZip).Path, $baseExtract)
+        $changedFiles = 0
+        $changedBytes = 0L
+        Get-ChildItem -LiteralPath $publish -Recurse -File | ForEach-Object {
+            $relative = $_.FullName.Substring($publish.Length + 1)
+            $previous = Join-Path $baseExtract $relative
+            $changed = -not (Test-Path -LiteralPath $previous -PathType Leaf)
+            if (-not $changed) {
+                $old = Get-Item -LiteralPath $previous
+                $changed = $old.Length -ne $_.Length -or (Get-FileHash -LiteralPath $previous -Algorithm SHA256).Hash -ne (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash
+            }
+            if ($changed) {
+                $target = Join-Path $patchPublish $relative
+                New-Item -ItemType Directory -Force -Path (Split-Path $target -Parent) | Out-Null
+                Copy-Item -LiteralPath $_.FullName -Destination $target -Force
+                $changedFiles++
+                $changedBytes += $_.Length
+            }
+        }
+        if ($changedFiles -eq 0) { throw "Incremental update has no changed files." }
+        $previousVersion = [regex]::Match((Split-Path -Leaf $IncrementalBaseZip), '^TV-(\d+\.\d+\.\d+)-win-x64-portable\.zip$').Groups[1].Value
+        if (-not $previousVersion) { throw "Cannot infer incremental base version from $IncrementalBaseZip" }
+        $patchName = "TV-Update-$version-from-$previousVersion-x64"
+        $patchInstaller = Join-Path $release "$patchName.exe"
+        $updateIss = Join-Path $root 'installer/TV-Update.iss'
+        & $iscc @("/DMyAppVersion=$version", "/DPublishRoot=$patchPublish", "/O$release", "/F$patchName") $isccSignArgs $updateIss
+        if ($LASTEXITCODE -ne 0) { throw "Incremental Inno Setup failed with exit code $LASTEXITCODE" }
+        Assert-ReleaseIntegrity $patchInstaller
+        if ($shouldSign -and (Get-AuthenticodeSignature -LiteralPath $patchInstaller).Status -ne 'Valid') {
+            throw "Incremental installer Authenticode verification failed."
+        }
+        $patchHash = Get-FileHash -LiteralPath $patchInstaller -Algorithm SHA256
+        "$($patchHash.Hash.ToLowerInvariant()) *$patchName.exe" | Set-Content -LiteralPath "$patchInstaller.sha256" -Encoding ascii
+        $patchSize = (Get-Item -LiteralPath $patchInstaller).Length
+        Write-Host ("Incremental installer: {0}; {1} changed files, {2:N2} MB payload, {3:N2} MB package" -f $patchInstaller, $changedFiles, ($changedBytes / 1MB), ($patchSize / 1MB)) -ForegroundColor Green
+    } finally {
+        foreach ($temporary in $baseExtract, $patchPublish) {
+            if ((Test-Path -LiteralPath $temporary) -and (Get-Item -LiteralPath $temporary).FullName.StartsWith((Join-Path $root 'artifacts') + '\', [StringComparison]::OrdinalIgnoreCase)) {
+                Remove-Item -LiteralPath $temporary -Recurse -Force
+            }
+        }
+    }
+} else {
+    Write-Host 'No previous portable package available; incremental update skipped.' -ForegroundColor Yellow
 }
 
 Write-Host "Publish directory: $publish"

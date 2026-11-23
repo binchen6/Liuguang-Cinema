@@ -21,6 +21,7 @@
 | 本地媒体 | 多文件导入、文件夹递归索引与自动更新、同名侧车字幕/弹幕、Windows“打开方式”直达播放 |
 | 投屏接收 | DLNA / UPnP 发现、手机扫码、浏览器选择视频、电脑确认后播放 |
 | 存储维护 | 分类扫描与清理、未完成下载清理、显式选择的已下载媒体/过期临时文件/回收站清理 |
+| 软件更新 | GitHub 正式版检查、默认开启的自动检查、更新说明弹窗、SHA-256 校验、断点续传与文件级增量安装 |
 
 ## 下载与安装
 
@@ -35,8 +36,8 @@
 社区开源构建默认尚未附带商业 Authenticode 代码签名证书，在开启 Windows 11 **智能应用控制（Smart App Control）** 或 SmartScreen 的设备上可能出现提示或拦截。详情与合规处理/签名路径请见 [Windows 智能应用控制与签名说明](docs/smart-app-control.md)。下载后请务必核对发布页提供的 SHA-256：
 
 ```powershell
-Get-FileHash .\TV-Setup-1.8.0-x64.exe -Algorithm SHA256
-Get-Content .\TV-Setup-1.8.0-x64.exe.sha256
+Get-FileHash .\TV-Setup-1.8.1-x64.exe -Algorithm SHA256
+Get-Content .\TV-Setup-1.8.1-x64.exe.sha256
 ```
 
 ## 使用指南
@@ -89,6 +90,12 @@ Get-Content .\TV-Setup-1.8.0-x64.exe.sha256
 详情页下载面板支持多选和全选，批量下载默认保存到系统视频库下的“流光影院”，目录可在“设置 → 存储”修改。单集“另存”仍可自行选择位置。
 
 高级清理先扫描再勾选。应用缓存默认可选；已下载媒体、用户临时目录中的过期文件和回收站必须单独选择并确认。被占用、无权限或不符合年龄/路径条件的文件会跳过，不会强制删除。
+
+### 软件更新
+
+「设置 → 关于」可手动检查 GitHub Releases，或关闭默认开启的启动自动检查。自动检查每 12 小时最多一次，播放中仅记录更新，离开播放页后再显示统一风格的更新弹窗。
+
+点击「下载安装」后，应用优先下载与当前版本匹配的文件级增量安装包；没有对应补丁或补丁下载失败时回退完整安装包。下载支持断点续传，必须匹配 Release 提供的 SHA-256 才会启动安装。安装由 Inno Setup 完成，会先保存设置并关闭应用，不会直接覆盖正在使用的程序文件。
 
 ## 隐私与安全
 
@@ -175,7 +182,7 @@ installer/               Inno Setup 安装器与输出完整性检查
 artifacts/qa-fixture/    隔离测试夹具与回归脚本
 ```
 
-更多技术说明见[开发指南](docs/development.md)、[智能应用控制与签名说明](docs/smart-app-control.md)、[站点适配矩阵](docs/site-matrix.csv)、[验收边界](docs/site-verification.md)和[设计契约](docs/design-guide.md)。当前版本说明见[1.8.0 发行说明](docs/releases/release-1.8.0.md)，历史文档索引见[docs/README](docs/README.md)。
+更多技术说明见[开发指南](docs/development.md)、[智能应用控制与签名说明](docs/smart-app-control.md)、[站点适配矩阵](docs/site-matrix.csv)、[验收边界](docs/site-verification.md)和[设计契约](docs/design-guide.md)。当前版本说明见[1.8.1 发行说明](docs/releases/release-1.8.1.md)，历史文档索引见[docs/README](docs/README.md)。
 
 ## 验证与贡献
 

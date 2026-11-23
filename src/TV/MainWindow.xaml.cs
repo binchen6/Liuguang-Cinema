@@ -13,6 +13,8 @@ using TV.Models;
 using TV.ViewModels;
 using TV.Views;
 using TV.Services.Library;
+using TV.Services.Persistence;
+using TV.Services.Updates;
 
 namespace TV;
 
@@ -112,6 +114,7 @@ public sealed partial class MainWindow : Window
             }
             else Navigate("vod");
             _ = LoadPreferencesAsync();
+            if (!App.PlayerOnly) _ = ViewModel.Settings.CheckUpdatesOnStartupAsync();
         });
     }
 
@@ -199,6 +202,11 @@ public sealed partial class MainWindow : Window
         NavigateCore(tag, goingBack);
         if (tag == "detail" && restoring?.Detail is { } detail) ViewModel.Vod.SelectedCard = detail;
         if (tag == "player" && restoring?.Playback is { } playback) _ = ViewModel.Player.LoadAsync(playback);
+        if (tag != "player" && _pendingUpdate is { } update)
+        {
+            _pendingUpdate = null;
+            DispatcherQueue.TryEnqueue(async () => await ShowUpdateAsync(update));
+        }
     }
 
     private void NavigateCore(string tag, bool goingBack)
@@ -532,12 +540,67 @@ public sealed partial class MainWindow : Window
     private bool _closing;
     private bool _allowClose;
     private bool _closePromptOpen;
+    private bool _updateInstallPending;
     private Flyout? _closeFlyout;
+    private ContentDialog? _updateDialog;
+    private AppUpdateRelease? _pendingUpdate;
+    internal bool IsClosing => _closing || _updateInstallPending;
+
+    internal async Task ShowUpdateAsync(AppUpdateRelease release)
+    {
+        if (IsClosing || App.PlayerOnly) return;
+        if (_currentTag == "player")
+        {
+            _pendingUpdate = release;
+            return;
+        }
+        if (_updateDialog is not null || ContentFrame.XamlRoot is not { } root) return;
+        var dialog = new UpdateDialog(release, App.Services.Updates) { XamlRoot = root };
+        _updateDialog = dialog;
+        try { await dialog.ShowAsync(); }
+        catch (Exception ex)
+        {
+            _pendingUpdate = release;
+            Diagnostics.Log($"更新弹窗暂不可用: {ex.GetType().Name}");
+        }
+        finally { _updateDialog = null; }
+    }
+
+    internal void BeginUpdateInstallation(string installerPath)
+    {
+        if (IsClosing) return;
+        if (!File.Exists(installerPath)) throw new FileNotFoundException("更新安装包不存在，请重新下载。", installerPath);
+        _updateInstallPending = true;
+        try
+        {
+            var start = new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = installerPath,
+                UseShellExecute = true,
+                WorkingDirectory = AppPaths.Root
+            };
+            foreach (var argument in new[] { "/SILENT", "/NORESTART", "/CLOSEAPPLICATIONS" }) start.ArgumentList.Add(argument);
+            start.ArgumentList.Add("/DIR=" + AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar));
+            start.ArgumentList.Add("/LOG=" + Path.Combine(AppPaths.Root, "update-install.log"));
+            if (System.Diagnostics.Process.Start(start) is null) throw new InvalidOperationException("无法启动安装程序。");
+            _ = ShutdownAsync();
+        }
+        catch
+        {
+            _updateInstallPending = false;
+            throw;
+        }
+    }
 
     private void OnClosing(AppWindow sender, AppWindowClosingEventArgs args)
     {
         if (_allowClose) return;
         args.Cancel = true;
+        if (_updateInstallPending)
+        {
+            if (!_closing) _ = ShutdownAsync();
+            return;
+        }
         if (App.PlayerOnly)
         {
             if (!_closing) _ = ShutdownAsync();
@@ -601,6 +664,7 @@ public sealed partial class MainWindow : Window
         SavePlacement();
         _closing = true;
         _closeFlyout?.Hide();
+        _updateDialog?.Hide();
         Diagnostics.Log("Shutdown requested");
         _tray?.Dispose();
         try

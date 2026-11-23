@@ -9,6 +9,7 @@ using TV.Models;
 using TV.Services;
 using TV.Services.AI;
 using TV.Services.Playback;
+using TV.Services.Persistence;
 using TV.Services.Vod.Native;
 
 namespace TV.ViewModels;
@@ -631,7 +632,7 @@ public sealed partial class PlayerViewModel : ObservableObject
     public async Task<string?> TakeSnapshotAsync()
     {
         if (_request is null) return null;
-        var folder = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyPictures), "流光影院");
+        var folder = AppPaths.DefaultScreenshots;
         Directory.CreateDirectory(folder);
         var safeTitle = string.Concat(Title.Select(ch => Path.GetInvalidFileNameChars().Contains(ch) ? '_' : ch));
         if (safeTitle.Length > 40) safeTitle = safeTitle[..40];
@@ -1085,7 +1086,7 @@ public sealed partial class PlayerViewModel : ObservableObject
     private async Task LoadTimingAsync(CancellationToken token)
     {
         if (_request is not { } request) return;
-        var episode = request.Lines.ElementAtOrDefault(request.LineIndex)?.Episodes.ElementAtOrDefault(request.EpisodeIndex)?.Name ?? request.EpisodeIndex.ToString();
+        var episode = request.Lines.ElementAtOrDefault(request.LineIndex)?.Episodes.ElementAtOrDefault(request.EpisodeIndex)?.Name ?? request.EpisodeIndex.ToString(System.Globalization.CultureInfo.InvariantCulture);
         var identity = $"{request.SiteKey}|{request.VodId}|{request.LineIndex}|{request.EpisodeIndex}|{episode}";
         _timingKey = "playback.timing." + Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(identity)))[..24];
         try
@@ -1481,6 +1482,6 @@ public sealed partial class PlayerViewModel : ObservableObject
     private static string Format(long milliseconds)
     {
         var time = TimeSpan.FromMilliseconds(Math.Max(0, milliseconds));
-        return time.TotalHours >= 1 ? time.ToString(@"h\:mm\:ss") : time.ToString(@"mm\:ss");
+        return time.ToString(time.TotalHours >= 1 ? @"h\:mm\:ss" : @"mm\:ss", System.Globalization.CultureInfo.InvariantCulture);
     }
 }

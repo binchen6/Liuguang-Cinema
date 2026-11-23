@@ -9,6 +9,7 @@ using TV.Services.Cloud;
 using TV.Services.Persistence;
 using TV.Services.Maintenance;
 using TV.Services.Playback;
+using TV.Services.Updates;
 using TV.Views;
 
 namespace TV.ViewModels;
@@ -92,6 +93,53 @@ public sealed partial class SettingsViewModel : ObservableObject
     [ObservableProperty] private string _danDanPlayAppSecretInput = string.Empty;
     [ObservableProperty] private bool _isTestingDanDanPlay;
 
+    [ObservableProperty] private bool _autoCheckUpdates = true;
+    [ObservableProperty] private bool _isCheckingUpdates;
+    [ObservableProperty] private string _updateStatus = "尚未检查更新";
+    [ObservableProperty, NotifyPropertyChangedFor(nameof(HasAvailableUpdate))] private AppUpdateRelease? _availableUpdate;
+    public bool HasAvailableUpdate => AvailableUpdate is not null;
+
+    internal async Task CheckUpdatesOnStartupAsync()
+    {
+        try
+        {
+            AutoCheckUpdates = await Bool("updates.autoCheck", true);
+            if (!AutoCheckUpdates || !await _services.Updates.ShouldCheckAutomaticallyAsync()) return;
+            await CheckForUpdatesAsync(userInitiated: false);
+        }
+        catch (Exception ex) { Diagnostics.Log($"自动更新检查初始化失败: {ex.GetType().Name}"); }
+    }
+
+    [RelayCommand]
+    private async Task CheckUpdateAsync() => await CheckForUpdatesAsync(userInitiated: true);
+
+    private async Task CheckForUpdatesAsync(bool userInitiated)
+    {
+        if (IsCheckingUpdates) return;
+        IsCheckingUpdates = true;
+        UpdateStatus = userInitiated ? "正在检查 GitHub Releases…" : "正在后台检查更新…";
+        try
+        {
+            AvailableUpdate = await _services.Updates.CheckAsync();
+            UpdateStatus = AvailableUpdate is null
+                ? $"当前已是最新版本（{_services.Updates.CurrentVersion.ToString(3)}）"
+                : $"发现新版本 {AvailableUpdate.Version.ToString(3)}，可下载安装";
+            if (AvailableUpdate is not null) await App.Window.ShowUpdateAsync(AvailableUpdate);
+        }
+        catch (Exception ex)
+        {
+            Diagnostics.Log($"检查更新失败: {ex.GetType().Name} {ex.Message}");
+            UpdateStatus = userInitiated ? "检查更新失败：" + ex.Message : "自动检查暂不可用，将在下次启动时重试";
+        }
+        finally { IsCheckingUpdates = false; }
+    }
+
+    [RelayCommand]
+    private async Task ShowUpdateAsync()
+    {
+        if (AvailableUpdate is not null) await App.Window.ShowUpdateAsync(AvailableUpdate);
+    }
+
     public async Task LoadAsync()
     {
         if (_hasLoaded) return;
@@ -122,9 +170,9 @@ public sealed partial class SettingsViewModel : ObservableObject
         CloudThreads = await Int("playback.cloudThreads", 3);
         CloudChunkMb = await Int("playback.cloudChunkMb", 2);
         ThemeIndex = await Int("ui.theme", 0);
+        AutoCheckUpdates = await Bool("updates.autoCheck", true);
         DnsIndex = await Int("network.dns", 0);
-        DownloadFolder = await _services.Database.GetSettingAsync("downloads.defaultFolder") ??
-            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyVideos), "流光影院");
+        DownloadFolder = await _services.Database.GetSettingAsync("downloads.defaultFolder") ?? AppPaths.DefaultDownloads;
         AliToken = string.Empty;
         QuarkCookie = string.Empty;
         UcCookie = string.Empty;
@@ -353,8 +401,9 @@ public sealed partial class SettingsViewModel : ObservableObject
     {
         var config = _services.Config.Current;
         SourceSummary = config is null ? "尚未加载配置" : $"{config.Sites.Count} 个点播站点 · {config.Lives.Count} 个直播源 · {ImportedRepositories.Count} 个导入仓库";
-        if (DateTimeOffset.TryParse(await _services.Database.GetSettingAsync("source.lastRefresh"), out var refreshed))
-            LastSourceRefresh = "最近刷新 " + refreshed.ToLocalTime().ToString("yyyy-MM-dd HH:mm");
+        if (DateTimeOffset.TryParse(await _services.Database.GetSettingAsync("source.lastRefresh"), System.Globalization.CultureInfo.InvariantCulture,
+            System.Globalization.DateTimeStyles.RoundtripKind, out var refreshed))
+            LastSourceRefresh = "最近刷新 " + refreshed.ToLocalTime().ToString("yyyy-MM-dd HH:mm", System.Globalization.CultureInfo.InvariantCulture);
         else LastSourceRefresh = "尚未记录刷新时间";
     }
 
@@ -574,6 +623,7 @@ public sealed partial class SettingsViewModel : ObservableObject
     partial void OnAutoNextChanged(bool value) => Save("playback.autoNext", value);
     partial void OnResumePlaybackChanged(bool value) => Save("playback.resume", value);
     partial void OnAutoRefreshSourcesChanged(bool value) => Save("source.autoRefresh", value);
+    partial void OnAutoCheckUpdatesChanged(bool value) => Save("updates.autoCheck", value);
     partial void OnNetworkCacheChanged(int value) => Save("playback.networkCache", Math.Clamp(value, 1200, 12000));
     partial void OnLiveCacheChanged(int value) => Save("playback.liveCache", Math.Clamp(value, 500, 8000));
     partial void OnAdaptiveQualityChanged(bool value) => Save("playback.adaptiveQuality", value);
@@ -631,11 +681,13 @@ public sealed partial class SettingsViewModel : ObservableObject
     }
 
     private async Task<bool> Bool(string key, bool fallback) => await _services.Database.GetSettingAsync(key) is not { } value ? fallback : value != "false";
-    private async Task<int> Int(string key, int fallback) => int.TryParse(await _services.Database.GetSettingAsync(key), out var value) ? value : fallback;
+    private async Task<int> Int(string key, int fallback) => int.TryParse(await _services.Database.GetSettingAsync(key),
+        System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out var value) ? value : fallback;
     private void Save(string key, object value)
     {
         if (!_loaded) return;
-        _pendingWrites[key] = value is bool flag ? (flag ? "true" : "false") : value.ToString()!;
+        _pendingWrites[key] = value is bool flag ? (flag ? "true" : "false") : value is IFormattable formattable
+            ? formattable.ToString(null, System.Globalization.CultureInfo.InvariantCulture) : value.ToString()!;
         _saveTimer.Stop();
         _saveTimer.Start();
     }

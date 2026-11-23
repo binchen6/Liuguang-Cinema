@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.Json;
 using System.Xml.Linq;
 using TV.Models;
@@ -17,7 +18,7 @@ public sealed class CmsClient
         var response = await FetchAsync(site, BuildUrl(site.Api, ("ac", "class")), cancellationToken).ConfigureAwait(false);
         if (response.Categories.Count == 0 && site.Categories.Count > 0)
         {
-            response.Categories = site.Categories.Select((name, index) => new VodCategory { Id = (index + 1).ToString(), Name = name }).ToList();
+            response.Categories = site.Categories.Select((name, index) => new VodCategory { Id = (index + 1).ToString(CultureInfo.InvariantCulture), Name = name }).ToList();
         }
         return Prepare(response, site);
     }
@@ -25,7 +26,7 @@ public sealed class CmsClient
     public async Task<CmsResponse> GetCategoryAsync(SourceSite site, string categoryId, int page, CancellationToken cancellationToken = default)
     {
         EnsureSupported(site);
-        var parameters = new List<(string Key, string Value)> { ("ac", "videolist"), ("pg", page.ToString()) };
+        var parameters = new List<(string Key, string Value)> { ("ac", "videolist"), ("pg", page.ToString(CultureInfo.InvariantCulture)) };
         if (!string.IsNullOrWhiteSpace(categoryId)) parameters.Add(("t", categoryId));
         return Prepare(await FetchAsync(site, BuildUrl(site.Api, parameters), cancellationToken).ConfigureAwait(false), site);
     }
@@ -33,7 +34,7 @@ public sealed class CmsClient
     public async Task<CmsResponse> SearchAsync(SourceSite site, string keyword, int page = 1, CancellationToken cancellationToken = default)
     {
         EnsureSupported(site);
-        return Prepare(await FetchAsync(site, BuildUrl(site.Api, ("ac", "videolist"), ("wd", keyword), ("pg", page.ToString())), cancellationToken).ConfigureAwait(false), site);
+        return Prepare(await FetchAsync(site, BuildUrl(site.Api, ("ac", "videolist"), ("wd", keyword), ("pg", page.ToString(CultureInfo.InvariantCulture))), cancellationToken).ConfigureAwait(false), site);
     }
 
     public async Task<VodItem> GetDetailAsync(SourceSite site, string id, CancellationToken cancellationToken = default)
@@ -121,7 +122,7 @@ public sealed class CmsClient
     }
 
     private static string Value(XElement element, string name) => element.Element(name)?.Value.Trim() ?? string.Empty;
-    private static int ParseInt(string? value) => int.TryParse(value, out var number) ? number : 0;
+    private static int ParseInt(string? value) => int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var number) ? number : 0;
 
     private static string NormalizeUrl(string value, string baseUrl)
     {

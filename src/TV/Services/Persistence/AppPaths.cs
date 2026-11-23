@@ -8,6 +8,20 @@ public static class AppPaths
     public static string Database { get; } = Path.Combine(Root, "tv.db");
     public static string Config { get; } = Path.Combine(Root, "config", "last-good.json");
     public static string Images { get; } = Path.Combine(Root, "cache", "images");
+    public static string UpdateCache { get; } = Path.Combine(Root, "cache", "updates");
+    public static string DefaultDownloads { get; } = UserContentDirectory(Environment.SpecialFolder.MyVideos, "Videos", "流光影院");
+    public static string DefaultScreenshots { get; } = UserContentDirectory(Environment.SpecialFolder.MyPictures, "Pictures", "流光影院");
+
+    private static string UserContentDirectory(Environment.SpecialFolder folder, string fallbackFolder, string appFolder)
+    {
+        var path = Environment.GetFolderPath(folder);
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            var profile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+            path = string.IsNullOrWhiteSpace(profile) ? Root : Path.Combine(profile, fallbackFolder);
+        }
+        return Path.Combine(path, appFolder);
+    }
 
     public static void EnsureCreated()
     {

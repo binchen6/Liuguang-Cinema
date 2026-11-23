@@ -147,7 +147,7 @@ public sealed class DoubanService
         var document = await context.OpenAsync(request => request.Content(html).Address(subjectUrl), cancellationToken).ConfigureAwait(false);
         var rating = document.QuerySelector("strong[property='v:average']")?.TextContent.Trim()
             ?? document.QuerySelector("[property='v:average']")?.TextContent.Trim() ?? string.Empty;
-        if (decimal.TryParse(rating, out var score)) rating = score.ToString("0.0");
+        if (decimal.TryParse(rating, out var score)) rating = score.ToString("0.0", System.Globalization.CultureInfo.InvariantCulture);
         var picture = document.QuerySelector("meta[property='og:image']")?.GetAttribute("content")
             ?? document.QuerySelector("#mainpic img")?.GetAttribute("src") ?? best.Candidate.Picture;
         var summary = document.QuerySelector("span[property='v:summary']")?.TextContent.Trim()

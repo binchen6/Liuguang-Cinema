@@ -50,6 +50,7 @@ $env:TV_DATA_ROOT = Join-Path $PWD 'artifacts/tmp/dev-profile'
 | `Services/Library` | 本地文件索引、侧车资源和目录监视 |
 | `Services/Persistence` | SQLite、DPAPI 与应用路径 |
 | `Services/Imaging` | 有界图片解码（后台线程全异步）、磁盘缓存和内存 LRU |
+| `Services/Updates` | GitHub 正式版检查、增量包选择、断点下载与 SHA-256 校验 |
 | `Services/Maintenance` | 分类扫描与显式安全清理 |
 | `engine/catvod` | Java 17 CatVod JSON IPC 引擎 |
 | `artifacts/qa-fixture` | 隔离夹具、协议与桌面回归源码 |
@@ -96,7 +97,11 @@ artifacts/installers/TV-Setup-<version>-x64.exe
 artifacts/installers/TV-Setup-<version>-x64.exe.sha256
 artifacts/installers/TV-<version>-win-x64-portable.zip
 artifacts/installers/TV-<version>-win-x64-portable.zip.sha256
+artifacts/installers/TV-Update-<version>-from-<base>-x64.exe
+artifacts/installers/TV-Update-<version>-from-<base>-x64.exe.sha256
 ```
+
+存在上一版便携包时，脚本逐文件比较 SHA-256 并生成仅含新增/变化文件的增量安装器；可通过 `-IncrementalBaseZip <上一版便携包路径>` 指定基线。补丁使用相同 AppId 和安装目录，但不改写卸载记录。应用只从固定 GitHub 仓库的正式 Release 选择精确版本资产，增量包不可用时回退完整包；所有下载均须通过 SHA-256 校验。
 
 版本来自 `Directory.Build.props`。发布脚本会自动：
 1. 生成裁剪后的 Java 运行时，并从 Microsoft Build of OpenJDK 还原全部 Microsoft 签名的 `.exe` / `.dll`；

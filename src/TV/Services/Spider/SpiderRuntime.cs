@@ -240,8 +240,8 @@ public sealed class SpiderRuntime : IDisposable
                        (outTask.IsCompletedSuccessfully ? outTask.Result : string.Empty);
             var match = Regex.Match(text, "version \"(\\d+)(?:\\.(\\d+))?");
             if (!match.Success) return -1;
-            var major = int.Parse(match.Groups[1].Value);
-            if (major == 1 && match.Groups[2].Success) major = int.Parse(match.Groups[2].Value);
+            var major = int.Parse(match.Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture);
+            if (major == 1 && match.Groups[2].Success) major = int.Parse(match.Groups[2].Value, System.Globalization.CultureInfo.InvariantCulture);
             return major;
         }
         catch { return -1; }

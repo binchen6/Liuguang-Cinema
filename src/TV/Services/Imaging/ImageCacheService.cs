@@ -15,7 +15,7 @@ namespace TV.Services.Imaging;
 /// <summary>
 /// High-throughput, non-blocking poster and cover image cache.
 /// Uses a dedicated HTTP/2 connection pool, negative caching for dead URLs,
-/// instant off-UI stream staging, and deferred background disk normalization so covers paint immediately.
+/// bounded background normalization and UI-affine WIC decoding.
 /// </summary>
 public sealed partial class ImageCacheService : IDisposable
 {
@@ -25,6 +25,8 @@ public sealed partial class ImageCacheService : IDisposable
         public LinkedListNode<string> Node { get; } = node;
         public long Pixels { get; } = pixels;
     }
+
+    private sealed record DecodedImage(BitmapImage Image, long Pixels);
 
     private const int MaxMemoryItems = 240;
     private const long MaxMemoryPixels = 54_000_000;
@@ -38,6 +40,8 @@ public sealed partial class ImageCacheService : IDisposable
     private readonly HttpClient _client;
     private readonly DispatcherQueue? _dispatcher;
     private readonly SemaphoreSlim _networkGate = new(16, 16);
+    private readonly SemaphoreSlim _decodeGate = new(4, 4);
+    private readonly SemaphoreSlim _diskGate = new(2, 2);
     private readonly ConcurrentDictionary<string, Task<BitmapImage?>> _pending = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, Task<byte[]?>> _pendingBytes = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, DateTimeOffset> _failed = new(StringComparer.OrdinalIgnoreCase);
@@ -149,26 +153,33 @@ public sealed partial class ImageCacheService : IDisposable
                 return null;
             }
 
-            var image = await DecodeBitmapAsync(bytes, decodeWidth, dispatcher).ConfigureAwait(false);
-            if (image is null)
+            await _decodeGate.WaitAsync().ConfigureAwait(false);
+            DecodedImage? decoded;
+            try
             {
-                // Fallback: transcode exotic formats (e.g. AVIF / unsupported WebP / CMYK JPEG) via SkiaSharp off-UI.
-                var transcoded = await Task.Run(() => ForceTranscodeJpeg(bytes, decodeWidth)).ConfigureAwait(false);
-                if (transcoded is not null)
-                    image = await DecodeBitmapAsync(transcoded, decodeWidth, dispatcher).ConfigureAwait(false);
+                decoded = await DecodeBitmapAsync(bytes, decodeWidth, dispatcher).ConfigureAwait(false);
+                if (decoded is null)
+                {
+                    // Fallback: transcode exotic formats (e.g. AVIF / unsupported WebP / CMYK JPEG) via SkiaSharp off-UI.
+                    var transcoded = await Task.Run(() => ForceTranscodeJpeg(bytes, decodeWidth)).ConfigureAwait(false);
+                    if (transcoded is not null)
+                        decoded = await DecodeBitmapAsync(transcoded, decodeWidth, dispatcher).ConfigureAwait(false);
+                }
             }
+            finally { _decodeGate.Release(); }
 
-            if (image is null)
+            if (decoded is null)
             {
                 RecordFailure(url);
                 return null;
             }
 
+            var image = decoded.Image;
             lock (_memoryLock)
             {
                 if (_memory.TryGetValue(cacheKey, out var existing)) return existing.Image;
                 var node = _lru.AddFirst(cacheKey);
-                var pixels = Math.Max(1L, (long)image.PixelWidth * image.PixelHeight);
+                var pixels = decoded.Pixels;
                 _memory[cacheKey] = new Entry(image, node, pixels);
                 _memoryPixels += pixels;
                 while (_memory.Count > MaxMemoryItems || _memoryPixels > MaxMemoryPixels)
@@ -281,6 +292,7 @@ public sealed partial class ImageCacheService : IDisposable
     private async Task PersistNormalizedToDiskAsync(string path, byte[] raw)
     {
         var temp = $"{path}.{Guid.NewGuid():N}.tmp";
+        await _diskGate.WaitAsync().ConfigureAwait(false);
         try
         {
             var normalized = NormalizeForDisk(raw);
@@ -291,49 +303,55 @@ public sealed partial class ImageCacheService : IDisposable
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException) { }
         finally
         {
+            _diskGate.Release();
             try { if (File.Exists(temp)) File.Delete(temp); } catch { }
         }
     }
 
-    private static async Task<BitmapImage?> DecodeBitmapAsync(byte[] bytes, int decodeWidth, DispatcherQueue? dispatcher)
+    private static async Task<DecodedImage?> DecodeBitmapAsync(byte[] bytes, int decodeWidth, DispatcherQueue? dispatcher)
     {
-        // Stage bytes into InMemoryRandomAccessStream off the UI thread (WinRT stream is agile).
+        try
+        {
+            if (dispatcher is not null && !dispatcher.HasThreadAccess)
+            {
+                var tcs = new TaskCompletionSource<DecodedImage?>(TaskCreationOptions.RunContinuationsAsynchronously);
+                if (!dispatcher.TryEnqueue(async () =>
+                {
+                    try { tcs.TrySetResult(await SetSourceOnUiAsync(bytes, decodeWidth)); }
+                    catch (Exception ex) { tcs.TrySetException(ex); }
+                }))
+                {
+                    return null;
+                }
+                return await tcs.Task.ConfigureAwait(false);
+            }
+            return await SetSourceOnUiAsync(bytes, decodeWidth).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            Diagnostics.Log($"图片解码失败: {ex.GetType().Name} 0x{ex.HResult:X8} {ex.Message}");
+            return null;
+        }
+    }
+
+    private static async Task<DecodedImage> SetSourceOnUiAsync(byte[] bytes, int decodeWidth)
+    {
         using var stream = new InMemoryRandomAccessStream();
         using (var writer = new DataWriter(stream))
         {
             writer.WriteBytes(bytes);
-            await writer.StoreAsync().AsTask().ConfigureAwait(false);
+            await writer.StoreAsync();
             writer.DetachStream();
         }
         stream.Seek(0);
-
-        if (dispatcher is not null && !dispatcher.HasThreadAccess)
-        {
-            var tcs = new TaskCompletionSource<BitmapImage?>(TaskCreationOptions.RunContinuationsAsynchronously);
-            if (!dispatcher.TryEnqueue(async () =>
-            {
-                try { tcs.TrySetResult(await SetSourceOnUiAsync(stream, decodeWidth)); }
-                catch { tcs.TrySetResult(null); }
-            }))
-            {
-                return null;
-            }
-            return await tcs.Task.ConfigureAwait(false);
-        }
-
-        try { return await SetSourceOnUiAsync(stream, decodeWidth).ConfigureAwait(false); }
-        catch { return null; }
-    }
-
-    private static async Task<BitmapImage> SetSourceOnUiAsync(IRandomAccessStream stream, int decodeWidth)
-    {
         var image = new BitmapImage
         {
             DecodePixelWidth = decodeWidth,
             DecodePixelType = DecodePixelType.Physical
         };
         await image.SetSourceAsync(stream);
-        return image;
+        var pixels = Math.Max(1L, (long)image.PixelWidth * image.PixelHeight);
+        return new DecodedImage(image, pixels);
     }
 
     private void RecordFailure(string url)

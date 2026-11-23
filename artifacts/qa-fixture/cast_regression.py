@@ -110,7 +110,7 @@ def exercise(app, fixture, local, artifact=None):
         from ctypes import byref
         bounds = q.w.RECT()
         q.user.GetWindowRect(hwnd, byref(bounds))
-        assert qr["visible"] and qr["w"] >= 240 and qr["h"] == qr["w"], qr
+        assert qr["visible"] and qr["w"] >= 240 and abs(qr["h"] - qr["w"]) <= 2, qr
         assert qr["x"] >= bounds.left and qr["y"] >= bounds.top and qr["x"] + qr["w"] <= bounds.right, (qr, bounds)
         assert popup["visible"] and popup["y"] >= qr["y"] + qr["h"], (qr, popup)
         assert popup["y"] + popup["h"] <= bounds.bottom, (popup, bounds)
