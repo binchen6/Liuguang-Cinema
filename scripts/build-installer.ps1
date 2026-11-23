@@ -74,11 +74,16 @@ if (-not $env:LOCALAPPDATA -or -not (Test-Path $env:LOCALAPPDATA)) {
 
 # Prefer Microsoft Build of OpenJDK (binaries are Microsoft-signed, improving Windows Smart App Control compatibility)
 $jdkCandidates = @()
+if ($env:JAVA_HOME -and (Test-Path -LiteralPath $env:JAVA_HOME)) {
+    $jdkCandidates += Get-Item -LiteralPath $env:JAVA_HOME
+}
 if (Test-Path "$env:ProgramFiles\Microsoft") {
     $jdkCandidates += Get-ChildItem "$env:ProgramFiles\Microsoft\jdk-17*" -Directory -ErrorAction SilentlyContinue
 }
-$jdk17 = Join-Path $env:USERPROFILE ".jdks/jdk-17"
-if (Test-Path $jdk17) { $jdkCandidates += Get-Item $jdk17 }
+if ($env:USERPROFILE) {
+    $jdk17 = Join-Path $env:USERPROFILE ".jdks/jdk-17"
+    if (Test-Path $jdk17) { $jdkCandidates += Get-Item $jdk17 }
+}
 if (Test-Path "$env:ProgramFiles\Microsoft") {
     $jdkCandidates += Get-ChildItem "$env:ProgramFiles\Microsoft\jdk-*" -Directory -ErrorAction SilentlyContinue
 }
