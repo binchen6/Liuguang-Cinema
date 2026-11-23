@@ -302,6 +302,7 @@ $notice = Join-Path $publish "licenses"
 New-Item -ItemType Directory -Force -Path $notice | Out-Null
 Copy-Item (Join-Path $root "LICENSE") (Join-Path $notice "LiuguangCinema.txt")
 Copy-Item (Join-Path $root "THIRD_PARTY.md") (Join-Path $notice "THIRD_PARTY.md")
+Copy-Item (Join-Path $root "installer/Languages/LICENSE-ChineseSimplified.txt") (Join-Path $notice "InnoSetup-ChineseSimplified-LICENSE.txt")
 Copy-Item (Join-Path $root "third_party/bizhangjie/CatVodSpider-main/LICENSE") (Join-Path $notice "CatVodSpider.txt")
 Copy-Item (Join-Path $root "third_party/VideoLAN") $notice -Recurse
 

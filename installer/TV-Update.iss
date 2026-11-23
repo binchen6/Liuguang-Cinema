@@ -50,7 +50,7 @@ SignTool=signtool
 #endif
 
 [Languages]
-Name: "chinesesimp"; MessagesFile: "compiler:Languages\ChineseSimplified.isl"
+Name: "chinesesimp"; MessagesFile: "Languages\ChineseSimplified.isl"
 
 [Files]
 Source: "{#PublishRoot}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs

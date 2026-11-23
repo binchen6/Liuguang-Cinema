@@ -13,6 +13,7 @@
 | CatVodTVSpider | CatVod 架构与接口来源 | [CatVodTVOfficial/CatVodTVSpider](https://github.com/CatVodTVOfficial/CatVodTVSpider)。未据此声明额外许可 |
 | VideoLAN / LibVLCSharp | 音视频解码、 demux、音轨与字幕、Windows 渲染 | LibVLC 3.0.24、LibVLCSharp.WinUI 3.10.0；[源码与版本说明](third_party/VideoLAN/SOURCE.md)，LGPL-2.1-or-later。许可证原文在 `third_party/VideoLAN` |
 | LibVLCSharp 及相关 .NET 包 | C# 播放控制与 WinUI 绑定 | 版本见 `src/TV/packages.lock.json` 和 `src/TV/TV.csproj`；各包许可证随安装包的 `licenses` 目录分发 |
+| Inno Setup 简体中文翻译 | 安装器与增量更新器的中文界面 | [Inno-Setup-Chinese-Simplified-Translation](https://github.com/kira-96/Inno-Setup-Chinese-Simplified-Translation)，MIT；固定副本位于 `installer/Languages`，许可证随源码及安装包分发 |
 
 `engine/catvod/src` 还包含桌面 JSON IPC 桥接、Android API 兼容层和项目维护的站点修正。Maven 实际纳入的上游目录以 `engine/catvod/pom.xml` 为准，不能把整个 `third_party` 目录视为单一许可。
 

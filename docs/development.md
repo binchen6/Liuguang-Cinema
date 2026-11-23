@@ -77,6 +77,8 @@ $env:TV_DATA_ROOT = Join-Path $PWD 'artifacts/tmp/dev-profile'
 
 ## Java 与安装包
 
+JDK 优先使用构建机的 `JAVA_HOME`，安装器简体中文消息固定使用项目内 `installer/Languages/ChineseSimplified.isl`，不依赖宿主机语言包安装状态。
+
 修改 Java 引擎后：
 
 ```powershell
