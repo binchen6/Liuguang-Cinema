@@ -15,7 +15,7 @@
         </Grid.RowDefinitions>
 
         <!-- 接收室画册报头 + 呼吸状态灯 -->
-        <Grid Margin="0,0,0,4">
+        <Grid x:Name="CastHeader" Margin="0,0,0,4">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*" />
                 <ColumnDefinition Width="Auto" />
@@ -67,7 +67,7 @@
                                 <Button x:Name="SenderButton" Content="手机扫码" Click="OnSenderClick"
                                         Style="{StaticResource PrimaryButtonStyle}"
                                         AutomationProperties.Name="手机扫码" />
-                                <Button Content="停止接收" Click="OnStopClick"
+                                <Button x:Name="StopReceiverButton" Content="停止接收" Click="OnStopClick"
                                         Height="{StaticResource PrimaryButtonHeight}" MinHeight="{StaticResource PrimaryButtonHeight}"
                                         Style="{StaticResource SecondaryButtonStyle}"
                                         AutomationProperties.Name="停止接收" />
@@ -77,7 +77,7 @@
                                    Style="{StaticResource MetaText}" TextWrapping="Wrap" />
                     </StackPanel>
 
-                    <Border Style="{StaticResource PanelCardStyle}">
+                    <controls:GlassSurface Style="{StaticResource AppPanelGlassStyle}">
                         <StackPanel Spacing="12">
                             <StackPanel Spacing="2">
                                 <TextBlock Text="RECEIVER · 接收端" Style="{StaticResource EyebrowText}" />
@@ -107,9 +107,9 @@
                             <TextBlock Text="开启后，手机视频应用会把本机识别为可投送的电视设备。"
                                        Style="{StaticResource SecondaryText}" TextWrapping="Wrap" />
                         </StackPanel>
-                    </Border>
+                    </controls:GlassSurface>
 
-                    <Border Style="{StaticResource PanelCardStyle}">
+                    <controls:GlassSurface Style="{StaticResource AppPanelGlassStyle}">
                         <StackPanel Spacing="10">
                             <StackPanel Spacing="2">
                                 <TextBlock Text="TELEMETRY · 会话" Style="{StaticResource EyebrowText}" />
@@ -160,7 +160,7 @@
                                 </StackPanel>
                             </Grid>
                         </StackPanel>
-                    </Border>
+                    </controls:GlassSurface>
 
                     <Border x:Name="Incoming" Style="{StaticResource PanelCardStyle}"
                             BorderBrush="{ThemeResource AccentBorderBrush}" Visibility="Collapsed">
@@ -193,14 +193,13 @@
                 </StackPanel>
             </ScrollViewer>
 
-            <!-- 右栏：磨砂同心光环舞台（开始接收按钮居中） -->
+            <!-- 右栏：五层光学磨砂同心光环舞台（开始接收按钮居中） -->
             <ScrollViewer x:Name="StageFrame" Grid.Row="0" Grid.RowSpan="2" Grid.Column="1"
                           AutomationProperties.Name="投屏内容"
                           HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch"
                           HorizontalScrollMode="Disabled" VerticalScrollMode="Disabled"
                           HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Disabled">
-                <Border Background="{ThemeResource GlassPanelBrush}" BorderBrush="{ThemeResource GlassEdgeBrush}"
-                        BorderThickness="1" CornerRadius="{StaticResource RadiusPanel}" Padding="0">
+                <controls:GlassSurface CornerRadius="{StaticResource RadiusPanel}" Padding="0">
                     <Grid x:Name="Stage">
                         <StackPanel x:Name="StageIdle" HorizontalAlignment="Center" VerticalAlignment="Center"
                                     Spacing="{StaticResource SpaceMedium}" Padding="36">
@@ -242,9 +241,8 @@
                             </Grid.RowDefinitions>
                             <MediaPlayerElement x:Name="Preview" AreTransportControlsEnabled="False"
                                                 Stretch="Uniform" AutoPlay="False" />
-                            <Border Grid.Row="1" Margin="14,0,14,14" CornerRadius="12"
-                                    Background="{StaticResource PlayerGlassBrush}"
-                                    BorderBrush="#26FFFFFF" BorderThickness="1" Padding="14,8">
+                            <controls:GlassSurface Grid.Row="1" Margin="14,0,14,14" CornerRadius="16" Padding="14,8"
+                                                   Style="{StaticResource PlayerDockGlassStyle}">
                                 <Grid ColumnSpacing="{StaticResource SpaceSmall}">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="Auto" />
@@ -255,19 +253,19 @@
                                             Style="{StaticResource PlayerIconButtonStyle}"
                                             ToolTipService.ToolTip="播放或暂停"
                                             AutomationProperties.Name="播放或暂停">
-                                        <FontIcon x:Name="PreviewPlayIcon" Glyph="&#xE768;" FontSize="16" Foreground="#FFF4F3EE" />
+                                        <FontIcon x:Name="PreviewPlayIcon" Glyph="&#xE768;" FontSize="16" Foreground="#FFF8F7F2" />
                                     </Button>
                                     <Slider Grid.Column="1" x:Name="PreviewPosition" Minimum="0" Maximum="1"
                                             StepFrequency="1" IsEnabled="False" VerticalAlignment="Center"
                                             AutomationProperties.Name="播放进度"
                                             ValueChanged="OnPreviewPositionChanged" />
                                     <TextBlock Grid.Column="2" x:Name="PreviewTime" Text="00:00"
-                                               Style="{StaticResource MonoMetaText}" Foreground="#FFF4F3EE" VerticalAlignment="Center" />
+                                               Style="{StaticResource MonoMetaText}" Foreground="#FFF8F7F2" VerticalAlignment="Center" />
                                 </Grid>
-                            </Border>
+                            </controls:GlassSurface>
                         </Grid>
                     </Grid>
-                </Border>
+                </controls:GlassSurface>
             </ScrollViewer>
         </Grid>
 

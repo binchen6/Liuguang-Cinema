@@ -85,7 +85,8 @@ public sealed partial class PlayerViewModel : ObservableObject
     [ObservableProperty] private double _durationMs;
     [ObservableProperty] private string _positionText = "00:00";
     [ObservableProperty] private string _durationText = "00:00";
-    [ObservableProperty] private int _volume = 85;
+    [ObservableProperty, NotifyPropertyChangedFor(nameof(IsMuted))] private int _volume = 85;
+    public bool IsMuted => Volume == 0;
     [ObservableProperty] private double _rate = 1;
     [ObservableProperty] private string _rateText = "1.0x";
     [ObservableProperty] private PlaybackLine? _selectedLine;
@@ -160,6 +161,19 @@ public sealed partial class PlayerViewModel : ObservableObject
 
     partial void OnStatusMessageChanged(string value) => OnPropertyChanged(nameof(ShowStatusPanel));
     partial void OnIsBufferingChanged(bool value) => OnPropertyChanged(nameof(ShowStatusPanel));
+    partial void OnIsPlayingChanged(bool value) => _services.KeepAwake.SetActive("player", value);
+
+    public bool PreventSleepWhilePlaying
+    {
+        get => _services.KeepAwake.Enabled;
+        set
+        {
+            if (_services.KeepAwake.Enabled == value) return;
+            _services.KeepAwake.Enabled = value;
+            OnPropertyChanged();
+            _ = _services.Database.SetSettingAsync(PlaybackKeepAwakeService.SettingKey, value ? "true" : "false");
+        }
+    }
 
     /// <summary>播放器页面把 VideoView 挂好后调用，避免“先播后挂”导致黑屏无声。</summary>
     public void NotifyVideoReady() => _viewReady.TrySetResult();
@@ -262,6 +276,8 @@ public sealed partial class PlayerViewModel : ObservableObject
         try
         {
             var settings = _services.Database;
+            _services.KeepAwake.Enabled = !string.Equals(await settings.GetSettingAsync(PlaybackKeepAwakeService.SettingKey, token), "false", StringComparison.OrdinalIgnoreCase);
+            OnPropertyChanged(nameof(PreventSleepWhilePlaying));
             _autoNext = !string.Equals(await settings.GetSettingAsync("playback.autoNext", token), "false", StringComparison.OrdinalIgnoreCase);
             _autoSwitchLine = !string.Equals(await settings.GetSettingAsync("playback.autoSwitchLine", token), "false", StringComparison.OrdinalIgnoreCase);
             var defaultQuality = request.Kind == PlaybackKind.Vod
@@ -395,6 +411,7 @@ public sealed partial class PlayerViewModel : ObservableObject
             _resolvedMedia = null;
             _pauseOverrideActive = false;
             IsPlaying = false;
+            _services.KeepAwake.SetActive("player", false);
             PlayPauseGlyph = "\uE768";
             IsBuffering = false;
             StatusMessage = "已停止播放";
@@ -433,6 +450,7 @@ public sealed partial class PlayerViewModel : ObservableObject
             _pauseOverrideActive = false;
             _subtitleSpeedDebounceCts?.Cancel();
             IsPlaying = false;
+            _services.KeepAwake.SetActive("player", false);
             PlayPauseGlyph = "\uE768";
             IsBuffering = false;
             RequiredLoginProvider = null;

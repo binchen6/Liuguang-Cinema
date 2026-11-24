@@ -59,7 +59,12 @@ public sealed partial class MainWindow : Window
         }
         catch (Exception ex) { Diagnostics.Log($"标题栏高度定制不可用: {ex.GetType().Name}"); }
         RestorePlacement();
-        AppWindow.Changed += (_, _) => CapturePlacement();
+        AppWindow.Changed += (_, _) =>
+        {
+            CapturePlacement();
+            var minimized = AppWindow.Presenter is OverlappedPresenter p && p.State == OverlappedPresenterState.Minimized;
+            MotionService.SetWindowMinimized(minimized);
+        };
         Title = "流光影院";
         TryApplyWindowIcon();
         Diagnostics.Log("MainWindow initialized");
@@ -157,6 +162,7 @@ public sealed partial class MainWindow : Window
             if (_closing) return;
             SetTheme(theme switch { "1" => ElementTheme.Light, "2" => ElementTheme.Default, _ => ElementTheme.Dark });
             MotionService.Enabled = await settings.GetSettingAsync("ui.animations") != "false";
+            App.Services.KeepAwake.Enabled = await settings.GetSettingAsync(TV.Services.Playback.PlaybackKeepAwakeService.SettingKey) != "false";
             if (_tray is not null) _tray.Enabled = await settings.GetSettingAsync("ui.minimizeToTray") != "false";
             if (int.TryParse(await settings.GetSettingAsync("ui.closeBehavior"), out var closeBehavior) &&
                 Enum.IsDefined((WindowCloseBehavior)closeBehavior))
@@ -260,6 +266,8 @@ public sealed partial class MainWindow : Window
         };
         try
         {
+            // 进入全画面沉浸播放时隐藏底层环境底纹，把全部合成帧预算留给视频解码与磨砂玻璃控件
+            AppBackdrop.Visibility = tag == "player" ? Visibility.Collapsed : Visibility.Visible;
             // 使用 SuppressNavigationTransitionInfo 将页面转场完全交给 MotionService 物理引擎，支持随时零卡顿打断。
             ContentFrame.Navigate(pageType, null, new SuppressNavigationTransitionInfo());
             UpdatePaneLayout();

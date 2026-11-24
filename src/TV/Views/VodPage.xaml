@@ -204,11 +204,11 @@
                                                                    FontWeight="SemiBold" Foreground="{ThemeResource GlassDarkBadgeInkBrush}" />
                                                     </StackPanel>
                                                 </Border>
-                                                <!-- 底部磨砂展陈铭牌 -->
+                                                <!-- 底部光学展陈铭牌 -->
                                                 <Border VerticalAlignment="Bottom" Margin="10"
                                                         Background="{ThemeResource GlassDarkBadgeBrush}"
-                                                        BorderBrush="#26FFFFFF" BorderThickness="1"
-                                                        CornerRadius="9" Padding="12,8">
+                                                        BorderBrush="{StaticResource PlayerGlassBorderBrush}" BorderThickness="1"
+                                                        CornerRadius="10" Padding="12,8">
                                                     <StackPanel Spacing="2">
                                                         <TextBlock Text="{Binding Item.Remarks}" Style="{StaticResource MetaText}"
                                                                    FontWeight="SemiBold" Foreground="{ThemeResource GlassDarkBadgeAccentBrush}"
@@ -233,10 +233,8 @@
             <StackPanel x:Name="StickyDockBand" VerticalAlignment="Top" Canvas.ZIndex="20"
                         Margin="0,0,16,0" SizeChanged="OnHeaderBandSizeChanged">
                 <Grid x:Name="FilterDock" Margin="0,0,0,8">
-                    <Border x:Name="FilterDockGlass"
-                            Background="{ThemeResource GlassPanelBrush}"
-                            BorderBrush="{ThemeResource GlassEdgeBrush}" BorderThickness="1"
-                            CornerRadius="12" Opacity="0" IsHitTestVisible="False" />
+                    <controls:GlassSurface x:Name="FilterDockGlass"
+                                           CornerRadius="14" Opacity="0" IsHitTestVisible="False" />
                     <Border x:Name="FilterDockDivider" Height="1"
                             Background="{ThemeResource DividerBrush}"
                             VerticalAlignment="Bottom" IsHitTestVisible="False" />

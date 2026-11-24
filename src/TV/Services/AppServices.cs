@@ -44,6 +44,7 @@ public sealed class AppServices : IDisposable
         _bailianSubtitle = new Lazy<BailianSubtitleService>(() => new BailianSubtitleService(Database, _dns.Value));
         _realtimeSubtitle = new Lazy<RealtimeSubtitleService>(() => new RealtimeSubtitleService(_bailianSubtitle.Value));
         _player = new Lazy<PlayerService>(() => new PlayerService());
+        KeepAwake = new PlaybackKeepAwakeService();
         if (playerOnly)
         {
             _bilibili = new Lazy<BilibiliVodProvider>(() => new BilibiliVodProvider(_http.Value, null, _bilibiliAccount.Value));
@@ -110,10 +111,12 @@ public sealed class AppServices : IDisposable
     public LocalMediaService LocalMedia { get; } = null!;
     public CleanupService Cleanup { get; } = null!;
     public PlayerService Player => _player.Value;
+    public PlaybackKeepAwakeService KeepAwake { get; }
     public Task StopPlayerAsync() => _player.IsValueCreated ? _player.Value.StopAsync() : Task.CompletedTask;
 
     public void Dispose()
     {
+        KeepAwake.Dispose();
         if (_realtimeSubtitle.IsValueCreated) _realtimeSubtitle.Value.Dispose();
         if (_bailianSubtitle.IsValueCreated) _bailianSubtitle.Value.Dispose();
         if (_player.IsValueCreated) _player.Value.Dispose();

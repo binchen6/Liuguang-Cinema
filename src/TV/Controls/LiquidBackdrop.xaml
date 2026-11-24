@@ -4,11 +4,11 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     IsHitTestVisible="False"
     Loaded="OnLoaded">
-    <!-- 原研哉建筑感极克制画布底纹：柔和漫射纸光 + 极微弱环境色温；高对比模式下自动隐藏光晕 -->
+    <!-- 原研哉建筑感极克制画布环境光场：柔和天光 + 微弱冷蓝景深 + 极轻朱砂余晖，为全站磨砂玻璃提供真实透光介质；高对比模式自动隐藏 -->
     <Grid Background="{ThemeResource AppCanvasGradientBrush}">
         <Grid x:Name="AmbientLayer" IsHitTestVisible="False">
-            <Ellipse Width="780" Height="780" HorizontalAlignment="Left" VerticalAlignment="Top"
-                     Margin="-280,-320,0,0" Opacity="0.06">
+            <Ellipse Width="920" Height="920" HorizontalAlignment="Left" VerticalAlignment="Top"
+                     Margin="-320,-360,0,0" Opacity="0.085">
                 <Ellipse.Fill>
                     <RadialGradientBrush>
                         <GradientStop Color="#FFFFFF" Offset="0" />
@@ -16,8 +16,17 @@
                     </RadialGradientBrush>
                 </Ellipse.Fill>
             </Ellipse>
-            <Ellipse Width="640" Height="640" HorizontalAlignment="Right" VerticalAlignment="Bottom"
-                     Margin="0,0,-240,-260" Opacity="0.045">
+            <Ellipse Width="760" Height="760" HorizontalAlignment="Center" VerticalAlignment="Top"
+                     Margin="220,-280,0,0" Opacity="0.055">
+                <Ellipse.Fill>
+                    <RadialGradientBrush>
+                        <GradientStop Color="#6E92D8" Offset="0" />
+                        <GradientStop Color="#006E92D8" Offset="1" />
+                    </RadialGradientBrush>
+                </Ellipse.Fill>
+            </Ellipse>
+            <Ellipse Width="740" Height="740" HorizontalAlignment="Right" VerticalAlignment="Bottom"
+                     Margin="0,0,-260,-280" Opacity="0.055">
                 <Ellipse.Fill>
                     <RadialGradientBrush>
                         <GradientStop Color="#E8503E" Offset="0" />

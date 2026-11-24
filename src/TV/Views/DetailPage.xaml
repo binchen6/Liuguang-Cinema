@@ -228,7 +228,7 @@
                     <RowDefinition Height="Auto" />
                 </Grid.RowDefinitions>
 
-                <Border x:Name="SourcePane" Style="{StaticResource PanelCardStyle}" VerticalAlignment="Top">
+                <controls:GlassSurface x:Name="SourcePane" Style="{StaticResource AppPanelGlassStyle}" VerticalAlignment="Top">
                     <StackPanel Spacing="{StaticResource SpaceMedium}">
                         <Grid ColumnSpacing="{StaticResource SpaceSmall}">
                             <Grid.ColumnDefinitions>
@@ -239,7 +239,7 @@
                                 <TextBlock Text="01 · SOURCES" Style="{StaticResource EyebrowText}" />
                                 <TextBlock Text="来源与线路" Style="{StaticResource SectionTitleText}" />
                             </StackPanel>
-                            <Button Grid.Column="1" Content="查找换源" Style="{StaticResource SecondaryButtonStyle}"
+                            <Button x:Name="FindSourcesButton" Grid.Column="1" Content="查找换源" Style="{StaticResource SecondaryButtonStyle}"
                                     Command="{Binding FindSourcesCommand}" VerticalAlignment="Center"
                                     AutomationProperties.Name="查找换源" ToolTipService.ToolTip="搜索同名、同年份且包含播放线路的其他站点" />
                         </Grid>
@@ -307,9 +307,9 @@
                             </Button.Flyout>
                         </Button>
                     </StackPanel>
-                </Border>
+                </controls:GlassSurface>
 
-                <Border x:Name="EpisodePane" Grid.Column="1" Style="{StaticResource PanelCardStyle}" VerticalAlignment="Top">
+                <controls:GlassSurface x:Name="EpisodePane" Grid.Column="1" Style="{StaticResource AppPanelGlassStyle}" VerticalAlignment="Top">
                     <StackPanel Spacing="{StaticResource SpaceMedium}">
                         <Grid ColumnSpacing="{StaticResource SpaceMini}">
                             <Grid.ColumnDefinitions>
@@ -330,6 +330,7 @@
                                   MaxHeight="{StaticResource EpisodePanelMaxHeight}"
                                   Background="Transparent"
                                   BorderThickness="0"
+                                  ContainerContentChanging="OnEpisodeContainerChanging"
                                   ScrollViewer.VerticalScrollBarVisibility="Auto"
                                   ScrollViewer.IsVerticalScrollChainingEnabled="False">
                             <GridView.ItemTemplate>
@@ -344,7 +345,7 @@
                             </GridView.ItemTemplate>
                         </GridView>
                     </StackPanel>
-                </Border>
+                </controls:GlassSurface>
             </Grid>
 
             <!-- 相关推荐：画册横排陈列 -->

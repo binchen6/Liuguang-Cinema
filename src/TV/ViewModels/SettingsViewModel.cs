@@ -45,6 +45,7 @@ public sealed partial class SettingsViewModel : ObservableObject
     [ObservableProperty] private bool _isCleaning;
     [ObservableProperty] private string _cleanupSummary = string.Empty;
     [ObservableProperty] private bool _hardwareDecoding = true;
+    [ObservableProperty] private bool _preventSleep = true;
     [ObservableProperty] private bool _autoNext = true;
     [ObservableProperty] private bool _resumePlayback = true;
     [ObservableProperty] private bool _animationsEnabled = true;
@@ -152,6 +153,8 @@ public sealed partial class SettingsViewModel : ObservableObject
         DoubanEnabled = await Bool("douban.enabled", true);
         RecommendationSourceIndex = await Int("vod.recommendations", 0) == 1 ? 1 : 0;
         HardwareDecoding = await Bool("playback.hardware", true);
+        PreventSleep = await Bool(PlaybackKeepAwakeService.SettingKey, true);
+        _services.KeepAwake.Enabled = PreventSleep;
         AutoNext = await Bool("playback.autoNext", true);
         ResumePlayback = await Bool("playback.resume", true);
         AnimationsEnabled = await Bool("ui.animations", true);
@@ -620,6 +623,11 @@ public sealed partial class SettingsViewModel : ObservableObject
         }
     }
     partial void OnHardwareDecodingChanged(bool value) => Save("playback.hardware", value);
+    partial void OnPreventSleepChanged(bool value)
+    {
+        Save(PlaybackKeepAwakeService.SettingKey, value);
+        _services.KeepAwake.Enabled = value;
+    }
     partial void OnAutoNextChanged(bool value) => Save("playback.autoNext", value);
     partial void OnResumePlaybackChanged(bool value) => Save("playback.resume", value);
     partial void OnAutoRefreshSourcesChanged(bool value) => Save("source.autoRefresh", value);

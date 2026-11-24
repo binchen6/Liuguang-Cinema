@@ -15,6 +15,7 @@ public sealed partial class LibraryPage : Page
     public LibraryPage()
     {
         InitializeComponent();
+        MotionService.AttachTactile(LocalMediaButton, 1.02f, 0.96f, -1f);
         MotionService.AttachTactile(LibraryRefreshButton, 1.04f, 0.94f, -1f);
         SegmentList.Loaded += (_, _) => ScheduleSegmentPillGlide(animate: false);
     }
@@ -23,6 +24,7 @@ public sealed partial class LibraryPage : Page
 
     private async void OnLoaded(object sender, RoutedEventArgs e)
     {
+        MotionService.StaggerEntrance(offsetY: 12, stepMs: 35, HeaderGrid, SegmentTrack, ContentHost);
         if (SegmentList.SelectedIndex != ViewModel.SelectedTab)
             SegmentList.SelectedIndex = Math.Clamp(ViewModel.SelectedTab, 0, 3);
         ScheduleSegmentPillGlide(animate: false);
@@ -83,6 +85,12 @@ public sealed partial class LibraryPage : Page
         for (var i = 0; i < VisualTreeHelper.GetChildrenCount(root); i++)
             if (FindDescendant(VisualTreeHelper.GetChild(root, i), name) is { } found) return found;
         return null;
+    }
+
+    private void OnWatchContainerChanging(ListViewBase sender, ContainerContentChangingEventArgs e)
+    {
+        if (e.ItemContainer.ContentTemplateRoot is FrameworkElement card)
+            MotionService.ResetCard(card, artworkZoom: GetWatchArt(card));
     }
 
     private void OnWatchCardIn(object sender, PointerRoutedEventArgs e)

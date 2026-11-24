@@ -2,9 +2,11 @@
 
 一款基于 **C#、WinUI 3 与 LibVLC** 的 Windows 原生桌面影院与类 TVBox 影音客户端。融合**「白 · 隙 · 镜」**现代美术馆式界面美学、120Hz GPU 可打断物理动效与高性能原生解码，一站式覆盖点播、直播、跨站搜索、四大网盘、弹幕、AI 字幕翻译、本地媒体、离线下载与投屏接收。
 
+![流光影院 · 余白即银幕](./docs/assets/promo/01-hero-cinema.png)
+
 > **项目边界**：本项目并非 Android TVBox 模拟器，也不是 FongMi/TV 官方分支。界面、Windows 原生服务层与播放控制由 C# / WinUI 3 实现，复杂 CatVod 站点通过独立裁剪的 Java 17 进程隔离运行。应用本身不托管任何影视内容，片源、直播、网盘、字幕与弹幕均来自用户配置或第三方服务。
 >
-> 想快速了解界面审美与核心卖点？请直接阅读 **[项目图文介绍（含实机宣传图）](docs/showcase.md)**。
+> 想浏览完整实机宣传图与卖点导览？请阅读 **[项目图文介绍](docs/showcase.md)**。
 
 ---
 
@@ -12,10 +14,10 @@
 
 | 模块 | 核心能力 |
 | --- | --- |
-| **视觉与动效** | 原研哉灵感「白 · 隙 · 镜」设计语言、WinUI 3 建筑级磨砂玻璃分层、**暗室素墨 / 素白画廊**双主题 + 高对比度模式；120Hz GPU Compositor 可打断弹簧动效与 1:1 跟手吸顶收起交互 |
+| **视觉与动效** | 原研哉灵感「白 · 隙 · 镜」设计语言、自研五层光学磨砂玻璃 `GlassSurface`（菲涅尔双倒角 + 顶部焦散光丝 + 性能优先零模糊高频微件）、**暗室素墨 / 素白画廊**双主题 + 高对比度模式；120Hz GPU Compositor 可打断弹簧动效与 1:1 跟手吸顶收起交互 |
 | **点播与直播** | 兼容 TVBox 单仓/多仓/直播源；20+ 站点原生 C# 高速适配 + Java CatVod 兼容层；分类筛选、选集、多线路、EPG 节目单、收藏与断点续播 |
 | **跨站搜索与换源** | 并发跨站检索、非抢焦中文 IME 联想浮层、单站重试与验证、同名片源一键切换、失效地址自动刷新与历史换源保护 |
-| **原生影院播放器** | LibVLC 硬件解码（无硬解自动回退）、HLS/DASH、倍速/画质/画面比例/多音轨、零延迟播放暂停、全屏、画中画、逐集片头片尾跳过与弱网智能预缓存 |
+| **原生影院播放器** | LibVLC 硬件解码（无硬解自动回退）、五层光学磨砂玻璃双分体顶栏与修身悬浮控制坞、默认开启内核级播放防息屏/防休眠、无操作 3 秒且指针离开控件同步隐藏鼠标、倍速/画质/画面比例/多音轨、零延迟播放暂停、全屏、画中画与弱网智能预缓存 |
 | **跨源弹幕与字幕** | 接入**弹弹play 开放弹幕网络**（16 MB 哈希 + 规范化跨源 `MediaMatching` 匹配 + 手动搜集）与 B 站弹幕、PLL 单调 VSync 防回退渲染；支持字幕前移/后移与 `0.80x–1.25x` 调速 |
 | **AI 字幕与实时翻译** | 接入阿里云百炼 API：自动提取音轨生成字级时间轴字幕（`paraformer-v2` / `qwen3-asr-flash-filetrans`）、多语种双语翻译（`qwen-mt-flash` / `qwen-mt-plus`）与 WASAPI 进程级实时字幕（`qwen3-asr-flash-realtime`） |
 | **四大网盘直播** | 阿里（含资源库/备份盘双目录与纯 C# 设备会话签名）、夸克、UC、百度登录与个人云盘浏览；回环安全媒体代理、分块 Range 预读与地址自动续签 |
@@ -40,8 +42,8 @@
 > 社区开源版本尚未附带商业 Authenticode 证书，开启 Windows 11 **智能应用控制（Smart App Control）** 或 SmartScreen 的设备可能出现提示或拦截，详见 [智能应用控制与签名说明](docs/smart-app-control.md)。下载后请核对官方 SHA-256：
 
 ```powershell
-Get-FileHash .\TV-Setup-1.9.1-x64.exe -Algorithm SHA256
-Get-Content .\TV-Setup-1.9.1-x64.exe.sha256
+Get-FileHash .\TV-Setup-1.9.2-x64.exe -Algorithm SHA256
+Get-Content .\TV-Setup-1.9.2-x64.exe.sha256
 ```
 
 ---
@@ -53,7 +55,7 @@ Get-Content .\TV-Setup-1.9.1-x64.exe.sha256
 - 搜索按 `Enter` 或点击「搜索」提交；非抢焦磨砂建议浮层完整保护中文 IME 输入。详情页支持集数搜索与跨站换源，播放地址失效时优先刷新而不覆盖有效历史。
 
 ### 播放器与快捷键
-顶部栏、进度条与烟熏磨砂底部控制坞无操作 5 秒后平滑沉降并隐藏鼠标（打开菜单或对话框时自动锁定），移动或点击即刻反向唤醒。
+顶部双分体浮岛、进度条与五层光学磨砂底部控制坞在播放中无操作 **3 秒且鼠标指针不在任何控件上停留**后平滑沉降并同步隐藏鼠标（悬停控件、拖拽进度条或打开菜单/对话框时自动锁定），移动或点击即刻反向唤醒；播放期间默认阻止电脑息屏与系统休眠（可在 **设置 → 播放** 或播放器「更多选项」中随时切换）。
 
 | 快捷键 | 功能 | 快捷键 | 功能 |
 | --- | --- | --- | --- |
@@ -131,7 +133,7 @@ installer/ & scripts/    Inno Setup 安装/增量脚本、构建签名与回归�
 docs/                    设计规范、开发指南、版本说明与图文介绍
 ```
 
-更多文档见 [文档中心](docs/README.md)：[项目图文介绍](docs/showcase.md) · [开发指南](docs/development.md) · [品牌设计语言](docs/brand-design-system.md) · [设计契约](docs/design-guide.md) · [动效规范](docs/motion-spec.md) · [智能应用控制说明](docs/smart-app-control.md) · [站点验收](docs/site-verification.md) · [1.9.1 发行说明](docs/releases/release-1.9.1.md)。
+更多文档见 [文档中心](docs/README.md)：[项目图文介绍](docs/showcase.md) · [开发指南](docs/development.md) · [品牌设计语言](docs/brand-design-system.md) · [设计契约](docs/design-guide.md) · [动效规范](docs/motion-spec.md) · [智能应用控制说明](docs/smart-app-control.md) · [站点验收](docs/site-verification.md) · [1.9.2 发行说明](docs/releases/release-1.9.2.md)。
 
 ---
 

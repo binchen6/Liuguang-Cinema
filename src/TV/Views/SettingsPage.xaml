@@ -111,7 +111,7 @@
         </Grid.RowDefinitions>
 
         <!-- 画册偏好设置报头 -->
-        <StackPanel Spacing="2">
+        <StackPanel x:Name="SettingsHeader" Spacing="2">
             <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
                 <Ellipse Width="5" Height="5" Fill="{ThemeResource VermilionBrush}" VerticalAlignment="Center" />
                 <TextBlock Text="06 · PREFERENCES" Style="{StaticResource EyebrowText}" />
@@ -121,16 +121,14 @@
         </StackPanel>
 
         <!-- 左侧磨砂分区导轨 + 右侧内容 -->
-        <Grid Grid.Row="1" ColumnSpacing="{StaticResource SpaceLarge}">
+        <Grid x:Name="SettingsBody" Grid.Row="1" ColumnSpacing="{StaticResource SpaceLarge}">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="*" />
             </Grid.ColumnDefinitions>
 
-            <Border Width="{StaticResource SettingsNavWidth}"
-                    Background="{ThemeResource GlassPanelBrush}"
-                    BorderBrush="{ThemeResource GlassEdgeBrush}" BorderThickness="1"
-                    CornerRadius="{StaticResource RadiusPanel}" Padding="8,10" VerticalAlignment="Top">
+            <controls:GlassSurface Width="{StaticResource SettingsNavWidth}"
+                                   CornerRadius="{StaticResource RadiusPanel}" Padding="8,10" VerticalAlignment="Top">
                 <Grid x:Name="SettingsNavHost">
                     <StackPanel Spacing="2">
                         <!-- 片源 -->
@@ -222,7 +220,7 @@
                             HorizontalAlignment="Left" VerticalAlignment="Top"
                             Margin="2,0,0,0" Opacity="0" IsHitTestVisible="False" />
                 </Grid>
-            </Border>
+            </controls:GlassSurface>
 
             <Grid Grid.Column="1" RowSpacing="{StaticResource SpaceSmall}">
                 <Grid.RowDefinitions>
@@ -357,6 +355,16 @@
                                         <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
                                         <TextBlock Text="硬件解码" Style="{StaticResource LabelText}" VerticalAlignment="Center" />
                                         <ToggleSwitch Grid.Column="1" IsOn="{Binding HardwareDecoding, Mode=TwoWay}" OnContent="" OffContent="" MinWidth="0" HorizontalAlignment="Right" VerticalAlignment="Center" />
+                                    </Grid>
+                                    <Border Height="1" Background="{ThemeResource DividerBrush}" />
+                                    <Grid MinHeight="{StaticResource SettingsRowMinHeight}" ColumnSpacing="{StaticResource SpaceLarge}">
+                                        <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                        <StackPanel Spacing="2" VerticalAlignment="Center">
+                                            <TextBlock Text="播放时防止息屏与休眠" Style="{StaticResource LabelText}" />
+                                            <TextBlock Text="视频播放期间保持屏幕常亮并阻止电脑进入休眠，暂停或退出后自动恢复" Style="{StaticResource MetaText}" TextWrapping="Wrap" />
+                                        </StackPanel>
+                                        <ToggleSwitch Grid.Column="1" IsOn="{Binding PreventSleep, Mode=TwoWay}" OnContent="" OffContent="" MinWidth="0" HorizontalAlignment="Right" VerticalAlignment="Center"
+                                                      AutomationProperties.Name="播放时防止息屏与休眠" />
                                     </Grid>
                                     <Border Height="1" Background="{ThemeResource DividerBrush}" />
                                     <Grid MinHeight="{StaticResource SettingsRowMinHeight}" ColumnSpacing="{StaticResource SpaceLarge}">

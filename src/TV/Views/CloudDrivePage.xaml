@@ -14,7 +14,7 @@
         </Grid.RowDefinitions>
 
         <!-- 画册个人云库报头 -->
-        <Grid>
+        <Grid x:Name="CloudHeader">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*" />
                 <ColumnDefinition Width="Auto" />
@@ -28,7 +28,8 @@
                 <TextBlock Text="浏览、搜索并直接播放账号中的媒体文件，不重复转存" Style="{StaticResource SecondaryText}" />
             </StackPanel>
             <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="{StaticResource SpaceMini}" VerticalAlignment="Center">
-                <Button Content="返回上级" Command="{Binding GoUpCommand}" IsEnabled="{Binding CanGoUp}"
+                <Button x:Name="GoUpButton" Content="返回上级" Command="{Binding GoUpCommand}" IsEnabled="{Binding CanGoUp}"
+                        Click="OnGoUpVisualClick"
                         Style="{StaticResource SecondaryButtonStyle}" AutomationProperties.Name="返回上级目录" />
                 <Button x:Name="CloudRefreshButton" Style="{StaticResource IconButtonStyle}" Command="{Binding LoadFolderCommand}"
                         ToolTipService.ToolTip="刷新" AutomationProperties.Name="刷新云盘">
@@ -38,7 +39,7 @@
         </Grid>
 
         <!-- 磨砂网盘账号卡 -->
-        <ListView Grid.Row="1" ItemsSource="{Binding Accounts}" SelectedItem="{Binding SelectedAccount, Mode=TwoWay}"
+        <ListView x:Name="AccountStrip" Grid.Row="1" ItemsSource="{Binding Accounts}" SelectedItem="{Binding SelectedAccount, Mode=TwoWay}"
                   SelectionMode="Single" Background="Transparent" BorderThickness="0" Padding="0"
                   AutomationProperties.Name="网盘账号"
                   ContainerContentChanging="OnAccountContainerChanging"
@@ -79,8 +80,8 @@
             </ListView.ItemTemplate>
         </ListView>
 
-        <!-- 一体化磨砂路径与搜索带 -->
-        <Border Grid.Row="2" Style="{StaticResource GlassBarStyle}" Padding="12,8">
+        <!-- 一体化五层光学磨砂路径与搜索带 -->
+        <controls:GlassSurface x:Name="PathBar" Grid.Row="2" Style="{StaticResource AppBarGlassStyle}" Padding="12,8">
             <Grid ColumnSpacing="{StaticResource SpaceSmall}">
                 <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
                 <ScrollViewer HorizontalScrollMode="Enabled" HorizontalScrollBarVisibility="Hidden" VerticalScrollMode="Disabled" VerticalAlignment="Center">
@@ -90,6 +91,7 @@
                             <DataTemplate>
                                 <StackPanel Orientation="Horizontal" Spacing="2" VerticalAlignment="Center">
                                     <Button Content="{Binding Name}" Command="{Binding DataContext.OpenBreadcrumbCommand, ElementName=PageRoot}" CommandParameter="{Binding}"
+                                            Click="OnBreadcrumbVisualClick"
                                             Style="{StaticResource GhostButtonStyle}" AutomationProperties.Name="云盘目录" />
                                     <controls:LineIcon PathData="{StaticResource IconChevronRight}" IconSize="12"
                                                        Foreground="{ThemeResource TertiaryTextBrush}" Opacity="0.65" VerticalAlignment="Center" />
@@ -101,17 +103,17 @@
                 <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="{StaticResource SpaceMini}">
                     <TextBox x:Name="SearchBox" Width="232" PlaceholderText="搜索当前网盘" Text="{Binding Query, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                              KeyDown="OnSearchKeyDown" AutomationProperties.Name="搜索我的云盘" />
-                    <Button Content="搜索" Command="{Binding SearchCommand}" Style="{StaticResource PrimaryButtonStyle}"
+                    <Button x:Name="CloudSearchButton" Content="搜索" Command="{Binding SearchCommand}" Style="{StaticResource PrimaryButtonStyle}"
                             AutomationProperties.Name="搜索云盘文件" />
                 </StackPanel>
             </Grid>
-        </Border>
+        </controls:GlassSurface>
 
         <ProgressBar Grid.Row="3" Height="2" IsIndeterminate="{Binding IsLoading}" Foreground="{ThemeResource VermilionBrush}"
                      Visibility="{Binding IsLoading, Converter={StaticResource BoolToVisibility}}" />
 
         <!-- 文件列表 -->
-        <Grid Grid.Row="4">
+        <Grid x:Name="EntriesHost" Grid.Row="4">
             <ListView ItemsSource="{Binding Entries}" SelectionMode="None" IsItemClickEnabled="True" ItemClick="OnEntryClick"
                       Background="Transparent" BorderThickness="0" Padding="0,0,8,0" AutomationProperties.Name="云盘文件"
                       ScrollViewer.HorizontalScrollMode="Disabled">
@@ -157,18 +159,21 @@
                     </DataTemplate>
                 </ListView.ItemTemplate>
             </ListView>
-            <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" MaxWidth="440" Spacing="{StaticResource SpaceSmall}"
-                        Visibility="{Binding EmptyText, Converter={StaticResource StringToVisibility}}">
-                <Border Width="64" Height="64" CornerRadius="32"
-                        Background="{ThemeResource GlassPanelBrush}" BorderBrush="{ThemeResource GlassEdgeBrush}" BorderThickness="1"
-                        HorizontalAlignment="Center">
-                    <controls:LineIcon PathData="{StaticResource IconCloud}" IconSize="28" Foreground="{ThemeResource SecondaryTextBrush}" />
-                </Border>
-                <TextBlock Text="{Binding EmptyText}" Style="{StaticResource SectionTitleText}" TextAlignment="Center" />
-                <TextBlock Text="{Binding StatusMessage}" Style="{StaticResource SecondaryText}" TextAlignment="Center" TextWrapping="Wrap" />
-                <Button Content="扫码登录" Style="{StaticResource PrimaryButtonStyle}" Click="OnCloudLoginClick"
-                        Visibility="{Binding HasRequiredLogin, Converter={StaticResource BoolToVisibility}}" AutomationProperties.Name="网盘登录" />
-            </StackPanel>
+            <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollMode="Disabled" VerticalAlignment="Center"
+                          Visibility="{Binding EmptyText, Converter={StaticResource StringToVisibility}}">
+                <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" MaxWidth="440" Spacing="10" Padding="0,8">
+                    <Border Width="54" Height="54" CornerRadius="27"
+                            Background="{ThemeResource GlassPanelBrush}" BorderBrush="{ThemeResource GlassEdgeBrush}" BorderThickness="1"
+                            HorizontalAlignment="Center">
+                        <controls:LineIcon PathData="{StaticResource IconCloud}" IconSize="24" Foreground="{ThemeResource SecondaryTextBrush}" />
+                    </Border>
+                    <TextBlock Text="{Binding EmptyText}" Style="{StaticResource SectionTitleText}" TextAlignment="Center" />
+                    <TextBlock Text="{Binding StatusMessage}" Style="{StaticResource SecondaryText}" TextAlignment="Center" TextWrapping="Wrap" />
+                    <Button x:Name="CloudLoginButton" Content="扫码登录" Style="{StaticResource PrimaryButtonStyle}" Click="OnCloudLoginClick"
+                            HorizontalAlignment="Center"
+                            Visibility="{Binding HasRequiredLogin, Converter={StaticResource BoolToVisibility}}" AutomationProperties.Name="网盘登录" />
+                </StackPanel>
+            </ScrollViewer>
         </Grid>
 
         <Grid Grid.Row="5" MinHeight="40">

@@ -52,11 +52,73 @@ public sealed partial class PlayerPage : Page
     private bool _seekHandlersWired;
     private readonly PointerEventHandler _seekPressedHandler;
     private readonly PointerEventHandler _seekReleasedHandler;
+    private readonly HashSet<object> _hoveredControls = [];
+    private bool _pointerOverControls;
+    private bool _pointerInsidePage;
+    private bool _cursorHidden;
+    private int _cursorHideDepth;
+    private Windows.Foundation.Point _lastPointerPos = new(double.NaN, double.NaN);
+    private bool _mediaInfoVisible;
+    private bool _aiBannerVisible;
+    private bool _liveCaptionVisible;
+    private bool _glassShadowsWired;
+
+    [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
+    private struct NativePoint { public int X, Y; }
+    [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
+    private struct NativeRect { public int Left, Top, Right, Bottom; }
 
     [System.Runtime.InteropServices.DllImport("user32.dll")] private static extern nint SetCursor(nint cursor);
     [System.Runtime.InteropServices.DllImport("user32.dll")] private static extern nint LoadCursor(nint instance, nint cursorName);
+    [System.Runtime.InteropServices.DllImport("user32.dll")] private static extern int ShowCursor([System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.Bool)] bool bShow);
+    [System.Runtime.InteropServices.DllImport("user32.dll")] [return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.Bool)] private static extern bool GetCursorPos(out NativePoint lpPoint);
+    [System.Runtime.InteropServices.DllImport("user32.dll")] [return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.Bool)] private static extern bool GetWindowRect(nint hWnd, out NativeRect lpRect);
+    [System.Runtime.InteropServices.DllImport("user32.dll")] private static extern nint GetForegroundWindow();
     [System.Runtime.InteropServices.DllImport("kernel32.dll")] private static extern bool SetProcessWorkingSetSize(nint hProcess, nint dwMinimumWorkingSetSize, nint dwMaximumWorkingSetSize);
     private static void ShowArrowCursor() => SetCursor(LoadCursor(0, 32512));
+
+    private bool IsPointerOverControls => _hoveredControls.Count > 0 || _pointerOverControls;
+
+    private bool IsCursorInsidePlayerWindow()
+    {
+        if (_pointerInsidePage) return true;
+        try
+        {
+            var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(App.Window);
+            if (hwnd == 0 || GetForegroundWindow() != hwnd) return false;
+            if (!GetCursorPos(out var pt) || !GetWindowRect(hwnd, out var rect)) return false;
+            return pt.X >= rect.Left && pt.X <= rect.Right && pt.Y >= rect.Top && pt.Y <= rect.Bottom;
+        }
+        catch { return false; }
+    }
+
+    private void HideCursorIfInside()
+    {
+        if (_cursorHidden || !IsCursorInsidePlayerWindow()) return;
+        _cursorHidden = true;
+        for (var i = 0; i < 4; i++)
+        {
+            var count = ShowCursor(false);
+            _cursorHideDepth++;
+            if (count < 0) break;
+        }
+        SetCursor(0);
+    }
+
+    private void RestoreCursor()
+    {
+        if (_cursorHidden || _cursorHideDepth > 0)
+        {
+            _cursorHidden = false;
+            while (_cursorHideDepth > 0)
+            {
+                ShowCursor(true);
+                _cursorHideDepth--;
+            }
+        }
+        ShowArrowCursor();
+    }
+
     private static void TrimWorkingSet()
     {
         try
@@ -72,17 +134,25 @@ public sealed partial class PlayerPage : Page
     public PlayerPage()
     {
         InitializeComponent();
-        MotionService.AttachTactile(PlayPauseButton, 1.05f, 0.92f, 0f);
+        MotionService.AttachTactile(PlayPauseButton, 1.06f, 0.92f, 0f);
         MotionService.AttachTactile(CenterPlayButton, 1.06f, 0.92f, 0f);
         MotionService.AttachTactile(PlayerBackButton, 1.05f, 0.93f, 0f);
         MotionService.AttachTactile(PlaybackOptionsButton, 1.05f, 0.93f, 0f);
+        MotionService.AttachTactile(PreviousEpisodeButton, 1.05f, 0.93f, 0f);
+        MotionService.AttachTactile(NextEpisodeButton, 1.05f, 0.93f, 0f);
         MotionService.AttachTactile(PlaylistButton, 1.05f, 0.93f, 0f);
+        MotionService.AttachTactile(RateButton, 1.03f, 0.95f, 0f);
+        MotionService.AttachTactile(VolumeButton, 1.05f, 0.93f, 0f);
+        MotionService.AttachTactile(QualityButton, 1.03f, 0.95f, 0f);
+        MotionService.AttachTactile(SkipButton, 1.03f, 0.95f, 0f);
         MotionService.AttachTactile(SubtitleSettingsButton, 1.05f, 0.93f, 0f);
         MotionService.AttachTactile(DanmakuToggleButton, 1.05f, 0.93f, 0f);
+        MotionService.AttachTactile(CastButton, 1.05f, 0.93f, 0f);
+        MotionService.AttachTactile(FullScreenButton, 1.05f, 0.93f, 0f);
         _seekPressedHandler = OnSeekPressed;
         _seekReleasedHandler = OnSeekReleased;
         _hideTimer = DispatcherQueue.CreateTimer();
-        _hideTimer.Interval = TimeSpan.FromSeconds(5);
+        _hideTimer.Interval = TimeSpan.FromSeconds(3);
         _hideTimer.IsRepeating = false;
         _hideTimer.Tick += OnHideTimer;
 
@@ -121,6 +191,23 @@ public sealed partial class PlayerPage : Page
             SeekSlider.AddHandler(UIElement.PointerCaptureLostEvent, _seekReleasedHandler, handledEventsToo: true);
             _seekHandlersWired = true;
         }
+        if (!_glassShadowsWired)
+        {
+            _glassShadowsWired = true;
+            WireGlassShadow(TopGlassSurface, 12f);
+            WireGlassShadow(TopActionsGlassSurface, 12f);
+            WireGlassShadow(BottomGlassSurface, 14f);
+            WireGlassShadow(CenterPlayGlassSurface, 16f);
+            WireGlassShadow(OsdGlassSurface, 12f);
+            WireGlassShadow(AiSubtitleGlassSurface, 12f);
+            WireGlassShadow(LiveSubtitleGlassSurface, 10f);
+            WireGlassShadow(MediaInfoGlassSurface, 12f);
+        }
+        App.Window.Activated -= OnWindowActivated;
+        App.Window.Activated += OnWindowActivated;
+        _hoveredControls.Clear();
+        _pointerOverControls = false;
+        SyncAnimatedOverlays();
 
         Diagnostics.Log($"Player page loaded, output ready={ViewModel.Service.IsVideoOutputReady}");
         if (RateFlyout.Items.Count == 0) BuildFlyouts();
@@ -212,9 +299,36 @@ public sealed partial class PlayerPage : Page
         _onlineSubtitleDialog = null;
         _danmakuSearchDialog?.Hide();
         _danmakuSearchDialog = null;
-        ShowArrowCursor();
+        App.Window.Activated -= OnWindowActivated;
+        _hoveredControls.Clear();
+        _pointerOverControls = false;
+        _pointerInsidePage = false;
+        RestoreCursor();
         VideoView.Initialized -= OnVideoViewInitialized;
         VideoView.MediaPlayer = null;
+    }
+
+    private void WireGlassShadow(UIElement surface, float elevationZ)
+    {
+        try
+        {
+            surface.Translation = new System.Numerics.Vector3(0f, 0f, elevationZ);
+            var shadow = new ThemeShadow();
+            shadow.Receivers.Add(VideoStageHost);
+            surface.Shadow = shadow;
+        }
+        catch { }
+    }
+
+    private void OnWindowActivated(object sender, Microsoft.UI.Xaml.WindowActivatedEventArgs args)
+    {
+        if (args.WindowActivationState == Microsoft.UI.Xaml.WindowActivationState.Deactivated)
+        {
+            _hoveredControls.Clear();
+            _pointerOverControls = false;
+            _pointerInsidePage = false;
+            RestoreCursor();
+        }
     }
 
     private void BuildFlyouts()
@@ -256,6 +370,7 @@ public sealed partial class PlayerPage : Page
         if (!isPlaying)
         {
             _hideTimer.Stop();
+            RestoreCursor();
             if (!_controlsVisible)
             {
                 _controlsVisible = true;
@@ -264,14 +379,20 @@ public sealed partial class PlayerPage : Page
         }
         else if (_controlsVisible)
         {
-            _hideTimer.Stop();
-            _hideTimer.Start();
+            RestartHideTimerIfEligible();
         }
     }
 
     private void OnPlayPauseClick(object sender, RoutedEventArgs e)
     {
         MotionService.PulseElement(PlayPauseButton, 0.88f);
+        ViewModel.TogglePauseCommand.Execute(null);
+        ShowControls();
+    }
+
+    private void OnCenterPlayClick(object sender, RoutedEventArgs e)
+    {
+        MotionService.PulseElement(CenterPlayButton, 0.90f);
         ViewModel.TogglePauseCommand.Execute(null);
         ShowControls();
     }
@@ -343,8 +464,56 @@ public sealed partial class PlayerPage : Page
             or nameof(PlayerViewModel.HasMedia) or nameof(PlayerViewModel.ShowStatusPanel))
         {
             UpdateCenterPlayVisibility();
+            if (e.PropertyName == nameof(PlayerViewModel.IsPlaying) && IsLoaded)
+            {
+                if (ViewModel.IsPlaying)
+                {
+                    if (_controlsVisible && !_hideTimer.IsRunning)
+                        RestartHideTimerIfEligible();
+                }
+                else
+                {
+                    _hideTimer.Stop();
+                    RestoreCursor();
+                    if (!_controlsVisible)
+                    {
+                        _controlsVisible = true;
+                        SetChromeVisible(true);
+                    }
+                }
+            }
             if (e.PropertyName == nameof(PlayerViewModel.ShowStatusPanel) && ViewModel.ShowStatusPanel && IsLoaded)
                 ShowControls();
+        }
+        if (e.PropertyName is nameof(PlayerViewModel.ShowMediaInfo) or nameof(PlayerViewModel.IsAiSubtitleBusy) or nameof(PlayerViewModel.HasLiveCaption))
+            SyncAnimatedOverlays();
+    }
+
+    private void SyncAnimatedOverlays()
+    {
+        var showInfo = ViewModel.ShowMediaInfo;
+        if (showInfo != _mediaInfoVisible)
+        {
+            _mediaInfoVisible = showInfo;
+            MotionService.SetFloatingVisible(MediaInfoHud, showInfo, offsetY: 0, offsetX: -12, hiddenScale: 0.95f);
+        }
+        var showAi = ViewModel.IsAiSubtitleBusy;
+        if (showAi != _aiBannerVisible)
+        {
+            _aiBannerVisible = showAi;
+            if (!showAi)
+            {
+                _hoveredControls.Remove(AiSubtitleBanner);
+                if (_hoveredControls.Count == 0) _pointerOverControls = false;
+                RestartHideTimerIfEligible();
+            }
+            MotionService.SetFloatingVisible(AiSubtitleBanner, showAi, offsetY: -10, hiddenScale: 0.94f);
+        }
+        var showLive = ViewModel.HasLiveCaption;
+        if (showLive != _liveCaptionVisible)
+        {
+            _liveCaptionVisible = showLive;
+            MotionService.SetFloatingVisible(LiveSubtitleOverlay, showLive, offsetY: 10, hiddenScale: 0.96f);
         }
     }
 
@@ -420,6 +589,7 @@ public sealed partial class PlayerPage : Page
         SyncDelayMenu.Items.Add(audLater);
         SyncDelayMenu.Items.Add(audReset);
 
+        PreventSleepItem.IsChecked = ViewModel.PreventSleepWhilePlaying;
         LoopEpisodeItem.IsChecked = ViewModel.LoopCurrentEpisode;
         MediaInfoToggleItem.IsChecked = ViewModel.ShowMediaInfo;
         RealtimeSubtitleToggleItem.IsChecked = ViewModel.IsRealtimeSubtitleActive;
@@ -707,6 +877,7 @@ public sealed partial class PlayerPage : Page
             var flyout = new Flyout
             {
                 Placement = FlyoutPlacementMode.TopEdgeAlignedRight,
+                FlyoutPresenterStyle = Application.Current.Resources["PlayerGlassFlyoutPresenterStyle"] as Style,
                 Content = new ScrollViewer { MaxHeight = Math.Max(220, ActualHeight - 116), Padding = new Thickness(0, 0, 8, 0), Content = root }
             };
             flyout.Closed += (_, _) => { _subtitleFlyout = null; if (IsLoaded) ShowControls(); };
@@ -797,6 +968,12 @@ public sealed partial class PlayerPage : Page
         if (delayMs == 0) return "当前偏移：0.0s（与原视频同步）";
         var dir = delayMs < 0 ? "前移" : "后移";
         return $"当前偏移：{dir} {Math.Abs(delayMs) / 1000.0:0.0}s（{delayMs / 1000.0:+0.0;-0.0;0.0}s）";
+    }
+
+    private void OnPreventSleepClick(object sender, RoutedEventArgs e)
+    {
+        ViewModel.PreventSleepWhilePlaying = PreventSleepItem.IsChecked;
+        ShowOsd(ViewModel.PreventSleepWhilePlaying ? "已开启防息屏与休眠" : "已关闭防息屏与休眠");
     }
 
     private void OnLoopEpisodeClick(object sender, RoutedEventArgs e)
@@ -1073,6 +1250,7 @@ public sealed partial class PlayerPage : Page
             var flyout = new Flyout
             {
                 Placement = FlyoutPlacementMode.TopEdgeAlignedRight,
+                FlyoutPresenterStyle = Application.Current.Resources["PlayerGlassFlyoutPresenterStyle"] as Style,
                 Content = new ScrollViewer { MaxHeight = Math.Max(180, ActualHeight - 116), Padding = new Thickness(0, 0, 8, 0), Content = options }
             };
             flyout.Closed += (_, _) => { _danmakuFlyout = null; if (IsLoaded) ShowControls(); };
@@ -1415,9 +1593,54 @@ public sealed partial class PlayerPage : Page
         load?.Dispose();
     }
 
-    private void OnPointerMoved(object sender, PointerRoutedEventArgs e) => ShowControls();
+    private void OnControlPointerEntered(object sender, PointerRoutedEventArgs e)
+    {
+        _pointerInsidePage = true;
+        _hoveredControls.Add(sender);
+        _pointerOverControls = true;
+        _hideTimer.Stop();
+        RestoreCursor();
+        if (!_controlsVisible)
+        {
+            _controlsVisible = true;
+            SetChromeVisible(true);
+            UpdateCenterPlayVisibility();
+        }
+    }
 
-    private void OnPointerExited(object sender, PointerRoutedEventArgs e) => ShowArrowCursor();
+    private void OnControlPointerExited(object sender, PointerRoutedEventArgs e)
+    {
+        _hoveredControls.Remove(sender);
+        if (_hoveredControls.Count == 0)
+            _pointerOverControls = false;
+        RestartHideTimerIfEligible();
+    }
+
+    private void OnPointerMoved(object sender, PointerRoutedEventArgs e)
+    {
+        _pointerInsidePage = true;
+        var pos = e.GetCurrentPoint(this).Position;
+        var moved = double.IsNaN(_lastPointerPos.X)
+            || Math.Abs(pos.X - _lastPointerPos.X) >= 1.5
+            || Math.Abs(pos.Y - _lastPointerPos.Y) >= 1.5;
+        if (!_controlsVisible && !moved) return;
+        _lastPointerPos = pos;
+
+        _pointerOverControls = e.OriginalSource is FrameworkElement element && IsInsideControls(element);
+        if (!_pointerOverControls && _hoveredControls.Count > 0)
+            _hoveredControls.Clear();
+
+        ShowControls();
+    }
+
+    private void OnPointerExited(object sender, PointerRoutedEventArgs e)
+    {
+        _pointerInsidePage = false;
+        _hoveredControls.Clear();
+        _pointerOverControls = false;
+        RestoreCursor();
+        RestartHideTimerIfEligible();
+    }
 
     private void OnPointerWheelChanged(object sender, PointerRoutedEventArgs e)
     {
@@ -1434,7 +1657,7 @@ public sealed partial class PlayerPage : Page
     private void OnBottomChromeSizeChanged(object sender, SizeChangedEventArgs e)
     {
         if (e.NewSize.Width == e.PreviousSize.Width) return;
-        var stacked = e.NewSize.Width < 800;
+        var stacked = e.NewSize.Width < 680;
         BottomChromeExtraRow.Height = stacked ? GridLength.Auto : new GridLength(0);
         Grid.SetColumnSpan(TransportControls, stacked ? 2 : 1);
         Grid.SetRow(MediaControls, stacked ? 1 : 0);
@@ -1463,8 +1686,11 @@ public sealed partial class PlayerPage : Page
         DependencyObject? current = element;
         while (current is not null)
         {
-            if (ReferenceEquals(current, TopChromeBar) || ReferenceEquals(current, BottomChromeBar) ||
-                ReferenceEquals(current, AiSubtitleBanner) || ReferenceEquals(current, CenterPlayButton) ||
+            if (ReferenceEquals(current, TopChromeBar) || ReferenceEquals(current, TopGlassSurface) ||
+                ReferenceEquals(current, TopActionsGlassSurface) ||
+                ReferenceEquals(current, BottomChromeBar) || ReferenceEquals(current, BottomGlassSurface) ||
+                ReferenceEquals(current, AiSubtitleBanner) || ReferenceEquals(current, CenterPlayHost) ||
+                ReferenceEquals(current, CenterPlayButton) ||
                 current is ButtonBase or Slider or Selector or TextBox or NumberBox or ToggleSwitch)
                 return true;
             current = VisualTreeHelper.GetParent(current);
@@ -1476,18 +1702,28 @@ public sealed partial class PlayerPage : Page
 
     private void ShowControls()
     {
+        RestoreCursor();
         if (!_controlsVisible)
         {
             _controlsVisible = true;
             SetChromeVisible(true);
         }
-        _hideTimer.Stop();
-        _hideTimer.Start();
+        RestartHideTimerIfEligible();
         UpdateCenterPlayVisibility();
+    }
+
+    private void RestartHideTimerIfEligible()
+    {
+        _hideTimer.Stop();
+        if (_controlsVisible && ViewModel.IsPlaying && !IsPointerOverControls && !AnyFlyoutOpen() && !_seekDragging)
+            _hideTimer.Start();
     }
 
     private void HideControlsNow()
     {
+        _hideTimer.Stop();
+        _hoveredControls.Clear();
+        _pointerOverControls = false;
         _controlsVisible = false;
         SetChromeVisible(false);
         UpdateCenterPlayVisibility();
@@ -1495,8 +1731,8 @@ public sealed partial class PlayerPage : Page
 
     private void SetChromeVisible(bool visible)
     {
-        if (visible) ShowArrowCursor();
-        else SetCursor(0);
+        if (visible) RestoreCursor();
+        else HideCursorIfInside();
         MotionService.SetPlayerChromeVisible(ControlsLayer, TopChromeBar, BottomChromeBar, visible);
     }
 
@@ -1506,7 +1742,14 @@ public sealed partial class PlayerPage : Page
             && !ViewModel.IsBuffering && !ViewModel.ShowStatusPanel;
         if (show == _centerPlayVisible) return;
         _centerPlayVisible = show;
-        MotionService.SetFloatingVisible(CenterPlayButton, show, offsetY: 0, hiddenScale: 0.86f);
+        if (!show)
+        {
+            _hoveredControls.Remove(CenterPlayHost);
+            _hoveredControls.Remove(CenterPlayButton);
+            if (_hoveredControls.Count == 0) _pointerOverControls = false;
+            RestartHideTimerIfEligible();
+        }
+        MotionService.SetFloatingVisible(CenterPlayHost, show, offsetY: 0, hiddenScale: 0.86f);
     }
 
     private bool AnyFlyoutOpen() => PlaylistFlyout.IsOpen || PlaybackOptionsFlyout.IsOpen || RateFlyout.IsOpen ||
@@ -1517,7 +1760,8 @@ public sealed partial class PlayerPage : Page
 
     private void OnHideTimer(DispatcherQueueTimer sender, object args)
     {
-        if (!ViewModel.IsPlaying || AnyFlyoutOpen()) return;
+        if (!ViewModel.IsPlaying || AnyFlyoutOpen() || _seekDragging || IsPointerOverControls) return;
+        Diagnostics.Log("Player chrome auto-hidden after 3s idle");
         HideControlsNow();
     }
 
@@ -1654,7 +1898,11 @@ public sealed partial class PlayerPage : Page
             catch (Exception ex) { message.Text = ex.Message; }
         };
         var content = new StackPanel { Width = 332, Spacing = 12, Children = { intro, markIntro, outro, markOutro, enabled, message, clear, save } };
-        var flyout = new Flyout { Content = new ScrollViewer { Content = content, MaxHeight = Math.Max(240, ActualHeight - 100) } };
+        var flyout = new Flyout
+        {
+            FlyoutPresenterStyle = Application.Current.Resources["PlayerGlassFlyoutPresenterStyle"] as Style,
+            Content = new ScrollViewer { Content = content, MaxHeight = Math.Max(240, ActualHeight - 100) }
+        };
         flyout.Closed += (_, _) => { _timingFlyout = null; if (IsLoaded) ShowControls(); };
         _timingFlyout = flyout;
         PlaybackOptionsFlyout.Hide();
@@ -1667,7 +1915,11 @@ public sealed partial class PlayerPage : Page
         else App.Window.Navigate("cast");
     }
 
-    private void OnDanmakuToggleClick(object sender, RoutedEventArgs e) => _ = ToggleDanmakuAsync();
+    private void OnDanmakuToggleClick(object sender, RoutedEventArgs e)
+    {
+        MotionService.PulseElement(DanmakuToggleButton, 0.88f);
+        _ = ToggleDanmakuAsync();
+    }
 
     private async Task ToggleDanmakuAsync()
     {
@@ -1706,6 +1958,7 @@ public sealed partial class PlayerPage : Page
 
     private void OnMuteClick(object sender, RoutedEventArgs e)
     {
+        MotionService.PulseElement(VolumeButton, 0.88f);
         if (ViewModel.Volume == 0) ViewModel.Volume = _volumeBeforeMute;
         else
         {

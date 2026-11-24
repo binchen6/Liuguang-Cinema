@@ -105,7 +105,7 @@
             <TextBox x:Name="SearchBox" Grid.Column="1" Width="240" VerticalAlignment="Center"
                      PlaceholderText="搜索媒体库" AutomationProperties.Name="搜索媒体库"
                      Text="{Binding SearchQuery, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
-            <DropDownButton Grid.Column="2" Content="本地媒体" Style="{StaticResource SecondaryButtonStyle}" VerticalAlignment="Center"
+            <DropDownButton x:Name="LocalMediaButton" Grid.Column="2" Content="本地媒体" Style="{StaticResource SecondaryButtonStyle}" VerticalAlignment="Center"
                             AutomationProperties.Name="本地媒体">
                 <DropDownButton.Flyout>
                     <MenuFlyout>
@@ -128,22 +128,24 @@
         <InfoBar Grid.Row="1" IsOpen="{Binding HasSuccess}" Message="{Binding StatusMessage}"
                  Severity="Success" IsClosable="False" />
 
-        <!-- 磨砂分段滑轨：弹性玻璃胶囊随切换水平滑行变形 -->
-        <Border x:Name="SegmentTrack" Grid.Row="2" HorizontalAlignment="Left"
-                Background="{ThemeResource GlassPanelBrush}"
-                BorderBrush="{ThemeResource GlassEdgeBrush}" BorderThickness="1"
-                CornerRadius="23" Padding="4">
+        <!-- 五层光学磨砂分段滑轨：弹性晶体胶囊随切换水平滑行变形 -->
+        <controls:GlassSurface x:Name="SegmentTrack" Grid.Row="2" HorizontalAlignment="Left"
+                               CornerRadius="23" Padding="4">
             <Grid x:Name="SegmentTrackHost">
-                <!-- 弹簧滑行的磨砂高亮胶囊 + 底部极细朱砂光点 -->
+                <!-- 弹簧滑行的晶体高亮胶囊 + 顶部微高光丝 + 底部极细朱砂光点 -->
                 <Border x:Name="SegmentGlidePill"
                         Height="38" Width="96" CornerRadius="19"
                         Background="{ThemeResource GlassActivePlateBrush}"
                         BorderBrush="{ThemeResource GlassEdgeBrush}" BorderThickness="1"
                         HorizontalAlignment="Left" VerticalAlignment="Center"
                         Opacity="0" IsHitTestVisible="False">
-                    <Border Width="16" Height="2" CornerRadius="1"
-                            Background="{ThemeResource VermilionBrush}"
-                            HorizontalAlignment="Center" VerticalAlignment="Bottom" Margin="0,0,0,3" />
+                    <Grid>
+                        <Border Height="1" VerticalAlignment="Top" Margin="12,0"
+                                Background="{ThemeResource GlassCausticBrush}" IsHitTestVisible="False" />
+                        <Border Width="16" Height="2" CornerRadius="1"
+                                Background="{ThemeResource VermilionBrush}"
+                                HorizontalAlignment="Center" VerticalAlignment="Bottom" Margin="0,0,0,3" />
+                    </Grid>
                 </Border>
                 <ListView x:Name="SegmentList" SelectionMode="Single"
                           IsItemClickEnabled="False" HorizontalAlignment="Left" Padding="0"
@@ -174,7 +176,7 @@
                     </ListViewItem>
                 </ListView>
             </Grid>
-        </Border>
+        </controls:GlassSurface>
 
         <!-- 内容区 -->
         <Grid x:Name="ContentHost" Grid.Row="3">
@@ -182,7 +184,7 @@
             <!-- 继续观看 -->
             <Grid Visibility="{Binding IsHistoryTab, Converter={StaticResource BoolToVisibility}}">
                 <GridView ItemsSource="{Binding History}" SelectionMode="None" IsItemClickEnabled="True"
-                          ItemClick="OnHistoryClick" Padding="0"
+                          ItemClick="OnHistoryClick" ContainerContentChanging="OnWatchContainerChanging" Padding="0"
                           Background="Transparent" BorderThickness="0"
                           ScrollViewer.HorizontalScrollMode="Disabled"
                           ScrollViewer.VerticalScrollBarVisibility="Auto">

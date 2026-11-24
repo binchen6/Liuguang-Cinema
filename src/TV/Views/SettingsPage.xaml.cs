@@ -27,6 +27,7 @@ public sealed partial class SettingsPage : Page
 
     private async void OnLoaded(object sender, Microsoft.UI.Xaml.RoutedEventArgs e)
     {
+        MotionService.StaggerEntrance(offsetY: 12, stepMs: 35, SettingsHeader, SettingsBody);
         try
         {
             var version = typeof(SettingsPage).Assembly.GetName().Version;

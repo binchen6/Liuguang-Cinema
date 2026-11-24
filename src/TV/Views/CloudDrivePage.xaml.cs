@@ -10,22 +10,43 @@ namespace TV.Views;
 public sealed partial class CloudDrivePage : Page
 {
     private ContentDialog? _loginDialog;
+    private CloudDriveViewModel? _observed;
+    private bool _hasStaggered;
+    private double _pendingOffsetX;
+    private double _pendingOffsetY;
+    private bool _hasPendingTransition;
 
     public CloudDrivePage()
     {
         InitializeComponent();
         MotionService.AttachTactile(CloudRefreshButton, 1.04f, 0.94f, -1f);
+        MotionService.AttachTactile(GoUpButton, 1.02f, 0.96f, -1f);
+        MotionService.AttachTactile(CloudSearchButton, 1.02f, 0.96f, -1f);
+        MotionService.AttachTactile(CloudLoginButton, 1.025f, 0.96f, -1.5f);
     }
     private CloudDriveViewModel ViewModel => (CloudDriveViewModel)DataContext;
 
     private async void OnLoaded(object sender, RoutedEventArgs e)
     {
+        if (!_hasStaggered)
+        {
+            _hasStaggered = true;
+            MotionService.StaggerEntrance(offsetY: 12, stepMs: 35, CloudHeader, AccountStrip, PathBar, EntriesHost);
+        }
+        if (_observed is not null) _observed.PropertyChanged -= OnViewModelPropertyChanged;
+        _observed = ViewModel;
+        _observed.PropertyChanged += OnViewModelPropertyChanged;
         try { await ViewModel.InitializeAsync(); }
         catch (Exception ex) { ViewModel.StatusMessage = ex.Message; }
     }
 
     private void OnUnloaded(object sender, RoutedEventArgs e)
     {
+        if (_observed is not null)
+        {
+            _observed.PropertyChanged -= OnViewModelPropertyChanged;
+            _observed = null;
+        }
         if (_loginDialog is not null)
         {
             App.Services.CloudLogin.Succeeded -= OnCloudLoginSucceeded;
@@ -35,7 +56,45 @@ public sealed partial class CloudDrivePage : Page
         }
     }
 
-    private void OnEntryClick(object sender, ItemClickEventArgs e) => ViewModel.OpenEntryCommand.Execute(e.ClickedItem as CloudDriveItem);
+    private void OnViewModelPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(CloudDriveViewModel.SelectedAccount))
+        {
+            _pendingOffsetX = 0;
+            _pendingOffsetY = 10;
+            _hasPendingTransition = true;
+        }
+        else if (e.PropertyName == nameof(CloudDriveViewModel.IsLoading) && _observed is { IsLoading: false } && _hasPendingTransition)
+        {
+            _hasPendingTransition = false;
+            MotionService.EnterSection(EntriesHost, offsetY: _pendingOffsetY, offsetX: _pendingOffsetX);
+        }
+    }
+
+    private void OnGoUpVisualClick(object sender, RoutedEventArgs e)
+    {
+        _pendingOffsetX = -18;
+        _pendingOffsetY = 0;
+        _hasPendingTransition = true;
+    }
+
+    private void OnBreadcrumbVisualClick(object sender, RoutedEventArgs e)
+    {
+        _pendingOffsetX = -14;
+        _pendingOffsetY = 0;
+        _hasPendingTransition = true;
+    }
+
+    private void OnEntryClick(object sender, ItemClickEventArgs e)
+    {
+        if (e.ClickedItem is CloudDriveItem { IsFolder: true })
+        {
+            _pendingOffsetX = 18;
+            _pendingOffsetY = 0;
+            _hasPendingTransition = true;
+        }
+        ViewModel.OpenEntryCommand.Execute(e.ClickedItem as CloudDriveItem);
+    }
 
     private void OnAccountContainerChanging(ListViewBase sender, ContainerContentChangingEventArgs e)
     {

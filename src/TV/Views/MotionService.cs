@@ -28,8 +28,8 @@ public static class MotionService
     private sealed class MotionState
     {
         public int Token;
-        public bool CenterPivotWired;
-        public bool TopPivotWired;
+        public bool TranslationEnabled;
+        public byte PivotMode; // 0 = none, 1 = center, 2 = top-center
         public bool TactileWired;
         public bool IsHovered;
         public bool IsPressed;
@@ -38,9 +38,35 @@ public static class MotionService
         public bool RadarActive;
     }
 
+    /// <summary>
+    /// Per-Compositor cache of immutable easing curves and GPU CenterPoint expression templates.
+    /// Eliminates repeated WinRT COM allocations on every hover/press/transition and removes UI-thread SizeChanged churn.
+    /// </summary>
+    private sealed class CompositorCache
+    {
+        public CubicBezierEasingFunction EaseOutExpo { get; }
+        public CubicBezierEasingFunction EaseOutQuint { get; }
+        public CubicBezierEasingFunction EaseInOutSine { get; }
+        public CubicBezierEasingFunction EaseInCubic { get; }
+        public ExpressionAnimation CenterPivotExpr { get; }
+        public ExpressionAnimation TopCenterPivotExpr { get; }
+
+        public CompositorCache(Compositor c)
+        {
+            EaseOutExpo = c.CreateCubicBezierEasingFunction(new Vector2(0.16f, 1.0f), new Vector2(0.30f, 1.0f));
+            EaseOutQuint = c.CreateCubicBezierEasingFunction(new Vector2(0.22f, 1.0f), new Vector2(0.36f, 1.0f));
+            EaseInOutSine = c.CreateCubicBezierEasingFunction(new Vector2(0.37f, 0.0f), new Vector2(0.63f, 1.0f));
+            EaseInCubic = c.CreateCubicBezierEasingFunction(new Vector2(0.32f, 0.0f), new Vector2(0.67f, 0.0f));
+            CenterPivotExpr = c.CreateExpressionAnimation("Vector3(this.Target.Size.X * 0.5, this.Target.Size.Y * 0.5, 0.0)");
+            TopCenterPivotExpr = c.CreateExpressionAnimation("Vector3(this.Target.Size.X * 0.5, 0.0, 0.0)");
+        }
+    }
+
     private static readonly UISettings UiSettings = new();
     private static readonly ConditionalWeakTable<UIElement, MotionState> States = new();
+    private static readonly ConditionalWeakTable<Compositor, CompositorCache> CompositorCaches = new();
     private static bool _enabled = true;
+    private static bool _windowMinimized;
 
     public static bool Enabled
     {
@@ -50,64 +76,61 @@ public static class MotionService
 
     public static event EventHandler? Changed;
     public static bool CanAnimate => Enabled && UiSettings.AnimationsEnabled;
+    public static bool CanRunAmbientLoops => CanAnimate && !_windowMinimized;
+
+    /// <summary>
+    /// Suspends decorative infinite compositor loops (beacons, radar waves) while the window is minimized to taskbar/tray
+    /// and resumes them seamlessly when restored — zero visible loss, zero idle GPU wakeups.
+    /// </summary>
+    public static void SetWindowMinimized(bool minimized)
+    {
+        if (_windowMinimized == minimized) return;
+        _windowMinimized = minimized;
+        Changed?.Invoke(null, EventArgs.Empty);
+    }
 
     private static MotionState GetState(UIElement element) => States.GetOrCreateValue(element);
 
+    private static CompositorCache GetCache(Compositor compositor) =>
+        CompositorCaches.GetValue(compositor, static c => new CompositorCache(c));
+
     private static Visual PrepareVisual(FrameworkElement element, bool centerPivot = false, bool topCenterPivot = false)
     {
-        ElementCompositionPreview.SetIsTranslationEnabled(element, true);
+        var state = GetState(element);
+        if (!state.TranslationEnabled)
+        {
+            ElementCompositionPreview.SetIsTranslationEnabled(element, true);
+            state.TranslationEnabled = true;
+        }
         var visual = ElementCompositionPreview.GetElementVisual(element);
-        if (centerPivot) EnsureCenterPivot(element, visual);
-        else if (topCenterPivot) EnsureTopCenterPivot(element, visual);
+        if (centerPivot) EnsureCenterPivot(element, visual, state);
+        else if (topCenterPivot) EnsureTopCenterPivot(element, visual, state);
         return visual;
     }
 
-    private static void EnsureCenterPivot(FrameworkElement element, Visual visual)
+    private static void EnsureCenterPivot(FrameworkElement element, Visual visual, MotionState state)
     {
+        if (state.PivotMode == 1) return;
+        state.PivotMode = 1;
         if (element.ActualWidth > 0 && element.ActualHeight > 0)
             visual.CenterPoint = new Vector3((float)(element.ActualWidth * 0.5), (float)(element.ActualHeight * 0.5), 0f);
-        var state = GetState(element);
-        if (state.CenterPivotWired) return;
-        state.CenterPivotWired = true;
-        element.SizeChanged += static (sender, args) =>
-        {
-            if (sender is FrameworkElement fe)
-            {
-                var v = ElementCompositionPreview.GetElementVisual(fe);
-                v.CenterPoint = new Vector3((float)(args.NewSize.Width * 0.5), (float)(args.NewSize.Height * 0.5), 0f);
-            }
-        };
+        visual.StartAnimation(nameof(Visual.CenterPoint), GetCache(visual.Compositor).CenterPivotExpr);
     }
 
-    private static void EnsureTopCenterPivot(FrameworkElement element, Visual visual)
+    private static void EnsureTopCenterPivot(FrameworkElement element, Visual visual, MotionState state)
     {
+        if (state.PivotMode == 2) return;
+        state.PivotMode = 2;
         if (element.ActualWidth > 0)
             visual.CenterPoint = new Vector3((float)(element.ActualWidth * 0.5), 0f, 0f);
-        var state = GetState(element);
-        if (state.TopPivotWired) return;
-        state.TopPivotWired = true;
-        element.SizeChanged += static (sender, args) =>
-        {
-            if (sender is FrameworkElement fe)
-            {
-                var v = ElementCompositionPreview.GetElementVisual(fe);
-                v.CenterPoint = new Vector3((float)(args.NewSize.Width * 0.5), 0f, 0f);
-            }
-        };
+        visual.StartAnimation(nameof(Visual.CenterPoint), GetCache(visual.Compositor).TopCenterPivotExpr);
     }
 
-    // Calibrated Easing Curves
-    private static CubicBezierEasingFunction EaseOutExpo(Compositor c) =>
-        c.CreateCubicBezierEasingFunction(new Vector2(0.16f, 1.0f), new Vector2(0.30f, 1.0f));
-
-    private static CubicBezierEasingFunction EaseOutQuint(Compositor c) =>
-        c.CreateCubicBezierEasingFunction(new Vector2(0.22f, 1.0f), new Vector2(0.36f, 1.0f));
-
-    private static CubicBezierEasingFunction EaseInOutSine(Compositor c) =>
-        c.CreateCubicBezierEasingFunction(new Vector2(0.37f, 0.0f), new Vector2(0.63f, 1.0f));
-
-    private static CubicBezierEasingFunction EaseInCubic(Compositor c) =>
-        c.CreateCubicBezierEasingFunction(new Vector2(0.32f, 0.0f), new Vector2(0.67f, 0.0f));
+    // Calibrated Easing Curves (cached per Compositor — zero per-call COM allocation)
+    private static CubicBezierEasingFunction EaseOutExpo(Compositor c) => GetCache(c).EaseOutExpo;
+    private static CubicBezierEasingFunction EaseOutQuint(Compositor c) => GetCache(c).EaseOutQuint;
+    private static CubicBezierEasingFunction EaseInOutSine(Compositor c) => GetCache(c).EaseInOutSine;
+    private static CubicBezierEasingFunction EaseInCubic(Compositor c) => GetCache(c).EaseInCubic;
 
     private static SpringVector3NaturalMotionAnimation CreateSpringVector3(
         Compositor compositor,
@@ -586,6 +609,11 @@ public static class MotionService
         bool collapseWhenHidden = true)
     {
         var state = GetState(element);
+        if (!visible && collapseWhenHidden && element.Visibility == Visibility.Collapsed)
+        {
+            element.IsHitTestVisible = false;
+            return;
+        }
         var token = ++state.Token;
         var visual = PrepareVisual(element, centerPivot: true);
 
@@ -656,6 +684,11 @@ public static class MotionService
     public static void SetOverlayVisible(FrameworkElement overlay, bool visible)
     {
         var state = GetState(overlay);
+        if (!visible && overlay.Visibility == Visibility.Collapsed)
+        {
+            overlay.IsHitTestVisible = false;
+            return;
+        }
         var token = ++state.Token;
         var visual = PrepareVisual(overlay, topCenterPivot: true);
 
@@ -753,9 +786,10 @@ public static class MotionService
         SetFloatingVisible(badge, false, offsetY: -8, hiddenScale: 0.94f, collapseWhenHidden: true);
 
     /// <summary>
-    /// Interruptible cinema player chrome choreography: top bar glides from above,
+    /// Interruptible cinema player chrome choreography: top frosted dock glides from above,
     /// floating frosted bottom dock glides smoothly up with subtle scale settle.
-    /// Seamlessly reverses mid-flight whenever pointer or keyboard wakes controls.
+    /// Collapses the hidden Acrylic tree via token-guarded ScopedBatch after exit so GPU backdrop blur
+    /// costs 0% during uninterrupted playback while remaining 100% mid-flight interruptible on wake.
     /// </summary>
     public static void SetPlayerChromeVisible(
         FrameworkElement controlsLayer,
@@ -764,11 +798,26 @@ public static class MotionService
         bool visible)
     {
         var state = GetState(controlsLayer);
-        state.Token++;
-        controlsLayer.IsHitTestVisible = visible;
+        var wasCollapsed = controlsLayer.Visibility == Visibility.Collapsed;
+        if (!visible && wasCollapsed)
+        {
+            controlsLayer.IsHitTestVisible = false;
+            return;
+        }
+        var token = ++state.Token;
         var layerVisual = PrepareVisual(controlsLayer);
         var topVisual = topBar is not null ? PrepareVisual(topBar) : null;
         var bottomVisual = bottomBar is not null ? PrepareVisual(bottomBar, centerPivot: true) : null;
+
+        if (visible)
+        {
+            controlsLayer.Visibility = Visibility.Visible;
+            controlsLayer.IsHitTestVisible = true;
+        }
+        else
+        {
+            controlsLayer.IsHitTestVisible = false;
+        }
 
         if (!CanAnimate)
         {
@@ -786,49 +835,63 @@ public static class MotionService
                 bottomVisual.Properties.InsertVector3("Translation", Vector3.Zero);
                 bottomVisual.Scale = Vector3.One;
             }
+            if (!visible) controlsLayer.Visibility = Visibility.Collapsed;
             return;
         }
 
         var c = layerVisual.Compositor;
-        layerVisual.StartAnimation(nameof(Visual.Opacity),
-            CreateScalarKeyFrame(c, visible ? 1f : 0f, visible ? 185 : 220, visible ? EaseOutQuint(c) : EaseInCubic(c)));
-
-        if (topVisual is not null)
+        if (visible)
         {
-            if (visible)
-                topVisual.StartAnimation("Translation", CreateSpringVector3(c, Vector3.Zero, 0.88f, 38));
-            else
+            var fromHidden = wasCollapsed || layerVisual.Opacity <= 0.02f;
+            layerVisual.StartAnimation(nameof(Visual.Opacity),
+                CreateScalarKeyFrame(c, 1f, 185, EaseOutQuint(c), fromHidden ? 0f : null));
+
+            if (topVisual is not null)
+                topVisual.StartAnimation("Translation",
+                    CreateSpringVector3(c, Vector3.Zero, 0.88f, 38, fromHidden ? new Vector3(0f, -18f, 0f) : null));
+
+            if (bottomVisual is not null)
+            {
+                bottomVisual.StartAnimation("Translation",
+                    CreateSpringVector3(c, Vector3.Zero, 0.86f, 40, fromHidden ? new Vector3(0f, 24f, 0f) : null));
+                bottomVisual.StartAnimation(nameof(Visual.Scale),
+                    CreateSpringVector3(c, Vector3.One, 0.88f, 40, fromHidden ? new Vector3(0.984f, 0.984f, 1f) : null));
+            }
+        }
+        else
+        {
+            var batch = c.CreateScopedBatch(CompositionBatchTypes.Animation);
+            layerVisual.StartAnimation(nameof(Visual.Opacity), CreateScalarKeyFrame(c, 0f, 215, EaseInCubic(c)));
+            if (topVisual is not null)
                 topVisual.StartAnimation("Translation",
                     CreateVector3KeyFrame(c, new Vector3(0f, -20f, 0f), 200, EaseInCubic(c)));
-        }
-
-        if (bottomVisual is not null)
-        {
-            if (visible)
-            {
-                bottomVisual.StartAnimation("Translation", CreateSpringVector3(c, Vector3.Zero, 0.86f, 40));
-                bottomVisual.StartAnimation(nameof(Visual.Scale), CreateSpringVector3(c, Vector3.One, 0.88f, 40));
-            }
-            else
+            if (bottomVisual is not null)
             {
                 bottomVisual.StartAnimation("Translation",
                     CreateVector3KeyFrame(c, new Vector3(0f, 26f, 0f), 210, EaseInCubic(c)));
                 bottomVisual.StartAnimation(nameof(Visual.Scale),
                     CreateVector3KeyFrame(c, new Vector3(0.982f, 0.982f, 1f), 210, EaseInCubic(c)));
             }
+            batch.End();
+            batch.Completed += (_, _) =>
+            {
+                if (state.Token == token)
+                    controlsLayer.Visibility = Visibility.Collapsed;
+                batch.Dispose();
+            };
         }
     }
 
     /// <summary>
     /// Compositor-thread ambient breathing beacon for LIVE ON AIR and Cast status indicators.
-    /// Zero UI-thread timers; halts cleanly when inactive or when animations are disabled.
+    /// Zero UI-thread timers; halts cleanly when inactive, minimized, or when animations are disabled.
     /// </summary>
     public static void SetBeaconPulsing(FrameworkElement beacon, bool active)
     {
         var state = GetState(beacon);
         var visual = PrepareVisual(beacon, centerPivot: true);
 
-        if (!active || !CanAnimate)
+        if (!active || !CanRunAmbientLoops)
         {
             state.BeaconActive = false;
             visual.StopAnimation(nameof(Visual.Opacity));
@@ -870,7 +933,7 @@ public static class MotionService
         var state = GetState(ring);
         var visual = PrepareVisual(ring, centerPivot: true);
 
-        if (!active || !CanAnimate)
+        if (!active || !CanRunAmbientLoops)
         {
             state.RadarActive = false;
             visual.StopAnimation(nameof(Visual.Opacity));
@@ -930,6 +993,13 @@ public static class MotionService
         var expr = c.CreateExpressionAnimation($"Vector3(0.0, Clamp(-Scroll.Translation.Y * {factor.ToString(System.Globalization.CultureInfo.InvariantCulture)}, 0.0, 56.0), 0.0)");
         expr.SetReferenceParameter("Scroll", scrollProps);
         visual.StartAnimation("Translation", expr);
+    }
+
+    public static void UnbindCoverParallax(FrameworkElement backdrop)
+    {
+        var visual = PrepareVisual(backdrop);
+        visual.StopAnimation("Translation");
+        visual.Properties.InsertVector3("Translation", Vector3.Zero);
     }
 
     public static void BindProgressiveBlur(ScrollViewer scrollViewer, FrameworkElement header)

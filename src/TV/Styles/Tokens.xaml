@@ -22,24 +22,58 @@
                 <GradientStop Color="#0D0C0E" Offset="1" />
             </LinearGradientBrush>
 
-            <!-- 磨砂玻璃层级（WinUI AcrylicBrush，支持低配/RDP 自动平滑降级至 FallbackColor） -->
-            <AcrylicBrush x:Key="GlassRailBrush" TintColor="#131317" TintOpacity="0.76" TintLuminosityOpacity="0.86" FallbackColor="#F2121216" />
-            <AcrylicBrush x:Key="GlassPanelBrush" TintColor="#17171C" TintOpacity="0.72" TintLuminosityOpacity="0.84" FallbackColor="#EB15151A" />
-            <AcrylicBrush x:Key="GlassOverlayBrush" TintColor="#1D1D24" TintOpacity="0.82" TintLuminosityOpacity="0.90" FallbackColor="#F51A1A20" />
-            <AcrylicBrush x:Key="GlassChipBrush" TintColor="#1A1A20" TintOpacity="0.65" TintLuminosityOpacity="0.80" FallbackColor="#CC18181E" />
-            <AcrylicBrush x:Key="GlassDarkBadgeBrush" TintColor="#0C0C0F" TintOpacity="0.72" TintLuminosityOpacity="0.78" FallbackColor="#D60B0B0E" />
+            <!-- 宏观建筑磨砂玻璃层级（低 Luminosity 校准释放柔和透光，低配/RDP 自动平滑降级至 FallbackColor） -->
+            <AcrylicBrush x:Key="GlassRailBrush" TintColor="#12141B" TintOpacity="0.60" TintLuminosityOpacity="0.74" FallbackColor="#EB12141B" />
+            <AcrylicBrush x:Key="GlassPanelBrush" TintColor="#161820" TintOpacity="0.54" TintLuminosityOpacity="0.68" FallbackColor="#E615171F" />
+            <AcrylicBrush x:Key="GlassOverlayBrush" TintColor="#1B1E28" TintOpacity="0.74" TintLuminosityOpacity="0.82" FallbackColor="#F2181B24" />
+            <!-- 虚拟化微件采用零模糊透明晶体渐变：视觉通透锐利，滚动期消除 30+ 并发背景模糊 Pass -->
+            <LinearGradientBrush x:Key="GlassChipBrush" StartPoint="0,0" EndPoint="0,1">
+                <GradientStop Color="#1EFFFFFF" Offset="0" />
+                <GradientStop Color="#10FFFFFF" Offset="1" />
+            </LinearGradientBrush>
+            <LinearGradientBrush x:Key="GlassDarkBadgeBrush" StartPoint="0,0" EndPoint="0,1">
+                <GradientStop Color="#B80C0E16" Offset="0" />
+                <GradientStop Color="#CE07090F" Offset="1" />
+            </LinearGradientBrush>
             <SolidColorBrush x:Key="GlassDarkBadgeInkBrush" Color="#F4F3EE" />
             <SolidColorBrush x:Key="GlassDarkBadgeAccentBrush" Color="#F06B5B" />
-            <AcrylicBrush x:Key="GlassActivePlateBrush" TintColor="#FFFFFF" TintOpacity="0.09" TintLuminosityOpacity="0.14" FallbackColor="#18FFFFFF" />
+            <LinearGradientBrush x:Key="GlassActivePlateBrush" StartPoint="0,0" EndPoint="0,1">
+                <GradientStop Color="#1EFFFFFF" Offset="0" />
+                <GradientStop Color="#10FFFFFF" Offset="1" />
+            </LinearGradientBrush>
+
+            <!-- 光学玻璃体积光影、内倒角厚度边与顶部焦散高光丝 -->
+            <LinearGradientBrush x:Key="GlassVolumeBrush" StartPoint="0.1,0" EndPoint="0.9,1">
+                <GradientStop Color="#18FFFFFF" Offset="0" />
+                <GradientStop Color="#06FFFFFF" Offset="0.28" />
+                <GradientStop Color="#00000000" Offset="0.60" />
+                <GradientStop Color="#22030408" Offset="1" />
+            </LinearGradientBrush>
+            <LinearGradientBrush x:Key="GlassInnerBevelBrush" StartPoint="0,0" EndPoint="0,1">
+                <GradientStop Color="#1AFFFFFF" Offset="0" />
+                <GradientStop Color="#06FFFFFF" Offset="0.35" />
+                <GradientStop Color="#1E000000" Offset="1" />
+            </LinearGradientBrush>
+            <LinearGradientBrush x:Key="GlassCausticBrush" StartPoint="0,0" EndPoint="1,0">
+                <GradientStop Color="#00FFFFFF" Offset="0" />
+                <GradientStop Color="#4CFFFFFF" Offset="0.30" />
+                <GradientStop Color="#2AFFFFFF" Offset="0.64" />
+                <GradientStop Color="#00FFFFFF" Offset="1" />
+            </LinearGradientBrush>
+            <LinearGradientBrush x:Key="GlassBottomBevelBrush" StartPoint="0,0" EndPoint="1,0">
+                <GradientStop Color="#00FFFFFF" Offset="0" />
+                <GradientStop Color="#1AFFFFFF" Offset="0.5" />
+                <GradientStop Color="#00FFFFFF" Offset="1" />
+            </LinearGradientBrush>
 
             <!-- 实色表面与层级 -->
-            <SolidColorBrush x:Key="SurfaceBrush" Color="#131317" />
-            <SolidColorBrush x:Key="SurfaceAltBrush" Color="#1A1A20" />
-            <SolidColorBrush x:Key="SurfaceHoverBrush" Color="#23232B" />
-            <SolidColorBrush x:Key="SurfaceElevatedBrush" Color="#1C1C23" />
-            <SolidColorBrush x:Key="PosterPlaceholderBrush" Color="#151519" />
+            <SolidColorBrush x:Key="SurfaceBrush" Color="#13141A" />
+            <SolidColorBrush x:Key="SurfaceAltBrush" Color="#1A1C24" />
+            <SolidColorBrush x:Key="SurfaceHoverBrush" Color="#232631" />
+            <SolidColorBrush x:Key="SurfaceElevatedBrush" Color="#1C1E27" />
+            <SolidColorBrush x:Key="PosterPlaceholderBrush" Color="#15161C" />
             <SolidColorBrush x:Key="ScrimBrush" Color="#D608080A" />
-            <SolidColorBrush x:Key="DividerBrush" Color="#15FFFFFF" />
+            <SolidColorBrush x:Key="DividerBrush" Color="#16FFFFFF" />
             <LinearGradientBrush x:Key="HeroScrimBrush" StartPoint="0,0" EndPoint="1,1">
                 <GradientStop Color="#BA111115" Offset="0" />
                 <GradientStop Color="#DF111115" Offset="0.52" />
@@ -52,12 +86,17 @@
 
             <!-- 文本（宣纸白 / 温润灰 / 石墨灰） -->
             <SolidColorBrush x:Key="PrimaryTextBrush" Color="#F4F3EE" />
-            <SolidColorBrush x:Key="SecondaryTextBrush" Color="#9E9EA8" />
-            <SolidColorBrush x:Key="TertiaryTextBrush" Color="#6F6F7A" />
+            <SolidColorBrush x:Key="SecondaryTextBrush" Color="#A2A3AE" />
+            <SolidColorBrush x:Key="TertiaryTextBrush" Color="#727380" />
             <SolidColorBrush x:Key="OnInverseTextBrush" Color="#0D0D10" />
 
-            <!-- 玻璃高光描边与极细分割线 -->
-            <SolidColorBrush x:Key="GlassEdgeBrush" Color="#24FFFFFF" />
+            <!-- 菲涅尔定向高光描边与极细分割线（顶亮→侧轻→底柔反光，塑造真实玻璃倒角透视） -->
+            <LinearGradientBrush x:Key="GlassEdgeBrush" StartPoint="0.1,0" EndPoint="0.9,1">
+                <GradientStop Color="#3EFFFFFF" Offset="0" />
+                <GradientStop Color="#1CFFFFFF" Offset="0.28" />
+                <GradientStop Color="#0EFFFFFF" Offset="0.76" />
+                <GradientStop Color="#22FFFFFF" Offset="1" />
+            </LinearGradientBrush>
             <SolidColorBrush x:Key="SubtleBorderBrush" Color="#1AFFFFFF" />
             <SolidColorBrush x:Key="StrongBorderBrush" Color="#34FFFFFF" />
             <SolidColorBrush x:Key="AccentBorderBrush" Color="#66E8503E" />
@@ -98,14 +137,48 @@
             </LinearGradientBrush>
 
             <!-- 和纸透光磨砂玻璃层级 -->
-            <AcrylicBrush x:Key="GlassRailBrush" TintColor="#FAF9F5" TintOpacity="0.74" TintLuminosityOpacity="0.88" FallbackColor="#F2FAF9F5" />
-            <AcrylicBrush x:Key="GlassPanelBrush" TintColor="#FFFFFF" TintOpacity="0.70" TintLuminosityOpacity="0.86" FallbackColor="#EEFFFFFF" />
-            <AcrylicBrush x:Key="GlassOverlayBrush" TintColor="#FFFFFF" TintOpacity="0.86" TintLuminosityOpacity="0.92" FallbackColor="#FAFFFFFF" />
-            <AcrylicBrush x:Key="GlassChipBrush" TintColor="#FFFFFF" TintOpacity="0.62" TintLuminosityOpacity="0.82" FallbackColor="#E6FFFFFF" />
-            <AcrylicBrush x:Key="GlassDarkBadgeBrush" TintColor="#141416" TintOpacity="0.74" TintLuminosityOpacity="0.80" FallbackColor="#D9141416" />
+            <AcrylicBrush x:Key="GlassRailBrush" TintColor="#FAF9F5" TintOpacity="0.64" TintLuminosityOpacity="0.78" FallbackColor="#F0FAF9F5" />
+            <AcrylicBrush x:Key="GlassPanelBrush" TintColor="#FFFFFF" TintOpacity="0.56" TintLuminosityOpacity="0.72" FallbackColor="#EBFFFFFF" />
+            <AcrylicBrush x:Key="GlassOverlayBrush" TintColor="#FFFFFF" TintOpacity="0.78" TintLuminosityOpacity="0.86" FallbackColor="#F6FFFFFF" />
+            <!-- 零模糊晶体微件 -->
+            <LinearGradientBrush x:Key="GlassChipBrush" StartPoint="0,0" EndPoint="0,1">
+                <GradientStop Color="#CCFFFFFF" Offset="0" />
+                <GradientStop Color="#99F4F2EC" Offset="1" />
+            </LinearGradientBrush>
+            <LinearGradientBrush x:Key="GlassDarkBadgeBrush" StartPoint="0,0" EndPoint="0,1">
+                <GradientStop Color="#BC14161D" Offset="0" />
+                <GradientStop Color="#D40B0D13" Offset="1" />
+            </LinearGradientBrush>
             <SolidColorBrush x:Key="GlassDarkBadgeInkBrush" Color="#F4F3EE" />
             <SolidColorBrush x:Key="GlassDarkBadgeAccentBrush" Color="#F06B5B" />
-            <AcrylicBrush x:Key="GlassActivePlateBrush" TintColor="#141416" TintOpacity="0.06" TintLuminosityOpacity="0.10" FallbackColor="#12000000" />
+            <LinearGradientBrush x:Key="GlassActivePlateBrush" StartPoint="0,0" EndPoint="0,1">
+                <GradientStop Color="#E6FFFFFF" Offset="0" />
+                <GradientStop Color="#B8EFECE4" Offset="1" />
+            </LinearGradientBrush>
+
+            <!-- 素白和纸光学体积、内倒角与顶部焦散 -->
+            <LinearGradientBrush x:Key="GlassVolumeBrush" StartPoint="0.1,0" EndPoint="0.9,1">
+                <GradientStop Color="#6EFFFFFF" Offset="0" />
+                <GradientStop Color="#20FFFFFF" Offset="0.30" />
+                <GradientStop Color="#00FFFFFF" Offset="0.62" />
+                <GradientStop Color="#0A000000" Offset="1" />
+            </LinearGradientBrush>
+            <LinearGradientBrush x:Key="GlassInnerBevelBrush" StartPoint="0,0" EndPoint="0,1">
+                <GradientStop Color="#99FFFFFF" Offset="0" />
+                <GradientStop Color="#24FFFFFF" Offset="0.40" />
+                <GradientStop Color="#0D000000" Offset="1" />
+            </LinearGradientBrush>
+            <LinearGradientBrush x:Key="GlassCausticBrush" StartPoint="0,0" EndPoint="1,0">
+                <GradientStop Color="#00FFFFFF" Offset="0" />
+                <GradientStop Color="#EEFFFFFF" Offset="0.32" />
+                <GradientStop Color="#99FFFFFF" Offset="0.68" />
+                <GradientStop Color="#00FFFFFF" Offset="1" />
+            </LinearGradientBrush>
+            <LinearGradientBrush x:Key="GlassBottomBevelBrush" StartPoint="0,0" EndPoint="1,0">
+                <GradientStop Color="#00000000" Offset="0" />
+                <GradientStop Color="#12000000" Offset="0.5" />
+                <GradientStop Color="#00000000" Offset="1" />
+            </LinearGradientBrush>
 
             <!-- 实色表面 -->
             <SolidColorBrush x:Key="SurfaceBrush" Color="#FFFFFF" />
@@ -131,8 +204,12 @@
             <SolidColorBrush x:Key="TertiaryTextBrush" Color="#84848F" />
             <SolidColorBrush x:Key="OnInverseTextBrush" Color="#FAF9F5" />
 
-            <!-- 玻璃高光描边 -->
-            <SolidColorBrush x:Key="GlassEdgeBrush" Color="#1C000000" />
+            <!-- 素白菲涅尔定向高光描边（顶纯白倒角 + 底微墨影） -->
+            <LinearGradientBrush x:Key="GlassEdgeBrush" StartPoint="0.1,0" EndPoint="0.9,1">
+                <GradientStop Color="#E6FFFFFF" Offset="0" />
+                <GradientStop Color="#14000000" Offset="0.34" />
+                <GradientStop Color="#22000000" Offset="1" />
+            </LinearGradientBrush>
             <SolidColorBrush x:Key="SubtleBorderBrush" Color="#14000000" />
             <SolidColorBrush x:Key="StrongBorderBrush" Color="#28000000" />
             <SolidColorBrush x:Key="AccentBorderBrush" Color="#59CE3A2B" />
@@ -172,6 +249,10 @@
             <SolidColorBrush x:Key="GlassDarkBadgeInkBrush" Color="{ThemeResource SystemColorWindowTextColor}" />
             <SolidColorBrush x:Key="GlassDarkBadgeAccentBrush" Color="{ThemeResource SystemColorHotlightColor}" />
             <SolidColorBrush x:Key="GlassActivePlateBrush" Color="{ThemeResource SystemColorHighlightColor}" />
+            <SolidColorBrush x:Key="GlassVolumeBrush" Color="Transparent" />
+            <SolidColorBrush x:Key="GlassInnerBevelBrush" Color="Transparent" />
+            <SolidColorBrush x:Key="GlassCausticBrush" Color="Transparent" />
+            <SolidColorBrush x:Key="GlassBottomBevelBrush" Color="Transparent" />
             <SolidColorBrush x:Key="SurfaceBrush" Color="{ThemeResource SystemColorWindowColor}" />
             <SolidColorBrush x:Key="SurfaceAltBrush" Color="{ThemeResource SystemColorWindowColor}" />
             <SolidColorBrush x:Key="SurfaceHoverBrush" Color="{ThemeResource SystemColorWindowColor}" />

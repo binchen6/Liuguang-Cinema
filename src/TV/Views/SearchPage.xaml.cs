@@ -54,6 +54,8 @@ public sealed partial class SearchPage : Page
         await model.PrepareAsync();
         if (!IsLoaded) return;
 
+        if (_firstVisit)
+            MotionService.StaggerEntrance(offsetY: 12, stepMs: 35, SearchHeader, SearchCommandBar, SearchBody);
         if (_firstVisit || ViewModel.ShowsHistory) FocusQuery(false);
         _firstVisit = false;
         UpdateResultStates();
@@ -178,6 +180,12 @@ public sealed partial class SearchPage : Page
         {
             _scrollOffset = 0;
             _resultScroll?.ChangeView(null, 0, null, true);
+            if (_observed is { ShowsHistory: false })
+                MotionService.EnterSection(ResultsList, offsetY: 10);
+        }
+        else if (e.PropertyName == nameof(SearchViewModel.ShowsHistory) && _observed is { ShowsHistory: false })
+        {
+            MotionService.EnterSection(ResultsList, offsetY: 10);
         }
         UpdateResultStates();
     }
@@ -211,7 +219,9 @@ public sealed partial class SearchPage : Page
                 ? "可在左侧站点列表点击「重试」重新搜索失败的站点。"
                 : $"{model.Status} · 可在左侧站点列表点击「重试」重新搜索失败的站点。")
             : "换个关键词试试，或清空筛选条件后重新搜索。";
+        var wasEmptyHidden = EmptyState.Visibility != Visibility.Visible;
         EmptyState.Visibility = Visibility.Visible;
+        if (wasEmptyHidden) MotionService.EnterSection(EmptyState, offsetY: 8);
     }
 
     internal void FocusQuery(bool resetSuggestions = true)

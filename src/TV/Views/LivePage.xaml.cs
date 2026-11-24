@@ -18,12 +18,15 @@ public sealed partial class LivePage : Page
         MotionService.AttachTactile(LiveReloadButton, 1.04f, 0.94f, -1f);
         MotionService.AttachTactile(LiveStreamButton, 1.04f, 0.94f, -1f);
         MotionService.AttachTactile(PlayChannelButton, 1.02f, 0.96f, -1f);
+        MotionService.AttachTactile(FavoriteChannelButton, 1.02f, 0.96f, -1f);
+        MotionService.AttachTactile(BuiltInChannelsButton, 1.02f, 0.96f, 0f);
     }
 
     private LiveViewModel ViewModel => (LiveViewModel)DataContext;
 
     private async void OnLoaded(object sender, RoutedEventArgs e)
     {
+        MotionService.StaggerEntrance(offsetY: 12, stepMs: 35, LiveHeader, BodyGrid);
         MotionService.Changed -= OnMotionPreferenceChanged;
         MotionService.Changed += OnMotionPreferenceChanged;
         MotionService.SetBeaconPulsing(LiveBeacon, true);
@@ -145,6 +148,9 @@ public sealed partial class LivePage : Page
         if (ViewModel.SelectedItem is { } item) ViewModel.PlayChannelCommand.Execute(item.Primary.Channel);
         else ViewModel.PlayChannelCommand.Execute(ViewModel.SelectedChannel);
     }
+
+    private void OnFavoriteChannelVisualClick(object sender, RoutedEventArgs e) =>
+        MotionService.PulseElement(FavoriteChannelButton, 0.93f);
 
     private void OnLineClick(object sender, ItemClickEventArgs e)
     {

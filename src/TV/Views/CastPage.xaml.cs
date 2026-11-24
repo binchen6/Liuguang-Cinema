@@ -31,10 +31,13 @@ public sealed partial class CastPage : Page
         InitializeComponent();
         MotionService.AttachTactile(StartButton, 1.03f, 0.96f, -1.5f);
         MotionService.AttachTactile(SenderButton, 1.02f, 0.96f, -1f);
+        MotionService.AttachTactile(StopReceiverButton, 1.02f, 0.96f, -1f);
+        MotionService.AttachTactile(PreviewToggle, 1.06f, 0.92f, 0f);
     }
 
     private void OnLoaded(object sender, RoutedEventArgs args)
     {
+        MotionService.StaggerEntrance(offsetY: 12, stepMs: 35, CastHeader, BodyGrid);
         MotionService.Changed -= OnMotionPreferenceChanged;
         MotionService.Changed += OnMotionPreferenceChanged;
     }
@@ -257,6 +260,7 @@ public sealed partial class CastPage : Page
             _ => "STOPPED"
         };
         if (state == "PLAYING" && receiver.Status.State != state) Diagnostics.Log("Cast video playing");
+        App.Services.KeepAwake.SetActive("cast", state == "PLAYING");
         receiver.Status = new CastStatus(state, session.Position, session.NaturalDuration, (int)Math.Round(player.Volume * 100), player.IsMuted);
         _showingPosition = true;
         PreviewToggle.IsEnabled = state is "PLAYING" or "PAUSED_PLAYBACK";
@@ -279,6 +283,7 @@ public sealed partial class CastPage : Page
     private void OnPreviewToggle(object sender, RoutedEventArgs args)
     {
         if (_player is not { } player) return;
+        MotionService.PulseElement(PreviewToggle, 0.90f);
         var playing = player.PlaybackSession.PlaybackState == MediaPlaybackState.Playing;
         if (playing) player.Pause();
         else player.Play();
@@ -309,6 +314,7 @@ public sealed partial class CastPage : Page
 
     private void ReleaseMedia()
     {
+        App.Services.KeepAwake.SetActive("cast", false);
         _playing = null;
         if (_player is { } player)
         {

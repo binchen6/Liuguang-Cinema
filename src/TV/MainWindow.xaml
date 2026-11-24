@@ -9,15 +9,27 @@
             <ColumnDefinition Width="*" />
         </Grid.ColumnDefinitions>
 
-        <!-- 极克制建筑宣纸/暗室底纹：为全站磨砂玻璃提供柔和透光纵深 -->
-        <controls:LiquidBackdrop Grid.ColumnSpan="2" />
+        <!-- 极克制建筑宣纸/暗室底纹：为全站磨砂玻璃提供柔和透光纵深；进入沉浸播放时自动折叠零开销 -->
+        <controls:LiquidBackdrop x:Name="AppBackdrop" Grid.ColumnSpan="2" />
 
-        <!-- 磨砂玻璃导航导轨：光隙品牌 + 键帽搜索 + 画册编号一级导航 + 设置 -->
+        <!-- 五层光学磨砂玻璃导航导轨：光隙品牌 + 键帽搜索 + 画册编号一级导航 + 设置 -->
         <Border x:Name="NavPane" Grid.Column="0"
                 Background="{ThemeResource GlassRailBrush}"
                 BorderBrush="{ThemeResource GlassEdgeBrush}"
                 BorderThickness="0,0,1,0">
-            <Grid x:Name="NavPaneContent">
+            <Grid>
+                <Border Background="{ThemeResource GlassVolumeBrush}" Opacity="0.72" IsHitTestVisible="False" />
+                <Border Width="1" HorizontalAlignment="Right" Margin="0,24,0,24" IsHitTestVisible="False">
+                    <Border.Background>
+                        <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
+                            <GradientStop Color="#00FFFFFF" Offset="0" />
+                            <GradientStop Color="#2CFFFFFF" Offset="0.22" />
+                            <GradientStop Color="#12FFFFFF" Offset="0.75" />
+                            <GradientStop Color="#00FFFFFF" Offset="1" />
+                        </LinearGradientBrush>
+                    </Border.Background>
+                </Border>
+                <Grid x:Name="NavPaneContent">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="64" />
                     <RowDefinition Height="Auto" />
@@ -171,6 +183,7 @@
                         Background="{ThemeResource SelectionIndicatorBrush}"
                         HorizontalAlignment="Left" VerticalAlignment="Top"
                         Margin="10,0,0,0" Opacity="0" IsHitTestVisible="False" />
+                </Grid>
             </Grid>
         </Border>
 

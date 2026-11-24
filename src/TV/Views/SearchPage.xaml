@@ -48,9 +48,9 @@
                        Style="{StaticResource SecondaryText}" />
         </StackPanel>
 
-        <!-- 一体化磨砂命令搜索条：回车或点按才提交；底部内嵌细丝朱砂搜索进度线 -->
-        <Border x:Name="SearchCommandBar" Grid.Row="1" Margin="0,20,0,22"
-                Style="{StaticResource GlassBarStyle}" Padding="10,8">
+        <!-- 一体化五层光学磨砂命令搜索条：回车或点按才提交；底部内嵌细丝朱砂搜索进度线 -->
+        <controls:GlassSurface x:Name="SearchCommandBar" Grid.Row="1" Margin="0,20,0,22"
+                               Style="{StaticResource AppBarGlassStyle}" Padding="10,8">
             <Grid RowSpacing="0">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto" />
@@ -91,7 +91,7 @@
                              Height="2" Margin="2,8,2,0"
                              Visibility="{Binding IsSearching, Converter={StaticResource BoolToVisibility}}" />
             </Grid>
-        </Border>
+        </controls:GlassSurface>
 
         <!-- 主体：左侧磨砂站点遥测轨 + 右侧历史/画框结果流 -->
         <Grid x:Name="SearchBody" Grid.Row="2"
@@ -167,11 +167,9 @@
                 </Button>
             </Grid>
 
-            <!-- 磨砂站点遥测侧栏 -->
-            <Border Grid.Row="1" Width="244"
-                    Background="{ThemeResource GlassPanelBrush}"
-                    BorderBrush="{ThemeResource GlassEdgeBrush}" BorderThickness="1"
-                    CornerRadius="{StaticResource RadiusPanel}" Padding="6,8,4,8">
+            <!-- 五层光学磨砂站点遥测侧栏 -->
+            <controls:GlassSurface Grid.Row="1" Width="244"
+                                   CornerRadius="{StaticResource RadiusPanel}" Padding="6,8,4,8">
                 <ListView AutomationProperties.Name="搜索站点"
                           ItemsSource="{Binding Scopes}"
                           SelectedItem="{Binding Scope, Mode=TwoWay}"
@@ -216,7 +214,7 @@
                         </DataTemplate>
                     </ListView.ItemTemplate>
                 </ListView>
-            </Border>
+            </controls:GlassSurface>
 
             <!-- 右列：历史态（极简 Hairline 索引列表 / 空态） -->
             <Grid Grid.Row="1" Grid.Column="1"
@@ -451,25 +449,23 @@
             </Grid>
         </Grid>
 
-        <!-- 真磨砂非抢焦搜索预选浮层：以顶部为锚点弹性展开，随时可打断 -->
-        <Border x:Name="SuggestionsOverlay"
-                Grid.Row="2"
-                Canvas.ZIndex="40"
-                Visibility="Collapsed"
-                HorizontalAlignment="Left"
-                VerticalAlignment="Top"
-                Margin="10,-16,0,0"
-                Background="{ThemeResource GlassOverlayBrush}"
-                BorderBrush="{ThemeResource GlassEdgeBrush}"
-                BorderThickness="1"
-                CornerRadius="{StaticResource RadiusPanel}"
-                Padding="6"
-                AllowFocusOnInteraction="False"
-                PointerEntered="OnSuggestionsPointerEntered"
-                PointerExited="OnSuggestionsPointerExited">
-            <Border.Shadow>
+        <!-- 五层光学磨砂非抢焦搜索预选浮层：以顶部为锚点弹性展开，随时可打断 -->
+        <controls:GlassSurface x:Name="SuggestionsOverlay"
+                               Grid.Row="2"
+                               Canvas.ZIndex="40"
+                               Visibility="Collapsed"
+                               HorizontalAlignment="Left"
+                               VerticalAlignment="Top"
+                               Margin="10,-16,0,0"
+                               Background="{ThemeResource GlassOverlayBrush}"
+                               CornerRadius="{StaticResource RadiusPanel}"
+                               Padding="6"
+                               AllowFocusOnInteraction="False"
+                               PointerEntered="OnSuggestionsPointerEntered"
+                               PointerExited="OnSuggestionsPointerExited">
+            <controls:GlassSurface.Shadow>
                 <ThemeShadow />
-            </Border.Shadow>
+            </controls:GlassSurface.Shadow>
             <ListView x:Name="SuggestionList"
                       MaxHeight="280"
                       SelectionMode="Single"
@@ -501,6 +497,6 @@
                     </DataTemplate>
                 </ListView.ItemTemplate>
             </ListView>
-        </Border>
+        </controls:GlassSurface>
     </Grid>
 </Page>

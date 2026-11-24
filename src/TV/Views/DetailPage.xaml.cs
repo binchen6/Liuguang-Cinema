@@ -19,10 +19,13 @@ public sealed partial class DetailPage : Page
         MotionService.AttachTactile(FavoriteAction, 1.02f, 0.965f, -1f);
         MotionService.AttachTactile(DownloadAction, 1.02f, 0.965f, -1f);
         MotionService.AttachTactile(CastAction, 1.02f, 0.965f, -1f);
+        MotionService.AttachTactile(FindSourcesButton, 1.02f, 0.96f, -1f);
     }
 
     private void OnLoaded(object sender, RoutedEventArgs e)
     {
+        MotionService.Changed -= OnMotionPreferenceChanged;
+        MotionService.Changed += OnMotionPreferenceChanged;
         MotionService.BindCoverParallax(DetailScroller, HeroBackdropLayer, 0.22f);
         MotionService.StaggerEntrance(offsetY: 14, stepMs: 40, HeroBanner, ContentColumns, RelatedSection);
         Attach(DataContext as VodViewModel);
@@ -33,7 +36,26 @@ public sealed partial class DetailPage : Page
             });
     }
 
-    private void OnUnloaded(object sender, RoutedEventArgs e) => Attach(null);
+    private void OnUnloaded(object sender, RoutedEventArgs e)
+    {
+        MotionService.Changed -= OnMotionPreferenceChanged;
+        MotionService.UnbindCoverParallax(HeroBackdropLayer);
+        Attach(null);
+    }
+
+    private void OnMotionPreferenceChanged(object? sender, EventArgs e)
+    {
+        if (IsLoaded) MotionService.BindCoverParallax(DetailScroller, HeroBackdropLayer, 0.22f);
+    }
+
+    private void OnEpisodeContainerChanging(ListViewBase sender, ContainerContentChangingEventArgs e)
+    {
+        if (e.ItemContainer.ContentTemplateRoot is FrameworkElement button)
+        {
+            MotionService.ResetCard(button);
+            MotionService.AttachTactile(button, 1.025f, 0.955f, -1f);
+        }
+    }
 
     private void OnPageSizeChanged(object sender, SizeChangedEventArgs e)
     {
