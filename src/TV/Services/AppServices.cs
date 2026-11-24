@@ -67,7 +67,7 @@ public sealed class AppServices : IDisposable
         Live = new LiveService(http);
         Epg = new EpgService(http);
         Douban = new DoubanService(http, Database);
-        Images = new ImageCacheService(http, Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread(), dns);
+        Images = new ImageCacheService(Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread(), dns);
         Updates = new AppUpdateService(http, dns, Database);
         Resolver = new PlayUrlResolver(http);
         Sniffer = new SniffService(Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread());

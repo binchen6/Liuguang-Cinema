@@ -47,13 +47,14 @@ public sealed class SourceHttpClient : IDisposable
         IReadOnlyDictionary<string, string>? headers = null,
         int maxBytes = 12 * 1024 * 1024,
         CancellationToken cancellationToken = default,
-        bool scopeRedirectHeaders = false)
+        bool scopeRedirectHeaders = false,
+        TimeSpan? requestTimeout = null)
     {
         if (!Uri.TryCreate(url, UriKind.Absolute, out var uri) || uri.Scheme is not ("http" or "https"))
             throw new ArgumentException("仅支持有效的 HTTP/HTTPS 地址。", nameof(url));
 
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        timeout.CancelAfter(TimeSpan.FromSeconds(20));
+        timeout.CancelAfter(requestTimeout ?? TimeSpan.FromSeconds(20));
         using var response = scopeRedirectHeaders
             ? await SendMediaAsync(HttpMethod.Get, uri, headers, timeout.Token).ConfigureAwait(false)
             : await SendWithSessionAsync(_client, HttpMethod.Get, uri, headers, null, timeout.Token).ConfigureAwait(false);

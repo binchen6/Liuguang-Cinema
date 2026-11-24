@@ -122,7 +122,7 @@
     </Page.Resources>
 
     <Grid x:Name="RootGrid">
-        <!-- 底层影片与弹幕画布（同时作为上方悬浮磨砂玻璃层的 ThemeShadow 投影接收面） -->
+        <!-- 底层影片与弹幕画布（避免在高频刷新 SwapChainPanel 上叠加 DWM ThemeShadow） -->
         <Grid x:Name="VideoStageHost">
             <vlc:VideoView x:Name="VideoView" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" Initialized="OnVideoViewInitialized" />
             <controls:DanmakuOverlay x:Name="DanmakuLayer" />

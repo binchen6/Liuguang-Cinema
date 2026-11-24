@@ -12,7 +12,13 @@ param(
 $ErrorActionPreference = 'Stop'
 Set-Location (Split-Path -Parent $PSScriptRoot)
 $dotnet = (Get-Item -LiteralPath '.dotnet/dotnet.exe').FullName
-$app = (Get-Item -LiteralPath 'src/TV/bin/Release/net10.0-windows10.0.19041.0/win-x64').FullName
+$appCandidates = @(
+    'src/TV/bin/x64/Release/net10.0-windows10.0.19041.0/win-x64',
+    'src/TV/bin/Release/net10.0-windows10.0.19041.0/win-x64'
+) | Where-Object { Test-Path -LiteralPath (Join-Path $_ 'TV.dll') } |
+    Sort-Object { (Get-Item -LiteralPath (Join-Path $_ 'TV.dll')).LastWriteTimeUtc } -Descending
+if ($appCandidates.Count -eq 0) { throw 'TV.dll not found under src/TV/bin/(x64/)Release/... Build TV.csproj first.' }
+$app = (Get-Item -LiteralPath $appCandidates[0]).FullName
 if ($Config -ne '-') { $Config = (Get-Item -LiteralPath $Config).FullName }
 $report = (New-Item -ItemType Directory -Path $OutputDirectory).FullName
 $sdk = & $dotnet --version

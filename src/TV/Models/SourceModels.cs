@@ -46,6 +46,7 @@ public sealed class SourceSite
         || Services.Vod.Native.HtmlVodProvider.Supports(this)
         || Services.Vod.Native.NativeVodProviderRouter.IsSearchOnly(this)
         || Services.Vod.Native.MyDriveVodProvider.Supports(this)
+        || Services.Vod.Native.PushVodProvider.Supports(this)
         || Type == 3 && Services.Spider.SpiderCatalog.IsAvailable(Api, Ext);
     [JsonIgnore] public string DisplayName => IsSupported ? Name : $"{Name}（无公开实现）";
 

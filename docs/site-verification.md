@@ -1,31 +1,35 @@
 # 站点适配与验收
 
-本文定义流光影院的当前验证基线、分级通过标准、后台探测与桌面回归命令及验收边界。逐站最新结果以 [站点矩阵](site-matrix.csv) 为准；早期逐条证据归档于 [历史站点验收](archive/site-verification-history.md)。
+本文记录流光影院当前版本的内置源适配现状、分级验收标准、探测与回归命令及验收边界。逐站实测明细见 [站点矩阵](site-matrix.csv)；早期过程日志归档于 [历史站点验收](archive/site-verification-history.md)。
 
 ---
 
-## 1. 当前验证基线：1.9.1
+## 1. 当前验证基线：1.9.4
 
-- **构建状态**：`dotnet build src/TV/TV.csproj -c Release --no-restore` 0 错误、0 新增警告；全站 XAML 字号审计全部 `≥12px`，24 项 UIA 自动化名称契约全量通过。
-- **核心协议与功能回归**：
-  - `CloudRegression`（25 项）：阿里云盘 `POST /v2/user/get`、`/adrive/v3/file/list`、`/adrive/v3/file/search`、`/v2/file/get_download_url`、`create_session` 双盘路由、不向 CDN 透传 `Authorization` 及纯 C# `AliDeviceSession` secp256k1 ECDSA 自验 5/5 通过。
-  - `UpdateRegression`（13 项）+ 实网国内加速实测：GitHub API 403 限流网页源兜底解析通过；多镜测速 + 4 路 Range 并发分片下载通过且严格匹配官方 SHA-256。
-  - `LocalMediaRegression`（24 项）+ 实网弹弹play 端到端测试：`MediaMatching.Parse` 跨源规范化匹配精确命中（《葬送的芙莉莲》6 种命名均命中同一 `EpisodeId=176170005`、6,631 条弹幕；《2.5次元的诱惑》不再被误截断；单字符/综艺日期不再触发 `errorCode=2`；真人剧《庆余年》正确拒绝无关动画误匹配）。
-- **桌面实机 UIA 验收（`1587×1039`，暗室素墨 + 素白画廊双主题）**：点播页 1:1 可打断下滑收起/回滑/回顶、搜索页/云盘页/直播页/设置页连点选中态复位、媒体库 4 分段滑轨与投屏页全部通过，`last-error.log` 为空。
-- **安装包与增量升级验收**：
-  - 完整安装器 `TV-Setup-1.9.1-x64.exe`（138.20 MB）三次启动实测 **304 / 255 / 244 ms**（冷启 ≤1500 ms、热启 ≤600 ms）；
-  - 增量更新包 `TV-Update-1.9.1-from-1.9.0-x64.exe`（9.60 MB，14 个变更文件）实机静默升级后与 1.9.1 便携包逐文件 SHA-256 100% 一致。
+- **构建状态**：`dotnet build src/TV/TV.csproj -c Release -p:Platform=x64 -p:RuntimeIdentifier=win-x64 --no-restore` 0 错误（现有 237 条分析器/AOT 兼容警告，无新增错误）。
+- **内置公开配置适配现状（50 个点播/工具项 + 5 个直播源）**：
+  - **45 项已接入原生 C#（22 个站点适配器）或 Java CatVod 兼容层**：
+    - 1.9.4 将 `❤️AI剧┃弹幕`（`csp_AiDjGuard`，原 Java 适配器指向失效域名 `zzdj.cc`）迁移为原生 `ShortDramaVodProvider`（首页 2 分类 20 条、分类 1398 页、5 组搜索关键词全中、直链后台解码 4307 ms / 254 帧）；
+    - 修复 `🎈盘搜┃四盘`（`ZPan`）与 `🦋易搜┃四盘`（`JPan`）因固定 20 秒超时截断与默认 UA 卡死导致的搜索失败（实网「流浪地球」返回 38 条、「庆余年」返回 5 条，上游冷查偶发超时仍受第三方服务影响）；
+    - 修复 `🏝奥特┃多线`（`csp_AueteGuard`）首页失效 `/aeete5so.php` 404 问题，改用 `/so.php?searchword=` 并准确触发应用内图片验证码；
+    - 为 `csp_T4` / `csp_T4Guard` 增加明文 HTTP/HTTPS URL 配置支持；将内置防骗占位项 `cc`（`请勿信视频中任何广告`）由 `PushVodProvider` 降级为空目录并从搜索与联想列表中排除；
+    - 需交互验证的站点：`💡聚剧┃四盘`（`seed`）、`🌟立播┃不卡`（`立播`）需通过应用内浏览器安全验证弹窗，`🏝奥特┃多线` 搜索需输入图片验证码；
+    - 第三方上游当前不可达的站点：`🥝荐片┃多线`（`api2.rinhome.com` 上游异常）、`🍓糯米┃秒播`（`m.wwgz.cn` TLS 握手失败）、`🎧有声┃小说`（TLS 失败）、`♻️爱刷┃短视`（配置列表 404），以及网盘播放需对应账号会话。
+  - **5 项无公开实现（界面标注为 `（无公开实现）`）**：
+    - `🌞光影┃不卡`、`🧀奶酪┃秒播`（`csp_T4Guard`，内置配置 `ext` 为仅能由外部闭源 DEX 解密的密文）；
+    - `🦊粤迷┃港剧`（`csp_MaiDuiDuiGuard`，对应版权/DRM 应用埋堆堆且依赖外部闭源 DEX）；
+    - `🥜花生┃不卡`（`csp_HuashuGuard`）、`☁️风云┃多线`（`csp_FyGuard`）（外部闭源混淆 DEX，无公开接口）。
+- **桌面实机 UIA 回归（1.9.4）**：`popup_regression`（19 处弹层与弹幕锚点）、`cast_regression`（SSDP/投屏播放/扫码确认）、`workspace_layout_regression`（窗口尺寸恢复/吸顶筛选/跨页搜索切换）、`library_regression`（4 分段筛选与检索状态保持）及播放器 3 秒自动隐藏与透明光标验证全部通过。
 
-### 里程碑验收摘要
+### 近期版本验证摘要
 
-| 版本 | 核心验收项（详情见对应 [发行说明](releases/)） |
+| 版本 | 主要验证项（详见对应 [发行说明](releases/)） |
 | --- | --- |
-| **1.9.0** | 「白 · 隙 · 镜」全站视觉重构、9 档位 `App.ico` + 矢量图标库、GPU 物理动效引擎与深浅/高对比主题切换全页 UIA 验收 |
-| **1.8.1** | 封面 UI 线程解码修复、GitHub 正式版自动更新与 `1.8.0→1.8.1` 文件级增量升级端到端哈希校验（958 文件） |
-| **1.8.0** | HTTP/2 独立图片连接池、播放/暂停零延迟与 PLL 单调弹幕时钟、SAC 98.4% 已签名覆盖率（726/738）与 417/285 ms 秒开安装器 |
-| **1.7.0** | 弹弹play 开放弹幕库 v2 鉴权、阿里云百炼 AI 字幕生成/翻译/WASAPI 实时字幕、长 HLS 会话保留（4096）与日志自动脱敏 |
-| **1.6.x** | 中文 IME 非抢焦搜索建议浮层、6 个新增原生站点（文采/瓜子/橘猫/韩迷/热播/聚剧）与 19 存量点播 + 5 直播源全量回归 |
-| **1.5.0 / 1.4.1** | 单播放器懒加载冷启 ~0.7s、网盘分块/HLS 预读、奥特验证码、本地侧车字幕与独立安装卸载全链路回归 |
+| **1.9.4** | 播放器鼠标快路径与跨环境兼容、`AI剧`/`盘搜`/`奥特` 搜索修复与实网解码抽样、4 项核心 UIA 回归与 `1.9.3 → 1.9.4` 增量升级校验 |
+| **1.9.3** | 统一横竖导航（单选残留与切回「最新影片」胶囊修复）、全站弹层单滚动条治理、浅色主题调整、WinUI 原生透明光标隐藏与 `1.9.2 → 1.9.3` 962 文件逐字节校验 |
+| **1.9.2** | 内核级播放防息屏/防休眠、`GlassSurface` 控件与 3 秒悬停感知隐藏 |
+| **1.9.1** | 阿里云盘双盘与 ECDSA 设备签名（25 项协议回归）、多镜分片更新（13 项回归）与跨源弹幕规范化匹配（24 项回归） |
+| **1.9.0** | 视觉体系重构、九档 `App.ico` 与矢量图标库、Composition 动效与深浅/高对比主题切换 |
 
 ---
 
@@ -43,20 +47,20 @@
 | 直播 | 核对分组、频道、台标、EPG、多线路与实际切台 |
 | 网盘 | 区分扫码成功、凭据有效、目录可读、地址可解析与实际播放 |
 
-矩阵状态定义：`SAMPLE`（已有局部样本通过）、`FAIL`（明确差异）、`BLOCKED`（账号/上游/反爬限制）、`PENDING`（待采样）、`N/A`（协议不提供该能力）。
+矩阵状态定义：`SAMPLE`（已有局部样本通过）、`FAIL`（明确差异）、`BLOCKED`（账号/上游/反爬/无公开实现限制）、`PENDING`（待采样）、`N/A`（协议不提供该能力）。
 
 ---
 
 ## 3. 探测与回归命令
 
-### 后台站点探测（生产路由，不抢焦点）
+### 后台站点探测（不抢焦点）
 
 ```powershell
 # 全量探测
 & .\scripts\run-site-probe.ps1 -OutputDirectory 'artifacts/probe-current'
 
 # 单站点或单直播频道抽样（可加 -VodId 或 -DecodeSample）
-& .\scripts\run-site-probe.ps1 -SiteKey '站点键' -OutputDirectory 'artifacts/probe-one'
+& .\scripts\run-site-probe.ps1 -SiteKey 'AiDj' -DecodeSample -OutputDirectory 'artifacts/probe-one'
 & .\scripts\run-site-probe.ps1 -SiteKey 'live:0' -LiveChannel '频道名' -DecodeSample -OutputDirectory 'artifacts/probe-live'
 
 # 将探测结果回写站点矩阵
@@ -69,7 +73,7 @@ py scripts/update-site-matrix.py artifacts/probe-current/probe.jsonl
 & .\scripts\run-site-regressions.ps1 -Python (Get-Command py).Source -OutputDirectory 'artifacts/qa-current'
 ```
 
-执行约定：使用独立 `TV_DATA_ROOT`、音量置 0、独立安装 `AppId`（不覆盖正式安装）；传统键鼠脚本在空闲桌面串行运行，布局检查优先使用无全局输入的 UIA 直接模式；严禁将带凭据的仓库地址、Cookie、Token 或私人视频写入共享日志。
+执行约定：使用独立 `TV_DATA_ROOT`、音量置 0、独立安装 `AppId`（不覆盖正式安装）；桌面回归脚本会激活窗口，须在空闲桌面串行运行；严禁将带凭据的仓库地址、Cookie、Token 或私人视频写入共享日志。
 
 ---
 
@@ -77,5 +81,5 @@ py scripts/update-site-matrix.py artifacts/probe-current/probe.jsonl
 
 - 第三方站、CDN、会员权限、验证码与地区策略随时变动，历史通过记录不代表永久可用。
 - 未重新扫码登录的账号不视为当前实机账号验收。
-- 虚拟/后台解码通过不等同于所有 GPU 驱动、HDR 显示器与桌面渲染均无异常。
-- 弱网缓冲与预读仅降低卡顿概率，不能保证在极端网络下无中断。
+- 后台解码抽样通过不等同于所有 GPU 驱动、HDR 显示器与桌面渲染均无异常。
+- 弱网缓冲与预读只能降低卡顿概率，不能保证极端网络下无中断。

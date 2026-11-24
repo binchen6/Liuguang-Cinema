@@ -54,6 +54,9 @@ public sealed partial class PlayerPage : Page
     private readonly PointerEventHandler _seekPressedHandler;
     private readonly PointerEventHandler _seekReleasedHandler;
     private readonly PointerEventHandler _pointerMovedHandler;
+    private const long HideIdleMs = 3000;
+    private const long MoveSampleThrottleMs = 200;
+
     private readonly HashSet<object> _hoveredControls = [];
     private bool _pointerOverControls;
     private bool _pointerInsidePage;
@@ -63,11 +66,13 @@ public sealed partial class PlayerPage : Page
     private NativePoint _lastScreenCursorPos;
     private bool _hasLastScreenCursorPos;
     private Windows.Foundation.Point _lastPointerPos = new(double.NaN, double.NaN);
+    private long _lastPointerActivityTick;
+    private long _lastMoveSampleTick;
+    private nint _windowHwnd;
     private UIElement? _videoSwapChainPanel;
     private bool _mediaInfoVisible;
     private bool _aiBannerVisible;
     private bool _liveCaptionVisible;
-    private bool _glassShadowsWired;
 
     [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
     private struct NativePoint { public int X, Y; }
@@ -82,6 +87,16 @@ public sealed partial class PlayerPage : Page
 
     private bool IsPointerOverControls => _hoveredControls.Count > 0 || _pointerOverControls;
 
+    private nint GetCachedWindowHwnd()
+    {
+        if (_windowHwnd == 0)
+        {
+            try { _windowHwnd = WinRT.Interop.WindowNative.GetWindowHandle(App.Window); }
+            catch { }
+        }
+        return _windowHwnd;
+    }
+
     private bool TryGetClientDipCursor(out Windows.Foundation.Point dipPoint)
     {
         dipPoint = default;
@@ -90,7 +105,7 @@ public sealed partial class PlayerPage : Page
         if (scale <= 0) return false;
         try
         {
-            var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(App.Window);
+            var hwnd = GetCachedWindowHwnd();
             if (hwnd == 0 || !GetCursorPos(out var pt)) return false;
             if (!ScreenToClient(hwnd, ref pt)) return false;
             dipPoint = new Windows.Foundation.Point(pt.X / scale, pt.Y / scale);
@@ -186,26 +201,32 @@ public sealed partial class PlayerPage : Page
         {
             try
             {
-                var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(App.Window);
+                var hwnd = GetCachedWindowHwnd();
                 if (hwnd != 0 && GetForegroundWindow() == hwnd)
-                    InputCursorHelper.RefreshStationaryCursor(hide: true);
+                    InputCursorHelper.RefreshStationaryCursor(hide: true, nudgeStationary: true);
             }
             catch { }
         }
     }
 
-    private void RestoreCursor()
+    private void RestoreCursor(bool fromPointerMove = false)
     {
         if (!_cursorHidden && ProtectedCursor is null) return;
         _cursorHidden = false;
         ApplyCursorToVideoTree(null);
+        if (fromPointerMove)
+        {
+            // Never call SetCursorPos while the user is actively moving the mouse (causes physical cursor hitch).
+            InputCursorHelper.RefreshStationaryCursor(hide: false, nudgeStationary: false);
+            return;
+        }
         if (IsCursorInsidePlayerPage())
         {
             try
             {
-                var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(App.Window);
+                var hwnd = GetCachedWindowHwnd();
                 if (hwnd != 0 && GetForegroundWindow() == hwnd)
-                    InputCursorHelper.RefreshStationaryCursor(hide: false);
+                    InputCursorHelper.RefreshStationaryCursor(hide: false, nudgeStationary: true);
             }
             catch { }
         }
@@ -289,24 +310,16 @@ public sealed partial class PlayerPage : Page
             AddHandler(UIElement.PointerMovedEvent, _pointerMovedHandler, handledEventsToo: true);
             _pointerHandlersWired = true;
         }
-        if (!_glassShadowsWired)
-        {
-            _glassShadowsWired = true;
-            WireGlassShadow(TopGlassSurface, 12f);
-            WireGlassShadow(TopActionsGlassSurface, 12f);
-            WireGlassShadow(BottomGlassSurface, 14f);
-            WireGlassShadow(CenterPlayGlassSurface, 16f);
-            WireGlassShadow(OsdGlassSurface, 12f);
-            WireGlassShadow(AiSubtitleGlassSurface, 12f);
-            WireGlassShadow(LiveSubtitleGlassSurface, 10f);
-            WireGlassShadow(MediaInfoGlassSurface, 12f);
-        }
+        _windowHwnd = 0;
+        _ = GetCachedWindowHwnd();
         App.Window.Activated -= OnWindowActivated;
         App.Window.Activated += OnWindowActivated;
         _hoveredControls.Clear();
         _pointerOverControls = false;
         _hasHiddenCursorPos = false;
         _hasLastScreenCursorPos = false;
+        _lastPointerActivityTick = Environment.TickCount64;
+        _lastMoveSampleTick = 0;
         _videoSwapChainPanel = null;
         _lastPointerPos = new(double.NaN, double.NaN);
         _ = InputCursorHelper.GetBlankCursor();
@@ -417,18 +430,6 @@ public sealed partial class PlayerPage : Page
         _videoSwapChainPanel = null;
         VideoView.Initialized -= OnVideoViewInitialized;
         VideoView.MediaPlayer = null;
-    }
-
-    private void WireGlassShadow(UIElement surface, float elevationZ)
-    {
-        try
-        {
-            surface.Translation = new System.Numerics.Vector3(0f, 0f, elevationZ);
-            var shadow = new ThemeShadow();
-            shadow.Receivers.Add(VideoStageHost);
-            surface.Shadow = shadow;
-        }
-        catch { }
     }
 
     private void OnWindowActivated(object sender, Microsoft.UI.Xaml.WindowActivatedEventArgs args)
@@ -1722,12 +1723,13 @@ public sealed partial class PlayerPage : Page
         _pointerInsidePage = true;
         _hoveredControls.Add(sender);
         _pointerOverControls = true;
+        _lastPointerActivityTick = Environment.TickCount64;
         _hideTimer.Stop();
-        RestoreCursor();
+        RestoreCursor(fromPointerMove: true);
         if (!_controlsVisible)
         {
             _controlsVisible = true;
-            SetChromeVisible(true);
+            SetChromeVisible(true, fromPointerMove: true);
             UpdateCenterPlayVisibility();
         }
     }
@@ -1737,6 +1739,7 @@ public sealed partial class PlayerPage : Page
         _hoveredControls.Remove(sender);
         if (_hoveredControls.Count == 0)
             _pointerOverControls = false;
+        _lastPointerActivityTick = Environment.TickCount64;
         RestartHideTimerIfEligible();
     }
 
@@ -1755,44 +1758,78 @@ public sealed partial class PlayerPage : Page
     private void OnPointerMoved(object sender, PointerRoutedEventArgs e)
     {
         _pointerInsidePage = true;
-        var pos = e.GetCurrentPoint(this).Position;
-        var gotScreen = GetCursorPos(out var curPt);
-        if (!_controlsVisible)
+        var now = Environment.TickCount64;
+
+        // 高频移动快路径：控制条已显示时严禁执行 TransformToVisual / VisualTree 遍历 / Stop+Start 计时器，
+        // 仅按 200ms 节流采样物理位移，确保 1000Hz–8000Hz 高回报率鼠标在播放器内移动 0 卡顿。
+        if (_controlsVisible)
         {
-            // 使用屏幕物理坐标防抖：ControlsLayer 切换 IsHitTestVisible/Visibility 或静止刷光标时 WinUI 3 会派发合成 PointerMoved，
-            // 若物理光标未真正移动 (>=3px)，严禁误唤醒控制条和鼠标。
-            if (_hasHiddenCursorPos && gotScreen)
+            if (now - _lastMoveSampleTick < MoveSampleThrottleMs)
+                return;
+            _lastMoveSampleTick = now;
+
+            if (e.Pointer.PointerDeviceType != PointerDeviceType.Mouse)
             {
-                if (Math.Abs(curPt.X - _hiddenCursorScreenPos.X) < 3 && Math.Abs(curPt.Y - _hiddenCursorScreenPos.Y) < 3)
-                    return;
+                _lastPointerActivityTick = now;
+                EnsureHideTimerArmed();
+                return;
+            }
+
+            if (GetCursorPos(out var pt))
+            {
+                if (_hasLastScreenCursorPos
+                    && Math.Abs(pt.X - _lastScreenCursorPos.X) < 2
+                    && Math.Abs(pt.Y - _lastScreenCursorPos.Y) < 2)
+                {
+                    return; // 忽略静止 0px 合成 PointerMoved
+                }
+                _lastScreenCursorPos = pt;
+                _hasLastScreenCursorPos = true;
             }
             else
             {
+                var ptDip = e.GetCurrentPoint(this).Position;
+                if (!double.IsNaN(_lastPointerPos.X)
+                    && Math.Abs(ptDip.X - _lastPointerPos.X) < 2.0
+                    && Math.Abs(ptDip.Y - _lastPointerPos.Y) < 2.0)
+                {
+                    return;
+                }
+                _lastPointerPos = ptDip;
+            }
+
+            _lastPointerActivityTick = now;
+            EnsureHideTimerArmed();
+            return;
+        }
+
+        // 控制条隐藏态唤醒路径：触控/手写笔直接唤醒；鼠标需真实物理位移 >= 3px 以屏蔽隐藏期合成事件。
+        if (e.Pointer.PointerDeviceType == PointerDeviceType.Mouse)
+        {
+            if (GetCursorPos(out var curPt))
+            {
+                if (_hasHiddenCursorPos
+                    && Math.Abs(curPt.X - _hiddenCursorScreenPos.X) < 3
+                    && Math.Abs(curPt.Y - _hiddenCursorScreenPos.Y) < 3)
+                {
+                    return;
+                }
+                _lastScreenCursorPos = curPt;
+                _hasLastScreenCursorPos = true;
+            }
+            else
+            {
+                var pos = e.GetCurrentPoint(this).Position;
                 var moved = !double.IsNaN(_lastPointerPos.X)
                     && (Math.Abs(pos.X - _lastPointerPos.X) >= 2.0 || Math.Abs(pos.Y - _lastPointerPos.Y) >= 2.0);
+                _lastPointerPos = pos;
                 if (!moved) return;
             }
         }
-        else if (gotScreen && _hasLastScreenCursorPos
-            && Math.Abs(curPt.X - _lastScreenCursorPos.X) < 2
-            && Math.Abs(curPt.Y - _lastScreenCursorPos.Y) < 2)
-        {
-            // 避免静止 0px 合成 PointerMoved 不断重置 3 秒自动隐藏计时器
-            return;
-        }
-        if (gotScreen)
-        {
-            _lastScreenCursorPos = curPt;
-            _hasLastScreenCursorPos = true;
-        }
-        _lastPointerPos = pos;
 
-        _pointerOverControls = (e.OriginalSource is FrameworkElement element && IsInsideControls(element))
-            || SyncAndCheckPointerOverControls();
-        if (!_pointerOverControls && _hoveredControls.Count > 0)
-            _hoveredControls.Clear();
-
-        ShowControls();
+        _lastPointerActivityTick = now;
+        _lastMoveSampleTick = now;
+        ShowControls(fromPointerMove: true);
     }
 
     private void OnPointerExited(object sender, PointerRoutedEventArgs e)
@@ -1862,23 +1899,37 @@ public sealed partial class PlayerPage : Page
 
     private bool _centerPlayVisible;
 
-    private void ShowControls()
+    private void ShowControls(bool fromPointerMove = false)
     {
-        RestoreCursor();
+        _lastPointerActivityTick = Environment.TickCount64;
+        RestoreCursor(fromPointerMove);
         if (!_controlsVisible)
         {
             _controlsVisible = true;
-            SetChromeVisible(true);
+            SetChromeVisible(true, fromPointerMove);
         }
         RestartHideTimerIfEligible();
         UpdateCenterPlayVisibility();
+    }
+
+    private void EnsureHideTimerArmed()
+    {
+        if (_hideTimer.IsRunning) return;
+        if (_controlsVisible && ViewModel.IsPlaying && !IsPointerOverControls && !AnyFlyoutOpen() && !_seekDragging)
+        {
+            _hideTimer.Interval = TimeSpan.FromMilliseconds(HideIdleMs);
+            _hideTimer.Start();
+        }
     }
 
     private void RestartHideTimerIfEligible()
     {
         _hideTimer.Stop();
         if (_controlsVisible && ViewModel.IsPlaying && !IsPointerOverControls && !AnyFlyoutOpen() && !_seekDragging)
+        {
+            _hideTimer.Interval = TimeSpan.FromMilliseconds(HideIdleMs);
             _hideTimer.Start();
+        }
     }
 
     private void HideControlsNow()
@@ -1888,16 +1939,16 @@ public sealed partial class PlayerPage : Page
         _pointerOverControls = false;
         _hasHiddenCursorPos = GetCursorPos(out _hiddenCursorScreenPos);
         _controlsVisible = false;
-        SetChromeVisible(false);
+        SetChromeVisible(false, fromPointerMove: false);
         UpdateCenterPlayVisibility();
     }
 
-    private void SetChromeVisible(bool visible)
+    private void SetChromeVisible(bool visible, bool fromPointerMove = false)
     {
         if (visible)
         {
             _hasHiddenCursorPos = false;
-            RestoreCursor();
+            RestoreCursor(fromPointerMove);
             MotionService.SetPlayerChromeVisible(ControlsLayer, TopChromeBar, BottomChromeBar, true);
         }
         else
@@ -1931,7 +1982,16 @@ public sealed partial class PlayerPage : Page
 
     private void OnHideTimer(DispatcherQueueTimer sender, object args)
     {
-        if (!ViewModel.IsPlaying || AnyFlyoutOpen() || _seekDragging || SyncAndCheckPointerOverControls()) return;
+        if (!ViewModel.IsPlaying || AnyFlyoutOpen() || _seekDragging) return;
+        var elapsed = Environment.TickCount64 - _lastPointerActivityTick;
+        if (elapsed < HideIdleMs - 80)
+        {
+            // 光标近期仍有移动：按剩余空闲时长顺延一次定时，避免移动期反复 Stop/Start 计时器
+            _hideTimer.Interval = TimeSpan.FromMilliseconds(Math.Max(120, HideIdleMs - elapsed));
+            _hideTimer.Start();
+            return;
+        }
+        if (SyncAndCheckPointerOverControls()) return;
         HideControlsNow();
         Diagnostics.Log($"Player chrome & cursor auto-hidden after 3s idle (blankCursor={ProtectedCursor is not null}, swapChain={_videoSwapChainPanel is not null})");
     }

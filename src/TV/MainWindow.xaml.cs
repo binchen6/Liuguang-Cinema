@@ -504,9 +504,13 @@ public sealed partial class MainWindow : Window
                 inactiveForeground = Windows.UI.Color.FromArgb(255, 0x9E, 0x9E, 0xA8);
             }
         }
-        var caption = AppWindow.TitleBar;
-        caption.ButtonForegroundColor = foreground;
-        caption.ButtonInactiveForegroundColor = inactiveForeground;
+        try
+        {
+            var caption = AppWindow.TitleBar;
+            caption.ButtonForegroundColor = foreground;
+            caption.ButtonInactiveForegroundColor = inactiveForeground;
+        }
+        catch (Exception ex) { Diagnostics.Log($"标题栏按钮配色跳过: {ex.GetType().Name}"); }
     }
 
     private void OnTitleBarSizeChanged(object sender, SizeChangedEventArgs e) => ScheduleTitleBarInput();
@@ -549,9 +553,17 @@ public sealed partial class MainWindow : Window
 
     private void SetPlayerPresenter(AppWindowPresenterKind kind)
     {
-        if (AppWindow.Presenter.Kind != kind) AppWindow.SetPresenter(kind);
-        _fullScreen = kind == AppWindowPresenterKind.FullScreen;
-        _compact = kind == AppWindowPresenterKind.CompactOverlay;
+        try
+        {
+            if (AppWindow.Presenter.Kind != kind) AppWindow.SetPresenter(kind);
+        }
+        catch (Exception ex)
+        {
+            Diagnostics.Log($"窗口呈现模式切换失败 ({kind}): {ex.GetType().Name}");
+            return;
+        }
+        _fullScreen = AppWindow.Presenter.Kind == AppWindowPresenterKind.FullScreen;
+        _compact = AppWindow.Presenter.Kind == AppWindowPresenterKind.CompactOverlay;
         AppTitleBar.Visibility = _fullScreen || _compact ? Visibility.Collapsed : Visibility.Visible;
         UpdatePaneLayout();
     }

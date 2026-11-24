@@ -567,7 +567,7 @@ public sealed partial class VodViewModel : ObservableObject
 
     private async Task<VodItem> ResolveMetaDetailAsync(VodItem source, CancellationToken token)
     {
-        var sites = Sites.Where(site => site.IsSupported && site.Searchable != 0 && !site.Api.Contains("Douban", StringComparison.OrdinalIgnoreCase) && !site.Api.Contains("DouDou", StringComparison.OrdinalIgnoreCase))
+        var sites = Sites.Where(site => site.IsSupported && site.Searchable != 0 && !Services.Vod.Native.PushVodProvider.Supports(site) && !site.Api.Contains("Douban", StringComparison.OrdinalIgnoreCase) && !site.Api.Contains("DouDou", StringComparison.OrdinalIgnoreCase))
             .OrderByDescending(site => site.Key == source.SiteKey).Take(8).ToList();
         var collected = new System.Collections.Concurrent.ConcurrentBag<(VodItem Item, SourceSite Site, double Score)>();
         await Parallel.ForEachAsync(sites, new ParallelOptions { MaxDegreeOfParallelism = 3, CancellationToken = token }, async (site, cancellationToken) =>

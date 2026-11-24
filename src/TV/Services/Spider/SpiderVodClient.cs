@@ -33,10 +33,10 @@ public sealed class SpiderVodClient
 
     internal Task<CmsResponse> GetCategoryAsync(SourceSite site, string categoryId, int page,
         IReadOnlyDictionary<string, string>? filters, CancellationToken cancellationToken) =>
-        SendAsync(site, "category", new() { ["tid"] = categoryId, ["pg"] = page.ToString(), ["extend"] = filters }, cancellationToken);
+        SendAsync(site, "category", new() { ["tid"] = categoryId, ["pg"] = page.ToString(System.Globalization.CultureInfo.InvariantCulture), ["extend"] = filters }, cancellationToken);
 
     public Task<CmsResponse> SearchAsync(SourceSite site, string keyword, int page = 1, CancellationToken cancellationToken = default) =>
-        SendAsync(site, "search", new() { ["keyword"] = keyword, ["pg"] = page.ToString() }, cancellationToken);
+        SendAsync(site, "search", new() { ["keyword"] = keyword, ["pg"] = page.ToString(System.Globalization.CultureInfo.InvariantCulture) }, cancellationToken);
 
     public async Task<VodItem> GetDetailAsync(SourceSite site, string id, CancellationToken cancellationToken = default)
     {

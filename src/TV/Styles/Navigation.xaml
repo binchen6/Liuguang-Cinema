@@ -279,10 +279,6 @@
         </Setter>
     </Style>
 
-    <!-- 兼容别名：既有页面内列表项 -->
-    <Style x:Key="NavRailItemStyle" TargetType="ListViewItem" BasedOn="{StaticResource VerticalNavInlineItemStyle}" />
-    <Style x:Key="RailListStyle" TargetType="ListViewItem" BasedOn="{StaticResource VerticalNavInlineItemStyle}" />
-
     <!-- 设置页分区导航项（保留 Expander 以兼容 UIA ExpandCollapsePattern，共享统一竖向导航材质与字色语义） -->
     <Style x:Key="SettingsNavSectionStyle" TargetType="Expander">
         <Setter Property="HorizontalAlignment" Value="Stretch" />

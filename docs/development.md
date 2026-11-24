@@ -8,10 +8,10 @@
 New-Item -ItemType Directory -Force 'artifacts/tmp' | Out-Null
 $env:TMP = $env:TEMP = (Resolve-Path 'artifacts/tmp').Path
 .\.dotnet\dotnet.exe restore src/TV/TV.csproj --locked-mode
-.\.dotnet\dotnet.exe build src/TV/TV.csproj -c Release --no-restore
+.\.dotnet\dotnet.exe build src/TV/TV.csproj -c Release -p:Platform=x64 -p:RuntimeIdentifier=win-x64 --no-restore
 ```
 
-开发产物位于 `src/TV/bin/Release/net10.0-windows10.0.19041.0/win-x64/TV.exe`（若使用系统 .NET 10 SDK，可直接将 `.\.dotnet\dotnet.exe` 替换为 `dotnet`）。
+开发产物位于 `src/TV/bin/x64/Release/net10.0-windows10.0.19041.0/win-x64/TV.exe`（若使用系统 .NET 10 SDK，可将 `.\.dotnet\dotnet.exe` 替换为 `dotnet`）。
 
 ## 2. 隔离运行与数据目录
 
@@ -19,7 +19,7 @@ $env:TMP = $env:TEMP = (Resolve-Path 'artifacts/tmp').Path
 
 ```powershell
 $env:TV_DATA_ROOT = Join-Path $PWD 'artifacts/tmp/dev-profile'
-& .\src\TV\bin\Release\net10.0-windows10.0.19041.0\win-x64\TV.exe
+& .\src\TV\bin\x64\Release\net10.0-windows10.0.19041.0\win-x64\TV.exe
 ```
 
 未设置时默认写入 `%LOCALAPPDATA%\TV`：
@@ -39,20 +39,20 @@ $env:TV_DATA_ROOT = Join-Path $PWD 'artifacts/tmp/dev-profile'
 | 路径 | 职责 |
 | --- | --- |
 | `src/TV/MainWindow.xaml(.cs)` | 窗口壳、磨砂导航栏、返回栈、播放页进出与退出顺序 |
-| `src/TV/Styles/`、`Controls/` | 「白 · 隙 · 镜」设计令牌、24×24 几何图标库、`BrandMark`、`LineIcon`、弹幕层与复用弹窗 |
-| `src/TV/Views/`、`ViewModels/` | 页面 XAML、绑定状态、命令与 `MotionService` GPU 物理动效引擎 |
+| `src/TV/Styles/`、`Controls/` | 设计令牌、24×24 几何图标库、`GlassSurface`、`BrandMark`、`LineIcon`、弹幕层、导航与滚轮控制器 |
+| `src/TV/Views/`、`ViewModels/` | 页面 XAML、状态绑定、命令与 `MotionService` Compositor 动效编排 |
 | `src/TV/Models/` | 媒体、站点配置、网盘、播放解析与持久化模型 |
 | `src/TV/Services/AI/` | 阿里云百炼 AI 字幕生成（`paraformer-v2` / `qwen3-asr-flash-filetrans`）、翻译（`qwen-mt-flash` / `qwen-mt-plus`）、无头音轨提取与 WASAPI 实时字幕 |
 | `src/TV/Services/Playback/` | 地址解析、HLS/DASH、LibVLC 优先级控制泵、跨源弹幕规范化匹配（`MediaMatching` + 弹弹play/B 站）、字幕与离线下载 |
 | `src/TV/Services/Cloud/` | 四网盘账号/文件接口、纯 C# secp256k1 阿里设备签名、分块预读与回环安全媒体代理 |
-| `src/TV/Services/Vod/`、`Spider/` | CMS、20+ 原生站点适配器、跨站搜索评分、换源恢复与 Java CatVod JSON IPC |
+| `src/TV/Services/Vod/`、`Spider/` | CMS、22 个原生 C# 站点适配器、跨站搜索评分、换源恢复与 Java CatVod JSON IPC |
 | `src/TV/Services/Live/`、`Casting/` | 直播源聚合、EPG 节目单、DLNA/UPnP 与扫码投屏接收 |
 | `src/TV/Services/Library/`、`Metadata/` | 本地媒体索引、侧车字幕/弹幕、目录监视与豆瓣公开元数据 |
 | `src/TV/Services/Http/`、`Imaging/` | 自定义 DNS 解析、跨域请求头过滤、高速 HTTP/2 图片连接池与有界内存/磁盘缓存 |
 | `src/TV/Services/Persistence/`、`Maintenance/` | SQLite（8 MB 页缓存）、Windows DPAPI `SecretStore`、分类扫描与显式安全清理 |
 | `src/TV/Services/Updates/` | GitHub 正式版检查、限流网页兜底、国内多镜并行测速、多路 Range 断点下载与 SHA-256 校验 |
 | `engine/catvod/` | Java 17 CatVod JSON IPC 引擎与上游站点修正 |
-| `installer/`、`scripts/` | Inno Setup 完整/增量安装器（含中文语言包）、构建签名与秒开防回退脚本 |
+| `installer/`、`scripts/` | Inno Setup 完整/增量安装器（含中文语言包）、构建签名与启动耗时校验脚本 |
 | `artifacts/qa-fixture/` | 隔离测试夹具、协议回归与桌面 UIA 回归脚本 |
 
 ## 4. 密钥与开源安全约定
@@ -70,7 +70,7 @@ $env:TV_DATA_ROOT = Join-Path $PWD 'artifacts/tmp/dev-profile'
 - 跨域重定向、分片与下载须通过 `MediaRequestHeaders.ForTarget` 剥离敏感头，严禁将原站 Cookie/Authorization 泄露至第三方 CDN。
 - 网盘凭据统一走 `SecretStore`（DPAPI）；本地媒体代理仅监听 `127.0.0.1`。
 - XML 输入禁用 DTD 并限制体积；JSON、图片、播放列表与下载均须边界校验。
-- UI 修改遵循 [品牌设计语言规范](brand-design-system.md)、[设计契约](design-guide.md) 与 [动效工程规范](motion-spec.md)，保留全部 UIA 名称。
+- UI 修改遵循 [视觉与材质规范](brand-design-system.md)、[设计契约](design-guide.md) 与 [动效工程规范](motion-spec.md)，保留全部 UIA 名称。
 - 本地媒体索引移除与清理功能绝不删除用户未显式勾选的磁盘原文件。
 
 ## 6. Java 引擎与安装器打包
@@ -95,7 +95,7 @@ $env:TMP = $env:TEMP = (Resolve-Path 'artifacts/tmp').Path
 1. **双向差异增量包**：对比上一版便携包（或 `-IncrementalBaseZip`）逐文件 SHA-256，仅打包变更/新增文件，并自动生成 `[InstallDelete]` 清理废弃文件与空目录；`TV-Update.iss` 同步更新文件关联、快捷方式、卸载元数据、等待进程退出并通过 `SHChangeNotify` 刷新系统图标缓存，升级后目录与完整版 100% 逐字节一致。
 2. **高签名覆盖与免提权运行库**：`jlink` 后从 Microsoft Build of OpenJDK 还原全部 Microsoft 签名 PE 文件，并内置 6 个 Microsoft 签名应用本地 VC++ x64 CRT DLL（免嵌套 `vc_redist.x64.exe` 与 UAC）。
 3. **双层 Authenticode 签名**：支持 `-CertThumbprint` / `-PfxPath`（或环境变量 `TV_SIGN_THUMBPRINT` / `TV_SIGN_PFX` / `TV_SIGN_PASSWORD`），详见 [智能应用控制与签名说明](smart-app-control.md)。
-4. **秒开防回退守卫**：`installer/TV.iss` 必须保持 `InternalCompressLevel=none`、`SolidCompression=no` 且不嵌套外部 `.exe`。发版前必须通过启动耗时校验：
+4. **安装器启动耗时守卫**：`installer/TV.iss` 必须保持 `InternalCompressLevel=none`、`SolidCompression=no` 且不嵌套外部 `.exe`。发版前必须通过启动耗时校验：
 
 ```powershell
 pwsh -NoProfile -File .\scripts\Test-InstallerLaunchSpeed.ps1 -InstallerPath .\artifacts\installers\TV-Setup-<version>-x64.exe -AssertIssSettings -Runs 3 -MaxColdMs 1500 -MaxWarmMs 600

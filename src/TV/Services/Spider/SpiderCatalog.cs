@@ -6,7 +6,7 @@ public static class SpiderCatalog
     {
         "AiDj", "Ali", "AList", "Alllive", "Appgz", "AppTT", "AppYsV2", "Auete", "Bili", "BpanSo", "Bttwoo", "Dm84", "Doll", "Douban", "Doubao", "DouDou",
         "Eighteen", "FirstAid", "Hanime", "Hanquan", "Jable", "JavDb", "Jianpian", "JPJ", "Jpys", "JumiTv", "JustLive", "Kanqiu", "KkSs", "Kugou",
-        "Libvio", "LiveGz", "Local", "Miss", "Music", "NewCz", "NiNi", "Nmyswv", "PanSearch", "PanSou", "Push", "Seedhub", "ShortDrama", "SixV",
+        "Libvio", "LiveGz", "Local", "Miss", "Music", "MyDrive", "NewCz", "NiNi", "Nmyswv", "PanSearch", "PanSou", "Push", "S_zps", "Seedhub", "ShortDrama", "SixV",
         "Sssp", "Star", "UpYun", "UuSs", "Wogg", "Xb6v", "XiaoZhiTiao", "XPath", "XPathFilter", "XPathMac", "XPathMacFilter", "YGP", "Ying",
         "Yingshiche", "YiSo", "YpanSo", "Ysj", "YueTing", "Zhaozy", "Quark", "UC", "Cloud"
     };
@@ -21,6 +21,17 @@ public static class SpiderCatalog
         if (!api.StartsWith("csp_", StringComparison.OrdinalIgnoreCase)) return false;
         var name = api[4..];
         if (name.EndsWith("Guard", StringComparison.OrdinalIgnoreCase)) name = name[..^5];
+        // XPath spiders require a rule JSON or rule URL in ext; empty-ext entries (e.g. notice banners like "请勿信视频中任何广告") cannot be queried.
+        if (name.StartsWith("XPath", StringComparison.OrdinalIgnoreCase))
+        {
+            var hasExt = ext.ValueKind switch
+            {
+                System.Text.Json.JsonValueKind.String => !string.IsNullOrWhiteSpace(ext.GetString()),
+                System.Text.Json.JsonValueKind.Object => ext.EnumerateObject().Any(),
+                _ => false
+            };
+            if (!hasExt) return false;
+        }
         return Available.Contains(name);
     }
 

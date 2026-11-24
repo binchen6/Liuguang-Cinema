@@ -21,7 +21,7 @@ public sealed class HtmlVodProvider(SourceHttpClient http) : INativePlaybackProv
 
     private static readonly Layout Auete = new(new Uri("https://www.aeete.com/"),
         [new("Movie", "电影"), new("Tv", "电视剧"), new("Dm", "动漫"), new("Zy", "综艺"), new("qita", "其他")],
-        ".threadlist a.pic, .threadlist a[title][href], a.carousel-link", "/auete5so.php?searchword=",
+        ".threadlist a.pic, .threadlist a[title][href], a.carousel-link", "/so.php?searchword=",
         "h1.detail-title", ".detail-poster img", ".play-card", ".card-header b", "a[href*='/play-']", HtmlPageMedia.ReadBase64Player);
 
     private static readonly Layout Bttwoo = new(new Uri("https://www.bttwoo.com/"),
@@ -71,13 +71,31 @@ public sealed class HtmlVodProvider(SourceHttpClient http) : INativePlaybackProv
         }
         catch (HttpRequestException ex) when (layout == Auete && ex.StatusCode == HttpStatusCode.NotFound)
         {
-            // Site may have rotated /aueteNso.php; discover current form action from homepage and retry once.
-            var (homeHtml, homeRoot, _, _) = await ReadPageWithExchangeAsync(site, layout, "/", cancellationToken).ConfigureAwait(false);
-            var freshPath = DiscoverAueteSearchPath(homeHtml, homeRoot);
-            if (!string.IsNullOrEmpty(freshPath) && !string.Equals(freshPath, searchPath, StringComparison.Ordinal))
+            // Site may rotate search PHP path (/so.php, /aeete5so.php, etc.); probe homepage form + known fallbacks.
+            var candidates = new List<string>();
+            try
             {
-                _discoveredSearchPaths[originKey] = freshPath;
-                return await ReadListAsync(site, layout, freshPath + Uri.EscapeDataString(keyword), page, cancellationToken).ConfigureAwait(false);
+                var (homeHtml, homeRoot, _, _) = await ReadPageWithExchangeAsync(site, layout, "/", cancellationToken).ConfigureAwait(false);
+                var freshPath = DiscoverAueteSearchPath(homeHtml, homeRoot);
+                if (!string.IsNullOrEmpty(freshPath)) candidates.Add(freshPath);
+            }
+            catch { }
+            candidates.Add("/so.php?searchword=");
+            candidates.Add("/aeete5so.php?searchword=");
+
+            foreach (var candidate in candidates.Distinct(StringComparer.Ordinal))
+            {
+                if (string.Equals(candidate, searchPath, StringComparison.Ordinal)) continue;
+                try
+                {
+                    var result = await ReadListAsync(site, layout, candidate + Uri.EscapeDataString(keyword), page, cancellationToken).ConfigureAwait(false);
+                    _discoveredSearchPaths[originKey] = candidate;
+                    return result;
+                }
+                catch (HttpRequestException nextEx) when (nextEx.StatusCode == HttpStatusCode.NotFound)
+                {
+                    continue;
+                }
             }
             throw;
         }
@@ -86,12 +104,6 @@ public sealed class HtmlVodProvider(SourceHttpClient http) : INativePlaybackProv
     private async Task<CmsResponse> ReadListAsync(SourceSite site, Layout layout, string path, int page, CancellationToken token)
     {
         var (html, root, _, setCookies) = await ReadPageWithExchangeAsync(site, layout, path, token).ConfigureAwait(false);
-        if (layout == Auete && path == "/")
-        {
-            var discovered = DiscoverAueteSearchPath(html, root);
-            if (!string.IsNullOrEmpty(discovered))
-                _discoveredSearchPaths[SiteSessionStore.NormalizeOrigin(root)] = discovered;
-        }
         if (html.QuerySelector("#f_login img[src*='vdimgck']") is { } captchaImg)
         {
             if (http.Sessions is not null)

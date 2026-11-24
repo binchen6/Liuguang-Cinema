@@ -16,7 +16,7 @@ namespace TV.Controls;
 ///   L3 - Fine 1:1 procedural acid-etched micro-silica frost grain (optional, zero CPU after one-time init)
 ///   L4 - Dual-bevel glass thickness rim (outer Fresnel specular edge + 1px inner chamfer rim)
 ///   L5 - Top 1px peak-centered caustic catchlight + subtle bottom inner lip reflection
-///   L6 - Controlled ThemeShadow elevation applied by floating host containers
+///   L6 - Optional ThemeShadow elevation on non-SwapChain floating hosts (e.g. VodPage filter dock, SearchPage suggest overlay)
 /// </summary>
 public sealed class GlassSurface : ContentControl
 {

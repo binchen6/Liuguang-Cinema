@@ -52,6 +52,7 @@ public sealed class NativeVodProviderRouter
             new HanjuVodProvider(http),
             new ReboVodProvider(http, cloud),
             new SeedhubVodProvider(http, cloud),
+            new ShortDramaVodProvider(http),
             new PanSouVodProvider(http, cloud),
             new PanTaVodProvider(http, cloud),
             new PanSearchVodProvider(http, cloud),

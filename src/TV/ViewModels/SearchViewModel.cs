@@ -207,16 +207,18 @@ public sealed partial class SearchViewModel(AppServices services, Action<VodCard
             group.Status = ex switch
             {
                 OperationCanceledException or TimeoutException => "搜索超时",
+                HttpRequestException { StatusCode: HttpStatusCode.NotFound } => "站点接口变更（404）",
                 HttpRequestException { StatusCode: HttpStatusCode.Forbidden } => "站点拒绝访问（403）",
                 HttpRequestException { StatusCode: HttpStatusCode.PreconditionFailed } => "站点拒绝请求（412）",
                 HttpRequestException { StatusCode: HttpStatusCode.TooManyRequests } => "站点请求过多（429）",
+                HttpRequestException { StatusCode: HttpStatusCode.BadGateway or HttpStatusCode.ServiceUnavailable or HttpStatusCode.GatewayTimeout } => "站点服务暂不可用",
                 InvalidDataException { Message: "站点搜索需要验证码。" } => "站点需要验证码",
                 InvalidDataException { Message: "站点响应为空。" } => "站点响应为空",
                 InvalidDataException { Message: "站点响应格式无法识别。" } or System.Text.Json.JsonException => "站点响应格式异常",
                 _ => "搜索失败"
             };
             group.CanRetry = true;
-            Diagnostics.Log($"站点搜索失败 ({group.Site.Key}): {ex.GetType().Name}");
+            Diagnostics.Log($"站点搜索失败 ({group.Site.Key} / {group.Site.Api}): {ex.GetType().Name} - {ex.Message}");
         }
         finally { if (_run == run) UpdateProgress(); }
     }
@@ -224,7 +226,7 @@ public sealed partial class SearchViewModel(AppServices services, Action<VodCard
     private void SetScopes(ConfigDocument config)
     {
         var selectedKey = Scope?.Site?.Key;
-        var available = config.Sites.Where(site => site.IsSupported && site.Searchable != 0).ToArray();
+        var available = config.Sites.Where(site => site.IsSupported && site.Searchable != 0 && !Services.Vod.Native.PushVodProvider.Supports(site)).ToArray();
         if (Scopes.Count == available.Length + 1 && Scopes.Skip(1).Select(entry => entry.Site).SequenceEqual(available)) return;
         Scopes.Clear();
         Scopes.Add(_all);
@@ -478,7 +480,7 @@ public sealed partial class SearchViewModel(AppServices services, Action<VodCard
             var candidates = Scope?.Site is { } selected
                 ? [selected]
                 : config.Sites
-                    .Where(site => site.IsSupported && site.Searchable != 0)
+                    .Where(site => site.IsSupported && site.Searchable != 0 && !Services.Vod.Native.PushVodProvider.Supports(site))
                     .Where(site => !_slowSuggestSites.TryGetValue(site.Key, out var until) || until <= now)
                     .OrderByDescending(site => site.Type is 1 or 4)
                     .ThenByDescending(site => site.Api.Equals("csp_BttwooGuard", StringComparison.OrdinalIgnoreCase))

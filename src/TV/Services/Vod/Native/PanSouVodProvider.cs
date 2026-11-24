@@ -42,16 +42,24 @@ public sealed class PanSouVodProvider(SourceHttpClient http, CloudDriveService c
         }
     }
 
+    private static readonly Dictionary<string, string> RequestHeaders = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["User-Agent"] = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36",
+        ["Accept"] = "application/json, text/plain, */*"
+    };
+
     private async Task<CmsResponse> ReadSearchAsync(Uri endpoint, string keyword, SourceSite site)
     {
-        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+        var timeoutSpan = TimeSpan.FromSeconds(Math.Clamp(site.Timeout, 25, 35));
+        using var deadline = new CancellationTokenSource(timeoutSpan);
         try
         {
             var request = new UriBuilder(endpoint)
             {
                 Query = "kw=" + Uri.EscapeDataString(keyword.Trim()) + "&res=merge&cloud_types=quark,uc,aliyun,baidu"
             };
-            var payload = await http.GetBytesAsync(request.Uri.AbsoluteUri, maxBytes: 4 * 1024 * 1024, cancellationToken: deadline.Token).ConfigureAwait(false);
+            var payload = await http.GetBytesAsync(request.Uri.AbsoluteUri, RequestHeaders, maxBytes: 4 * 1024 * 1024,
+                cancellationToken: deadline.Token, requestTimeout: timeoutSpan).ConfigureAwait(false);
             using var document = JsonDocument.Parse(payload.Content);
             var root = document.RootElement;
             if (Property(root, "code").ToString() != "0") throw new InvalidDataException("盘搜请求失败。");

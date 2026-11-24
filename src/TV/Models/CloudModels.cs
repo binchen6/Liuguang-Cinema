@@ -88,7 +88,7 @@ public sealed record CloudDriveItem(
     public bool IsGenericFile => !IsFolder && !IsVideoFile;
     public string MetaText => IsFolder ? "文件夹" : SizeText;
     public string SizeText => Size <= 0 ? "" : Size >= 1024 * 1024 * 1024 ? $"{Size / 1024d / 1024 / 1024:0.##} GB" : $"{Size / 1024d / 1024:0.##} MB";
-    public string ModifiedText => ModifiedAt?.ToLocalTime().ToString("yyyy-MM-dd HH:mm") ?? "";
+    public string ModifiedText => ModifiedAt?.ToLocalTime().ToString("yyyy-MM-dd HH:mm", System.Globalization.CultureInfo.InvariantCulture) ?? "";
 
     private static bool IsVideoExtension(string name)
     {

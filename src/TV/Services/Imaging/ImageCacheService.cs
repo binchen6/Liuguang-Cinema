@@ -53,9 +53,8 @@ public sealed partial class ImageCacheService : IDisposable
     private volatile bool _dirEnsured;
     private bool _disposed;
 
-    public ImageCacheService(SourceHttpClient http, DispatcherQueue? dispatcher = null, DnsResolverService? dns = null)
+    public ImageCacheService(DispatcherQueue? dispatcher = null, DnsResolverService? dns = null)
     {
-        _ = http;
         _dispatcher = dispatcher;
         var handler = new SocketsHttpHandler
         {

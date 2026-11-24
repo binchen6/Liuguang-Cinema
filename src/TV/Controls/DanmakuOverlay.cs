@@ -212,6 +212,9 @@ public sealed class DanmakuOverlay : Canvas
         public double WidthPx;
         public double SpeedPx;
         public double CurrentX;
+        public int AppliedFontSize;
+        public bool AppliedBold;
+        public bool AppliedOutline = true;
     }
 
     private static readonly SolidColorBrush ShadowBrush = new(Color.FromArgb(204, 0, 0, 0));
@@ -380,6 +383,7 @@ public sealed class DanmakuOverlay : Canvas
         if (_lastWidth <= 0) _lastWidth = width;
 
         var stepSec = _clock.StepFrame(Stopwatch.GetTimestamp(), out var jumpedForward);
+        if (stepSec <= 0 && !jumpedForward) return;
         if (jumpedForward) ResetCursor(_clock.ClockSec);
 
         // 1. Monotonically advance all active items & recycle finished ones
@@ -539,20 +543,33 @@ public sealed class DanmakuOverlay : Canvas
     {
         var node = _pool.Count > 0 ? _pool.Pop() : new DanmakuNode();
         node.RawRgb = entry.Rgb;
-        node.Shadow.Text = entry.Text;
         node.Label.Text = entry.Text;
+        node.Shadow.Text = _prefs.TextOutline ? entry.Text : string.Empty;
         ApplyNodeStyle(node, entry.Rgb);
         return node;
     }
 
     private void ApplyNodeStyle(DanmakuNode node, uint rawRgb)
     {
-        var weight = _prefs.Bold ? FontWeights.SemiBold : FontWeights.Normal;
-        node.Label.FontSize = _prefs.Size;
-        node.Label.FontWeight = weight;
-        node.Shadow.FontSize = _prefs.Size;
-        node.Shadow.FontWeight = weight;
-        node.Shadow.Visibility = _prefs.TextOutline ? Visibility.Visible : Visibility.Collapsed;
+        if (node.AppliedFontSize != _prefs.Size)
+        {
+            node.AppliedFontSize = _prefs.Size;
+            node.Label.FontSize = _prefs.Size;
+            node.Shadow.FontSize = _prefs.Size;
+        }
+        if (node.AppliedBold != _prefs.Bold)
+        {
+            node.AppliedBold = _prefs.Bold;
+            var weight = _prefs.Bold ? FontWeights.SemiBold : FontWeights.Normal;
+            node.Label.FontWeight = weight;
+            node.Shadow.FontWeight = weight;
+        }
+        if (node.AppliedOutline != _prefs.TextOutline)
+        {
+            node.AppliedOutline = _prefs.TextOutline;
+            node.Shadow.Visibility = _prefs.TextOutline ? Visibility.Visible : Visibility.Collapsed;
+            node.Shadow.Text = _prefs.TextOutline ? node.Label.Text : string.Empty;
+        }
 
         var rgb = _prefs.Color switch
         {

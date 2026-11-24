@@ -759,31 +759,6 @@
         <Setter Property="Padding" Value="22,18" />
     </Style>
 
-    <!-- 磨砂悬浮条（吸顶筛选坞 / 搜索命令条 / 云盘路径带） -->
-    <Style x:Key="GlassBarStyle" TargetType="Border">
-        <Setter Property="Background" Value="{ThemeResource GlassPanelBrush}" />
-        <Setter Property="BorderBrush" Value="{ThemeResource GlassEdgeBrush}" />
-        <Setter Property="BorderThickness" Value="1" />
-        <Setter Property="CornerRadius" Value="{StaticResource RadiusPanel}" />
-        <Setter Property="Padding" Value="14,10" />
-    </Style>
-
-    <!-- 兼容旧键 -->
-    <Style x:Key="GlassCard" TargetType="Border" BasedOn="{StaticResource PanelCardStyle}" />
-    <Style x:Key="PosterGridItem" TargetType="GridViewItem">
-        <Setter Property="Padding" Value="0" />
-        <Setter Property="Margin" Value="0,0,18,22" />
-        <Setter Property="Background" Value="Transparent" />
-        <Setter Property="BorderThickness" Value="0" />
-    </Style>
-    <Style x:Key="TransportButton" TargetType="Button" BasedOn="{StaticResource DefaultButtonStyle}">
-        <Setter Property="Background" Value="#14FFFFFF" />
-        <Setter Property="BorderThickness" Value="0" />
-        <Setter Property="CornerRadius" Value="10" />
-        <Setter Property="MinWidth" Value="44" />
-        <Setter Property="MinHeight" Value="40" />
-    </Style>
-
     <!-- 输入框与下拉全站光学对齐 -->
     <Style TargetType="TextBox" BasedOn="{StaticResource DefaultTextBoxStyle}">
         <Setter Property="MinHeight" Value="{StaticResource InputHeight}" />

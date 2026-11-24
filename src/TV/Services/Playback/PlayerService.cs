@@ -218,7 +218,9 @@ public sealed class PlayerService : IDisposable
         try
         {
             player.EnableHardwareDecoding = HardwareDecoding;
-            media.AddOption(HardwareDecoding ? ":avcodec-hw=d3d11va" : ":avcodec-hw=none");
+            // Use "any" when hardware decoding is enabled so LibVLC prefers D3D11VA on modern Windows 10/11 GPUs
+            // and automatically falls back to DXVA2 / software decode on older GPUs, VMs, or RDP without black-screening.
+            media.AddOption(HardwareDecoding ? ":avcodec-hw=any" : ":avcodec-hw=none");
             // Cap avcodec decode threads: hardware decode needs minimal frame buffers (2), software decode bounded (2..6).
             var decodeThreads = HardwareDecoding ? 2 : DecoderThreads;
             media.AddOption($":avcodec-threads={decodeThreads}");

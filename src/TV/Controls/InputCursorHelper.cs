@@ -61,6 +61,7 @@ internal static class InputCursorHelper
 
     private static readonly Action<UIElement, InputCursor?>? SetProtectedCursorDelegate = BuildProtectedCursorSetter();
     private static nint _blankHCursor;
+    private static nint _arrowHCursor;
     private static InputCursor? _blankInputCursor;
     private static bool _initialized;
 
@@ -88,10 +89,11 @@ internal static class InputCursorHelper
     }
 
     /// <summary>
-    /// Forces Windows &amp; WinUI 3's input site to re-evaluate the cursor immediately when the
-    /// pointer is completely stationary (0-pixel no-op position refresh + immediate SetCursor).
+    /// Refreshes the OS cursor image. Only issues a 0-pixel <c>SetCursorPos</c> nudge when
+    /// <paramref name="nudgeStationary"/> is true (hiding a stationary cursor or keyboard restore);
+    /// NEVER calls <c>SetCursorPos</c> while the user is actively moving the mouse so cursor motion stays 100% fluid.
     /// </summary>
-    public static void RefreshStationaryCursor(bool hide)
+    public static void RefreshStationaryCursor(bool hide, bool nudgeStationary = true)
     {
         try
         {
@@ -102,10 +104,10 @@ internal static class InputCursorHelper
             }
             else
             {
-                var arrow = LoadCursorW(0, IdcArrow);
-                if (arrow != 0) SetCursor(arrow);
+                if (_arrowHCursor == 0) _arrowHCursor = LoadCursorW(0, IdcArrow);
+                if (_arrowHCursor != 0) SetCursor(_arrowHCursor);
             }
-            if (GetCursorPos(out var pt))
+            if (nudgeStationary && GetCursorPos(out var pt))
                 SetCursorPos(pt.X, pt.Y);
         }
         catch { }
@@ -117,16 +119,18 @@ internal static class InputCursorHelper
         _initialized = true;
         try
         {
-            var w = Math.Max(16, GetSystemMetrics(SmCxCursor));
-            var h = Math.Max(16, GetSystemMetrics(SmCyCursor));
+            _arrowHCursor = LoadCursorW(0, IdcArrow);
+            var w = Math.Clamp(GetSystemMetrics(SmCxCursor), 16, 128);
+            var h = Math.Clamp(GetSystemMetrics(SmCyCursor), 16, 128);
             w = (w + 7) & ~7; // width must be a multiple of 8 for monochrome AND/XOR bitmasks
 
-            var planeLength = (w / 8) * h;
-            var andPlane = new byte[planeLength];
-            var xorPlane = new byte[planeLength];
-            Array.Fill(andPlane, (byte)0xFF); // AND=1, XOR=0 => 100% transparent
-
-            _blankHCursor = CreateCursor(GetModuleHandleW(null), 0, 0, w, h, andPlane, xorPlane);
+            _blankHCursor = CreateTransparentHCursor(w, h);
+            if (_blankHCursor == 0 && (w != 32 || h != 32))
+            {
+                // Fallback to universal 32x32 monochrome cursor on exotic DPI / RDP environments
+                w = h = 32;
+                _blankHCursor = CreateTransparentHCursor(w, h);
+            }
             if (_blankHCursor == 0)
             {
                 Diagnostics.Log($"Blank cursor CreateCursor failed: Win32={Marshal.GetLastWin32Error()}");
@@ -159,5 +163,14 @@ internal static class InputCursorHelper
         {
             Diagnostics.Log($"Blank InputCursor init failed: {ex.GetType().Name} {ex.Message}");
         }
+    }
+
+    private static nint CreateTransparentHCursor(int width, int height)
+    {
+        var planeLength = (width / 8) * height;
+        var andPlane = new byte[planeLength];
+        var xorPlane = new byte[planeLength];
+        Array.Fill(andPlane, (byte)0xFF); // AND=1, XOR=0 => 100% transparent
+        return CreateCursor(GetModuleHandleW(null), 0, 0, width, height, andPlane, xorPlane);
     }
 }
