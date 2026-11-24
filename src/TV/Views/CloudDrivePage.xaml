@@ -2,8 +2,8 @@
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:controls="using:TV.Controls"
-    Background="Transparent" Loaded="OnLoaded" Unloaded="OnUnloaded">
-    <Grid Padding="{StaticResource PagePaddingWide}" RowSpacing="20">
+    Background="Transparent" Loaded="OnLoaded" Unloaded="OnUnloaded" SizeChanged="OnPageSizeChanged">
+    <Grid x:Name="CloudRoot" Padding="{StaticResource PagePaddingWide}" RowSpacing="20">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
@@ -47,17 +47,33 @@
             <ListView.ItemsPanel><ItemsPanelTemplate><ItemsStackPanel Orientation="Horizontal" /></ItemsPanelTemplate></ListView.ItemsPanel>
             <ListView.ItemContainerStyle>
                 <Style TargetType="ListViewItem" BasedOn="{StaticResource NavRailItemStyle}">
-                    <Setter Property="Height" Value="68" />
-                    <Setter Property="MinWidth" Value="164" />
+                    <Setter Property="Height" Value="72" />
+                    <Setter Property="MinWidth" Value="180" />
+                    <Setter Property="Padding" Value="14,0,16,0" />
                     <Setter Property="Margin" Value="0,0,10,0" />
+                    <Setter Property="CornerRadius" Value="{StaticResource RadiusCard}" />
                     <Setter Property="Background" Value="{ThemeResource GlassPanelBrush}" />
+                    <Setter Property="BorderBrush" Value="{ThemeResource GlassEdgeBrush}" />
+                    <Setter Property="BorderThickness" Value="1" />
                 </Style>
             </ListView.ItemContainerStyle>
             <ListView.ItemTemplate>
                 <DataTemplate>
-                    <StackPanel VerticalAlignment="Center" Spacing="2">
-                        <TextBlock Text="{Binding Name}" Style="{StaticResource BodyText}" FontWeight="SemiBold" />
-                        <TextBlock Text="{Binding Status}" Style="{StaticResource MetaText}" />
+                    <StackPanel VerticalAlignment="Center" Spacing="3">
+                        <StackPanel Orientation="Horizontal" Spacing="7" VerticalAlignment="Center">
+                            <Grid Width="7" Height="7" VerticalAlignment="Center">
+                                <Ellipse Fill="{ThemeResource SuccessBrush}"
+                                         Visibility="{Binding IsLoggedIn, Converter={StaticResource BoolToVisibility}}" />
+                                <Ellipse Fill="{ThemeResource DangerBrush}"
+                                         Visibility="{Binding IsWarning, Converter={StaticResource BoolToVisibility}}" />
+                                <Ellipse Fill="{ThemeResource TertiaryTextBrush}" Opacity="0.55"
+                                         Visibility="{Binding IsNeutral, Converter={StaticResource BoolToVisibility}}" />
+                            </Grid>
+                            <TextBlock Text="{Binding Name}" Style="{StaticResource BodyText}" FontWeight="SemiBold"
+                                       MaxLines="1" TextTrimming="CharacterEllipsis" />
+                        </StackPanel>
+                        <TextBlock Text="{Binding Status}" Style="{StaticResource MetaText}"
+                                   MaxLines="1" TextTrimming="CharacterEllipsis" />
                     </StackPanel>
                 </DataTemplate>
             </ListView.ItemTemplate>
@@ -72,10 +88,11 @@
                         <ItemsControl.ItemsPanel><ItemsPanelTemplate><StackPanel Orientation="Horizontal" /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
                         <ItemsControl.ItemTemplate>
                             <DataTemplate>
-                                <StackPanel Orientation="Horizontal">
+                                <StackPanel Orientation="Horizontal" Spacing="2" VerticalAlignment="Center">
                                     <Button Content="{Binding Name}" Command="{Binding DataContext.OpenBreadcrumbCommand, ElementName=PageRoot}" CommandParameter="{Binding}"
                                             Style="{StaticResource GhostButtonStyle}" AutomationProperties.Name="云盘目录" />
-                                    <TextBlock Text="/" Style="{StaticResource MonoMetaText}" Opacity="0.55" VerticalAlignment="Center" />
+                                    <controls:LineIcon PathData="{StaticResource IconChevronRight}" IconSize="12"
+                                                       Foreground="{ThemeResource TertiaryTextBrush}" Opacity="0.65" VerticalAlignment="Center" />
                                 </StackPanel>
                             </DataTemplate>
                         </ItemsControl.ItemTemplate>
@@ -96,7 +113,7 @@
         <!-- 文件列表 -->
         <Grid Grid.Row="4">
             <ListView ItemsSource="{Binding Entries}" SelectionMode="None" IsItemClickEnabled="True" ItemClick="OnEntryClick"
-                      Background="Transparent" BorderThickness="0" AutomationProperties.Name="云盘文件"
+                      Background="Transparent" BorderThickness="0" Padding="0,0,8,0" AutomationProperties.Name="云盘文件"
                       ScrollViewer.HorizontalScrollMode="Disabled">
                 <ListView.ItemContainerStyle>
                     <Style TargetType="ListViewItem" BasedOn="{StaticResource RailListStyle}">
@@ -115,15 +132,26 @@
                                 <Border Width="42" Height="42" CornerRadius="{StaticResource RadiusControl}"
                                         Background="{ThemeResource GlassChipBrush}" BorderBrush="{ThemeResource GlassEdgeBrush}" BorderThickness="1"
                                         VerticalAlignment="Center">
-                                    <FontIcon Glyph="{Binding Glyph}" FontSize="19" Foreground="{ThemeResource PrimaryTextBrush}"
-                                              HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                    <Grid>
+                                        <controls:LineIcon PathData="{StaticResource IconFolder}" IconSize="19"
+                                                           Foreground="{ThemeResource PrimaryTextBrush}"
+                                                           Visibility="{Binding IsFolder, Converter={StaticResource BoolToVisibility}}" />
+                                        <controls:LineIcon PathData="{StaticResource IconFilm}" IconSize="19"
+                                                           Foreground="{ThemeResource VermilionBrush}"
+                                                           Visibility="{Binding IsVideoFile, Converter={StaticResource BoolToVisibility}}" />
+                                        <controls:LineIcon PathData="{StaticResource IconFile}" IconSize="18"
+                                                           Foreground="{ThemeResource SecondaryTextBrush}"
+                                                           Visibility="{Binding IsGenericFile, Converter={StaticResource BoolToVisibility}}" />
+                                    </Grid>
                                 </Border>
                                 <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="2">
                                     <TextBlock Text="{Binding Name}" Style="{StaticResource BodyText}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
                                     <TextBlock Text="{Binding Path}" Style="{StaticResource MetaText}" TextTrimming="CharacterEllipsis" />
                                 </StackPanel>
-                                <TextBlock Grid.Column="2" Text="{Binding MetaText}" Style="{StaticResource MonoMetaText}" VerticalAlignment="Center" MinWidth="74" />
-                                <TextBlock Grid.Column="3" Text="{Binding ModifiedText}" Style="{StaticResource MonoMetaText}" VerticalAlignment="Center" />
+                                <TextBlock Grid.Column="2" Text="{Binding MetaText}" Style="{StaticResource MonoMetaText}"
+                                           VerticalAlignment="Center" MinWidth="78" TextAlignment="Right" />
+                                <TextBlock Grid.Column="3" Text="{Binding ModifiedText}" Style="{StaticResource MonoMetaText}"
+                                           VerticalAlignment="Center" MinWidth="128" TextAlignment="Right" />
                             </Grid>
                         </Border>
                     </DataTemplate>

@@ -420,7 +420,7 @@
         <Setter Property="BorderThickness" Value="1" />
     </Style>
 
-    <!-- 侧栏导航项：48 高，极轻磨砂激活底板 + 朱砂滑轨指示条 -->
+    <!-- 侧栏与页面内导航项：48 高，极轻磨砂激活底板 + 朱砂指示条（严格遵循 WinUI 3 ListViewItem CommonStates 契约） -->
     <Style x:Key="NavRailItemStyle" TargetType="ListViewItem">
         <Setter Property="MinHeight" Value="{StaticResource NavItemHeight}" />
         <Setter Property="Height" Value="NaN" />
@@ -432,15 +432,27 @@
         <Setter Property="VerticalContentAlignment" Value="Center" />
         <Setter Property="UseSystemFocusVisuals" Value="True" />
         <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderBrush" Value="Transparent" />
+        <Setter Property="BorderThickness" Value="0" />
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="ListViewItem">
-                    <Grid x:Name="Root" Background="{TemplateBinding Background}" CornerRadius="8">
+                    <Grid x:Name="Root"
+                          Background="{TemplateBinding Background}"
+                          BorderBrush="{TemplateBinding BorderBrush}"
+                          BorderThickness="{TemplateBinding BorderThickness}"
+                          CornerRadius="{TemplateBinding CornerRadius}">
+                        <Border x:Name="HoverOverlay"
+                                Background="Transparent"
+                                CornerRadius="{TemplateBinding CornerRadius}"
+                                IsHitTestVisible="False" />
                         <Border x:Name="SelectionPlate"
                                 Background="{ThemeResource GlassActivePlateBrush}"
-                                BorderBrush="{ThemeResource SubtleBorderBrush}"
+                                BorderBrush="{ThemeResource GlassEdgeBrush}"
                                 BorderThickness="1"
-                                CornerRadius="8" Opacity="0" />
+                                CornerRadius="{TemplateBinding CornerRadius}"
+                                Opacity="0"
+                                IsHitTestVisible="False" />
                         <Grid>
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="3" />
@@ -448,7 +460,7 @@
                             </Grid.ColumnDefinitions>
                             <Border x:Name="Indicator" Width="3" Height="18" CornerRadius="1.5"
                                     Background="{ThemeResource SelectionIndicatorBrush}" Opacity="0"
-                                    VerticalAlignment="Center" />
+                                    VerticalAlignment="Center" IsHitTestVisible="False" />
                             <ContentPresenter x:Name="Presenter" Grid.Column="1"
                                               Content="{TemplateBinding Content}"
                                               ContentTemplate="{TemplateBinding ContentTemplate}"
@@ -461,20 +473,12 @@
                                 <VisualState x:Name="Normal" />
                                 <VisualState x:Name="PointerOver">
                                     <VisualState.Setters>
-                                        <Setter Target="Root.Background" Value="{ThemeResource NavHoverBrush}" />
+                                        <Setter Target="HoverOverlay.Background" Value="{ThemeResource NavHoverBrush}" />
                                     </VisualState.Setters>
                                 </VisualState>
                                 <VisualState x:Name="Pressed">
                                     <VisualState.Setters>
-                                        <Setter Target="Root.Background" Value="{ThemeResource SurfaceHoverBrush}" />
-                                    </VisualState.Setters>
-                                </VisualState>
-                            </VisualStateGroup>
-                            <VisualStateGroup x:Name="SelectionStates">
-                                <VisualState x:Name="Unselected">
-                                    <VisualState.Setters>
-                                        <Setter Target="SelectionPlate.Opacity" Value="0" />
-                                        <Setter Target="Indicator.Opacity" Value="0" />
+                                        <Setter Target="HoverOverlay.Background" Value="{ThemeResource SurfaceHoverBrush}" />
                                     </VisualState.Setters>
                                 </VisualState>
                                 <VisualState x:Name="Selected">
@@ -483,22 +487,109 @@
                                         <Setter Target="Indicator.Opacity" Value="1" />
                                     </VisualState.Setters>
                                 </VisualState>
-                                <VisualState x:Name="SelectedUnfocused">
+                                <VisualState x:Name="PointerOverSelected">
                                     <VisualState.Setters>
                                         <Setter Target="SelectionPlate.Opacity" Value="1" />
                                         <Setter Target="Indicator.Opacity" Value="1" />
+                                        <Setter Target="HoverOverlay.Background" Value="{ThemeResource NavHoverBrush}" />
                                     </VisualState.Setters>
                                 </VisualState>
-                                <VisualState x:Name="SelectedPointerOver">
+                                <VisualState x:Name="PressedSelected">
                                     <VisualState.Setters>
                                         <Setter Target="SelectionPlate.Opacity" Value="1" />
                                         <Setter Target="Indicator.Opacity" Value="1" />
+                                        <Setter Target="HoverOverlay.Background" Value="{ThemeResource SurfaceHoverBrush}" />
                                     </VisualState.Setters>
                                 </VisualState>
-                                <VisualState x:Name="SelectedPressed">
+                            </VisualStateGroup>
+                            <VisualStateGroup x:Name="DisabledStates">
+                                <VisualState x:Name="Enabled" />
+                                <VisualState x:Name="Disabled">
+                                    <VisualState.Setters>
+                                        <Setter Target="Root.Opacity" Value="0.42" />
+                                    </VisualState.Setters>
+                                </VisualState>
+                            </VisualStateGroup>
+                            <VisualStateGroup x:Name="MultiSelectStates">
+                                <VisualState x:Name="MultiSelectDisabled" />
+                                <VisualState x:Name="MultiSelectEnabled" />
+                            </VisualStateGroup>
+                        </VisualStateManager.VisualStateGroups>
+                    </Grid>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- 应用主侧栏导航项：指示条由全局弹簧 FloatingNavIndicator 统一绘制，不内嵌静态指示条，杜绝重影 -->
+    <Style x:Key="MainNavRailItemStyle" TargetType="ListViewItem" BasedOn="{StaticResource NavRailItemStyle}">
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ListViewItem">
+                    <Grid x:Name="Root"
+                          Background="{TemplateBinding Background}"
+                          BorderBrush="{TemplateBinding BorderBrush}"
+                          BorderThickness="{TemplateBinding BorderThickness}"
+                          CornerRadius="{TemplateBinding CornerRadius}">
+                        <Border x:Name="HoverOverlay"
+                                Background="Transparent"
+                                CornerRadius="{TemplateBinding CornerRadius}"
+                                IsHitTestVisible="False" />
+                        <Border x:Name="SelectionPlate"
+                                Background="{ThemeResource GlassActivePlateBrush}"
+                                BorderBrush="{ThemeResource GlassEdgeBrush}"
+                                BorderThickness="1"
+                                CornerRadius="{TemplateBinding CornerRadius}"
+                                Opacity="0"
+                                IsHitTestVisible="False" />
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="3" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <ContentPresenter x:Name="Presenter" Grid.Column="1"
+                                              Content="{TemplateBinding Content}"
+                                              ContentTemplate="{TemplateBinding ContentTemplate}"
+                                              Padding="{TemplateBinding Padding}"
+                                              HorizontalContentAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                              VerticalContentAlignment="{TemplateBinding VerticalContentAlignment}" />
+                        </Grid>
+                        <VisualStateManager.VisualStateGroups>
+                            <VisualStateGroup x:Name="CommonStates">
+                                <VisualState x:Name="Normal" />
+                                <VisualState x:Name="PointerOver">
+                                    <VisualState.Setters>
+                                        <Setter Target="HoverOverlay.Background" Value="{ThemeResource NavHoverBrush}" />
+                                    </VisualState.Setters>
+                                </VisualState>
+                                <VisualState x:Name="Pressed">
+                                    <VisualState.Setters>
+                                        <Setter Target="HoverOverlay.Background" Value="{ThemeResource SurfaceHoverBrush}" />
+                                    </VisualState.Setters>
+                                </VisualState>
+                                <VisualState x:Name="Selected">
                                     <VisualState.Setters>
                                         <Setter Target="SelectionPlate.Opacity" Value="1" />
-                                        <Setter Target="Indicator.Opacity" Value="1" />
+                                    </VisualState.Setters>
+                                </VisualState>
+                                <VisualState x:Name="PointerOverSelected">
+                                    <VisualState.Setters>
+                                        <Setter Target="SelectionPlate.Opacity" Value="1" />
+                                        <Setter Target="HoverOverlay.Background" Value="{ThemeResource NavHoverBrush}" />
+                                    </VisualState.Setters>
+                                </VisualState>
+                                <VisualState x:Name="PressedSelected">
+                                    <VisualState.Setters>
+                                        <Setter Target="SelectionPlate.Opacity" Value="1" />
+                                        <Setter Target="HoverOverlay.Background" Value="{ThemeResource SurfaceHoverBrush}" />
+                                    </VisualState.Setters>
+                                </VisualState>
+                            </VisualStateGroup>
+                            <VisualStateGroup x:Name="DisabledStates">
+                                <VisualState x:Name="Enabled" />
+                                <VisualState x:Name="Disabled">
+                                    <VisualState.Setters>
+                                        <Setter Target="Root.Opacity" Value="0.42" />
                                     </VisualState.Setters>
                                 </VisualState>
                             </VisualStateGroup>

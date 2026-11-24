@@ -72,7 +72,7 @@
                           ScrollViewer.VerticalScrollBarVisibility="Disabled"
                           SelectionChanged="OnNavSelectionChanged">
                     <ListView.ItemContainerStyle>
-                        <StaticResource ResourceKey="NavRailItemStyle" />
+                        <StaticResource ResourceKey="MainNavRailItemStyle" />
                     </ListView.ItemContainerStyle>
                     <ListView.ItemContainerTransitions>
                         <TransitionCollection />

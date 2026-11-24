@@ -328,7 +328,7 @@ public sealed partial class PlayerViewModel : ObservableObject
         catch (CloudAuthenticationException ex) when (!token.IsCancellationRequested)
         {
             RequiredLoginProvider = ex.Provider;
-            StatusMessage = $"{ex.Provider} 网盘需要登录后才能播放。登录成功将继续当前影片。";
+            StatusMessage = $"{CloudAccountInfo.DisplayName(ex.Provider)}需要登录后才能播放。登录成功将继续当前影片。";
             Diagnostics.Log($"Cloud authentication required: {ex.Provider}");
         }
         catch (Exception ex)
@@ -770,7 +770,7 @@ public sealed partial class PlayerViewModel : ObservableObject
         var title = request.Item?.Name ?? request.Title;
         var episode = SelectedEpisode?.Name ?? request.Subtitle;
         var durationSec = (int)Math.Round(Math.Max(0, _services.Player.LastSnapshot.LengthMs) / 1000.0);
-        var match = await _services.DanDanPlay.MatchAsync(title, episode, request.EpisodeIndex, CurrentLocalFilePath, durationSec, token);
+        var match = await _services.DanDanPlay.MatchAsync(title, episode, request.EpisodeIndex, CurrentLocalFilePath, durationSec, token, request.Item?.Year, request.Item?.TypeName);
         QualityMessage = $"弹弹play 已匹配：{match.DisplayName}";
         return match;
     }
@@ -783,7 +783,7 @@ public sealed partial class PlayerViewModel : ObservableObject
         if (IsBilibiliPlayback && request.Url.Split('+', 2) is { Length: 2 } ids &&
             long.TryParse(ids[0], out var aid) && long.TryParse(ids[1], out var cid))
             return new OnlineMediaMatch(title, episode, aid, cid);
-        var match = await _services.OnlineMedia.MatchAsync(title, episode, request.EpisodeIndex, token);
+        var match = await _services.OnlineMedia.MatchAsync(title, episode, request.EpisodeIndex, token, request.Item?.Year, request.Item?.TypeName);
         QualityMessage = $"已匹配：{match.Title} · {match.EpisodeTitle}";
         return match;
     }
@@ -1475,7 +1475,7 @@ public sealed partial class PlayerViewModel : ObservableObject
         {
             if (_request is null) return;
             RequiredLoginProvider = provider;
-            StatusMessage = $"{provider} 网盘登录已过期，重新登录后将继续播放。";
+            StatusMessage = $"{CloudAccountInfo.DisplayName(provider)}登录已过期，重新登录后将继续播放。";
         });
     }
 

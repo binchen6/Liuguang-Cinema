@@ -29,6 +29,9 @@
     <DanDanPlayAppSecret2 Condition="'$(DanDanPlayAppSecret2)' == ''">$(DANDANPLAY_APP_SECRET_2)</DanDanPlayAppSecret2>
   </PropertyGroup>
   <ItemGroup>
+    <Content Include="Assets\App.ico" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+  <ItemGroup>
     <AssemblyMetadata Include="DanDanPlayAppId" Value="$(DanDanPlayAppId)" />
     <AssemblyMetadata Include="DanDanPlayAppSecret1" Value="$(DanDanPlayAppSecret1)" />
     <AssemblyMetadata Include="DanDanPlayAppSecret2" Value="$(DanDanPlayAppSecret2)" />

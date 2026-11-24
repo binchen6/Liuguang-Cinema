@@ -140,7 +140,7 @@
                         <TextBlock Text="GROUPS · 分组" Style="{StaticResource EyebrowText}" Margin="0,0,0,8" />
                         <ListView Grid.Row="1" ItemsSource="{Binding Groups}"
                                   SelectedItem="{Binding SelectedGroup, Mode=TwoWay}"
-                                  SelectionMode="Single" Background="Transparent" BorderThickness="0"
+                                  SelectionMode="Single" Background="Transparent" BorderThickness="0" Padding="0,0,8,0"
                                   ItemContainerStyle="{StaticResource RailListStyle}"
                                   SelectionChanged="OnGroupSelectionChanged"
                                   ScrollViewer.HorizontalScrollMode="Disabled" />
@@ -170,7 +170,7 @@
                     <ListView x:Name="ChannelList" ItemsSource="{Binding Channels}"
                               ItemContainerStyle="{StaticResource ChannelRowStyle}"
                               SelectedItem="{Binding SelectedItem, Mode=TwoWay}"
-                              SelectionMode="Single" Background="Transparent" BorderThickness="0"
+                              SelectionMode="Single" Background="Transparent" BorderThickness="0" Padding="0,0,8,0"
                               DoubleTapped="OnChannelDoubleTapped"
                               SelectionChanged="OnChannelSelectionChanged"
                               ScrollViewer.HorizontalScrollMode="Disabled"
@@ -295,7 +295,7 @@
                             </StackPanel>
                             <ListView Grid.Row="1" ItemsSource="{Binding SelectedItem.Lines}"
                                       SelectionMode="None" IsItemClickEnabled="True" ItemClick="OnLineClick"
-                                      Background="Transparent" BorderThickness="0"
+                                      Background="Transparent" BorderThickness="0" Padding="0,0,8,0"
                                       ScrollViewer.HorizontalScrollMode="Disabled"
                                       ScrollViewer.VerticalScrollBarVisibility="Auto">
                                 <ListView.ItemTemplate>

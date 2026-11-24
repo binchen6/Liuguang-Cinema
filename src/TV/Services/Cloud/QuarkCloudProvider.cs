@@ -112,14 +112,15 @@ public sealed class QuarkCloudProvider : ICloudDriveProvider
         CancellationToken cancellationToken)
     {
         var cookie = await _credential(cancellationToken).ConfigureAwait(false);
-        if (string.IsNullOrWhiteSpace(cookie)) throw new CloudAuthenticationException(Kind, $"{Kind} 转码与原画需要扫码登录；公开分享浏览无需登录。");
+        var driveName = CloudAccountInfo.DisplayName(Kind);
+        if (string.IsNullOrWhiteSpace(cookie)) throw new CloudAuthenticationException(Kind, $"{driveName}转码与原画需要扫码登录；公开分享浏览无需登录。");
         var savedId = file.ShareId == "drive" ? file.FileId : await SaveFileAsync(file, cookie, cancellationToken).ConfigureAwait(false);
         if (quality.RequestsOriginal)
         {
             var otherQualities = includeOriginalAlternatives ? ReadOptionalTranscodesAsync(savedId, cookie, cancellationToken) : null;
             var original = await GetDownloadUrlAsync(savedId, cookie, cancellationToken).ConfigureAwait(false);
             var alternatives = otherQualities is null ? [] : await otherQualities.ConfigureAwait(false);
-            if (original.Length == 0) throw new InvalidDataException($"{Kind} 未返回播放地址，请更换清晰度或重试。");
+            if (original.Length == 0) throw new InvalidDataException($"{driveName}未返回播放地址，请更换清晰度或重试。");
             var contentType = Services.Playback.HlsManifest.RecognizeResponse("https://media.invalid/" + Uri.EscapeDataString(file.Name), null);
             return new CloudPlayResult(original, Headers(cookie), contentType, CloudSubtitleFiles.Extension(file.Name))
             {
@@ -306,7 +307,7 @@ public sealed class QuarkCloudProvider : ICloudDriveProvider
     public async Task<CloudDriveListing> ListFolderAsync(string folderId, string path, int page, CancellationToken cancellationToken = default)
     {
         var cookie = await _credential(cancellationToken).ConfigureAwait(false);
-        if (cookie.Length == 0) throw new CloudAuthenticationException(Kind, $"{Kind} 网盘需要扫码登录。");
+        if (cookie.Length == 0) throw new CloudAuthenticationException(Kind, $"{CloudAccountInfo.DisplayName(Kind)}需要扫码登录。");
         page = Math.Max(1, page);
         var result = await SendAsync(HttpMethod.Get, _api + "file/sort?" + ClientQuery + "&pdir_fid=" + Uri.EscapeDataString(folderId) +
             "&_page=" + page + "&_size=100&_sort=file_type:asc,file_name:asc", null, cookie, cancellationToken).ConfigureAwait(false);
@@ -317,7 +318,7 @@ public sealed class QuarkCloudProvider : ICloudDriveProvider
     public async Task<CloudDriveListing> SearchFolderAsync(string keyword, int page, CancellationToken cancellationToken = default)
     {
         var cookie = await _credential(cancellationToken).ConfigureAwait(false);
-        if (cookie.Length == 0) throw new CloudAuthenticationException(Kind, $"{Kind} 网盘需要扫码登录。");
+        if (cookie.Length == 0) throw new CloudAuthenticationException(Kind, $"{CloudAccountInfo.DisplayName(Kind)}需要扫码登录。");
         if (string.IsNullOrWhiteSpace(keyword)) return new CloudDriveListing([], false);
         page = Math.Max(1, page);
         var result = await SendAsync(HttpMethod.Get, _api + "file/search?" + ClientQuery + "&q=" + Uri.EscapeDataString(keyword.Trim()) +

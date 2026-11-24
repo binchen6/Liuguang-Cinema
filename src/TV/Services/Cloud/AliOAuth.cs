@@ -2,10 +2,25 @@ using TV.Models;
 
 namespace TV.Services.Cloud;
 
-public sealed record AliOAuthToken(string AccessToken, string RefreshToken, int ExpiresIn, bool IsOpenApi);
+public sealed record AliOAuthToken(
+    string AccessToken,
+    string RefreshToken,
+    int ExpiresIn,
+    bool IsOpenApi,
+    string DefaultDriveId = "",
+    string ResourceDriveId = "",
+    string BackupDriveId = "",
+    string UserId = "",
+    string DeviceId = "");
 
 public static class AliOAuth
 {
+    private static readonly Dictionary<string, string> TokenHeaders = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["Referer"] = "https://www.alipan.com/",
+        ["Origin"] = "https://www.alipan.com"
+    };
+
     private static readonly (string Url, bool OpenApi)[] Endpoints =
     [
         ("https://auth.alipan.com/v2/account/token", false),
@@ -22,7 +37,7 @@ public static class AliOAuth
             try
             {
                 var result = await http.PostJsonAsync(url,
-                    new { grant_type = "refresh_token", refresh_token = refreshToken }, cancellationToken: cancellationToken).ConfigureAwait(false);
+                    new { grant_type = "refresh_token", refresh_token = refreshToken }, TokenHeaders, cancellationToken).ConfigureAwait(false);
                 var access = String(result.Json, "access_token");
                 if (result.StatusCode != System.Net.HttpStatusCode.OK || access.Length == 0)
                 {
@@ -32,7 +47,16 @@ public static class AliOAuth
                 var rotated = String(result.Json, "refresh_token");
                 var expires = String(result.Json, "expires_in");
                 _ = int.TryParse(expires, out var seconds);
-                return new AliOAuthToken(access, rotated.Length > 0 ? rotated : refreshToken, seconds, openApi);
+                return new AliOAuthToken(
+                    access,
+                    rotated.Length > 0 ? rotated : refreshToken,
+                    seconds,
+                    openApi,
+                    DefaultDriveId: String(result.Json, "default_drive_id"),
+                    ResourceDriveId: String(result.Json, "resource_drive_id"),
+                    BackupDriveId: String(result.Json, "backup_drive_id"),
+                    UserId: String(result.Json, "user_id"),
+                    DeviceId: String(result.Json, "device_id"));
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {

@@ -50,6 +50,17 @@ public sealed partial class CloudDrivePage : Page
         e.Handled = true;
     }
 
+    private void OnPageSizeChanged(object sender, SizeChangedEventArgs e)
+    {
+        var width = e.NewSize.Width;
+        CloudRoot.Padding = width < 760
+            ? (Thickness)Application.Current.Resources["PagePaddingNarrow"]
+            : width < 1080
+                ? (Thickness)Application.Current.Resources["PagePaddingStandard"]
+                : (Thickness)Application.Current.Resources["PagePaddingWide"];
+        SearchBox.Width = width < 760 ? 164 : width < 1000 ? 196 : 232;
+    }
+
     private void OnCloudLoginClick(object sender, RoutedEventArgs e) => _ = ShowCloudLoginAsync();
 
     private async Task ShowCloudLoginAsync()
@@ -59,7 +70,7 @@ public sealed partial class CloudDrivePage : Page
         var panel = new CloudLoginPanel { DataContext = coordinator };
         var dialog = new ContentDialog
         {
-            XamlRoot = XamlRoot, Title = $"{provider} 网盘登录", Content = panel,
+            XamlRoot = XamlRoot, Title = $"{CloudAccountInfo.DisplayName(provider)}登录", Content = panel,
             CloseButtonText = "稍后", DefaultButton = ContentDialogButton.Close
         };
         _loginDialog = dialog;

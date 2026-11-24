@@ -36,10 +36,12 @@
                                     <Grid x:Name="Root" Background="{TemplateBinding Background}"
                                           CornerRadius="{TemplateBinding CornerRadius}"
                                           Padding="{TemplateBinding Padding}">
+                                        <Border x:Name="HoverOverlay" CornerRadius="{TemplateBinding CornerRadius}"
+                                                Background="Transparent" IsHitTestVisible="False" />
                                         <Border x:Name="CheckedPlate" CornerRadius="{TemplateBinding CornerRadius}"
                                                 Background="{ThemeResource GlassActivePlateBrush}"
-                                                BorderBrush="{ThemeResource SubtleBorderBrush}" BorderThickness="1"
-                                                Opacity="0" />
+                                                BorderBrush="{ThemeResource GlassEdgeBrush}" BorderThickness="1"
+                                                Opacity="0" IsHitTestVisible="False" />
                                         <ContentPresenter x:Name="Presenter"
                                                           Content="{TemplateBinding Content}"
                                                           ContentTemplate="{TemplateBinding ContentTemplate}"
@@ -50,24 +52,46 @@
                                                 <VisualState x:Name="Normal" />
                                                 <VisualState x:Name="PointerOver">
                                                     <VisualState.Setters>
-                                                        <Setter Target="Root.Background" Value="{ThemeResource NavHoverBrush}" />
+                                                        <Setter Target="HoverOverlay.Background" Value="{ThemeResource NavHoverBrush}" />
                                                     </VisualState.Setters>
                                                 </VisualState>
                                                 <VisualState x:Name="Pressed">
                                                     <VisualState.Setters>
-                                                        <Setter Target="Root.Background" Value="{ThemeResource SurfaceHoverBrush}" />
+                                                        <Setter Target="HoverOverlay.Background" Value="{ThemeResource SurfaceHoverBrush}" />
                                                     </VisualState.Setters>
                                                 </VisualState>
-                                                <VisualState x:Name="Disabled" />
-                                            </VisualStateGroup>
-                                            <VisualStateGroup x:Name="CheckStates">
-                                                <VisualState x:Name="Unchecked" />
+                                                <VisualState x:Name="Disabled">
+                                                    <VisualState.Setters>
+                                                        <Setter Target="Root.Opacity" Value="0.42" />
+                                                    </VisualState.Setters>
+                                                </VisualState>
                                                 <VisualState x:Name="Checked">
                                                     <VisualState.Setters>
                                                         <Setter Target="CheckedPlate.Opacity" Value="1" />
                                                     </VisualState.Setters>
                                                 </VisualState>
+                                                <VisualState x:Name="CheckedPointerOver">
+                                                    <VisualState.Setters>
+                                                        <Setter Target="CheckedPlate.Opacity" Value="1" />
+                                                        <Setter Target="HoverOverlay.Background" Value="{ThemeResource NavHoverBrush}" />
+                                                    </VisualState.Setters>
+                                                </VisualState>
+                                                <VisualState x:Name="CheckedPressed">
+                                                    <VisualState.Setters>
+                                                        <Setter Target="CheckedPlate.Opacity" Value="1" />
+                                                        <Setter Target="HoverOverlay.Background" Value="{ThemeResource SurfaceHoverBrush}" />
+                                                    </VisualState.Setters>
+                                                </VisualState>
+                                                <VisualState x:Name="CheckedDisabled">
+                                                    <VisualState.Setters>
+                                                        <Setter Target="CheckedPlate.Opacity" Value="1" />
+                                                        <Setter Target="Root.Opacity" Value="0.42" />
+                                                    </VisualState.Setters>
+                                                </VisualState>
                                                 <VisualState x:Name="Indeterminate" />
+                                                <VisualState x:Name="IndeterminatePointerOver" />
+                                                <VisualState x:Name="IndeterminatePressed" />
+                                                <VisualState x:Name="IndeterminateDisabled" />
                                             </VisualStateGroup>
                                         </VisualStateManager.VisualStateGroups>
                                     </Grid>

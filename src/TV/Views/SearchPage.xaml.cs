@@ -202,7 +202,7 @@ public sealed partial class SearchPage : Page
             return;
         }
 
-        EmptyIcon.Glyph = failed ? "\uE7BA" : "\uE721";
+        EmptyIcon.PathData = Application.Current.Resources[failed ? "IconAlert" : "IconSearch"] as string ?? "";
         EmptyTitle.Text = needsVerify ? "部分站点需要安全验证" : failed ? "部分站点搜索未完成" : "没有找到匹配的影片";
         EmptyDescription.Text = needsVerify
             ? "请在左侧站点列表点击「验证」完成验证码后自动恢复搜索。"
@@ -305,18 +305,22 @@ public sealed partial class SearchPage : Page
     private void OnResultContainerChanging(ListViewBase sender, ContainerContentChangingEventArgs e)
     {
         if (e.ItemContainer.ContentTemplateRoot is FrameworkElement card)
-            MotionService.ResetCard(card, artworkZoom: GetResultArt(card));
+        {
+            var parts = GetCardParts(card);
+            MotionService.ResetCard(card, parts.Overlay, parts.Badge, parts.Art);
+        }
         if (!e.InRecycleQueue && e.Item is VodCardViewModel vm) _ = vm.LoadVisualAsync();
     }
 
-    private readonly System.Runtime.CompilerServices.ConditionalWeakTable<FrameworkElement, FrameworkElement?> _resultArts = new();
+    private sealed record CardParts(FrameworkElement? Overlay, FrameworkElement? Badge, FrameworkElement? Art);
+    private readonly System.Runtime.CompilerServices.ConditionalWeakTable<FrameworkElement, CardParts> _resultParts = new();
 
-    private FrameworkElement? GetResultArt(FrameworkElement card)
+    private CardParts GetCardParts(FrameworkElement card)
     {
-        if (_resultArts.TryGetValue(card, out var cached) && cached is not null) return cached;
-        var found = FindNamedDescendant(card, "ResultArt");
-        if (found is not null) _resultArts.AddOrUpdate(card, found);
-        return found;
+        if (_resultParts.TryGetValue(card, out var cached) && (cached.Art is not null || cached.Overlay is not null)) return cached;
+        var parts = new CardParts(FindNamedDescendant(card, "PlayOverlay"), FindNamedDescendant(card, "PlayBadge"), FindNamedDescendant(card, "ResultArt"));
+        if (parts.Art is not null || parts.Overlay is not null) _resultParts.AddOrUpdate(card, parts);
+        return parts;
     }
 
     private static FrameworkElement? FindNamedDescendant(DependencyObject root, string name)
@@ -329,12 +333,16 @@ public sealed partial class SearchPage : Page
 
     private void OnResultCardIn(object sender, PointerRoutedEventArgs e)
     {
-        if (sender is FrameworkElement element) MotionService.SetCardHover(element, null, null, GetResultArt(element), true);
+        if (sender is not FrameworkElement element) return;
+        var parts = GetCardParts(element);
+        MotionService.SetCardHover(element, parts.Overlay, parts.Badge, parts.Art, true);
     }
 
     private void OnResultCardOut(object sender, PointerRoutedEventArgs e)
     {
-        if (sender is FrameworkElement element) MotionService.SetCardHover(element, null, null, GetResultArt(element), false);
+        if (sender is not FrameworkElement element) return;
+        var parts = GetCardParts(element);
+        MotionService.SetCardHover(element, parts.Overlay, parts.Badge, parts.Art, false);
     }
 
     private void OnResultCardPressed(object sender, PointerRoutedEventArgs e)

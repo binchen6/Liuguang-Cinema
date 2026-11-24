@@ -258,6 +258,8 @@ public sealed class CloudDriveService : IDisposable
     public async Task SaveCredentialAsync(CloudProviderKind provider, string credential, CancellationToken cancellationToken = default)
     {
         await _database.SetSettingAsync(CredentialKey(provider), SecretStore.Protect(credential), cancellationToken).ConfigureAwait(false);
+        if (provider == CloudProviderKind.Ali && _providers[CloudProviderKind.Ali] is AliCloudProvider ali)
+            ali.InvalidateAccountCache();
         AccountChanged?.Invoke(this, provider);
     }
 

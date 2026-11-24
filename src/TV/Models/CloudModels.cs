@@ -10,15 +10,20 @@ public sealed record CloudAccountInfo(
     string Status,
     string AccountName = "")
 {
-    public string Name => Provider switch
+    public string Name => DisplayName(Provider);
+
+    public static string DisplayName(CloudProviderKind provider) => provider switch
     {
         CloudProviderKind.Ali => "阿里云盘",
         CloudProviderKind.Quark => "夸克网盘",
         CloudProviderKind.UC => "UC 网盘",
         CloudProviderKind.Baidu => "百度网盘",
-        _ => Provider.ToString()
+        _ => provider.ToString()
     };
     public string LoginAutomationName => Name + "扫码";
+    public bool IsLoggedIn => State == CloudAccountState.LoggedIn;
+    public bool IsWarning => State is CloudAccountState.Expired or CloudAccountState.Error;
+    public bool IsNeutral => !IsLoggedIn && !IsWarning;
 }
 
 public sealed class CloudAuthenticationException : InvalidOperationException
@@ -78,9 +83,19 @@ public sealed record CloudDriveItem(
     string Token = "")
 {
     public string Glyph => IsFolder ? "\uE8B7" : "\uE7C3";
+    public bool IsVideoFile => !IsFolder && IsVideoExtension(Name);
+    public bool IsGenericFile => !IsFolder && !IsVideoFile;
     public string MetaText => IsFolder ? "文件夹" : SizeText;
     public string SizeText => Size <= 0 ? "" : Size >= 1024 * 1024 * 1024 ? $"{Size / 1024d / 1024 / 1024:0.##} GB" : $"{Size / 1024d / 1024:0.##} MB";
     public string ModifiedText => ModifiedAt?.ToLocalTime().ToString("yyyy-MM-dd HH:mm") ?? "";
+
+    private static bool IsVideoExtension(string name)
+    {
+        var ext = System.IO.Path.GetExtension(name);
+        return ext.Length > 0 && ext.ToLowerInvariant() is
+            ".mp4" or ".mkv" or ".avi" or ".mov" or ".wmv" or ".flv" or ".ts" or ".m2ts" or
+            ".m3u8" or ".webm" or ".rmvb" or ".m4v" or ".mpg" or ".mpeg" or ".iso" or ".asf" or ".3gp";
+    }
 }
 
 public sealed record CloudDriveListing(IReadOnlyList<CloudDriveItem> Items, bool HasMore);

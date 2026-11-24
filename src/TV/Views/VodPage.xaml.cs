@@ -1,3 +1,4 @@
+using Microsoft.UI.Input;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
@@ -8,11 +9,20 @@ using TV.Models;
 using TV.Services;
 using TV.Services.Vod.Native;
 using TV.ViewModels;
+using VirtualKey = Windows.System.VirtualKey;
 
 namespace TV.Views;
 
 public sealed partial class VodPage : Page
 {
+    private ScrollViewer? _postersScroll;
+    private bool _browseLayoutReady;
+    private bool _backToTopVisible;
+    private bool _topHidden;
+    private double _collapseDistance;
+    private bool _reducedCompact;
+    private readonly PointerEventHandler _overlayWheelHandler;
+
     public VodPage()
     {
         InitializeComponent();
@@ -21,6 +31,9 @@ public sealed partial class VodPage : Page
         MotionService.AttachTactile(HeaderReloadButton, 1.04f, 0.94f, -1f);
         MotionService.AttachTactile(FilterButton, 1.02f, 0.96f, -1f);
         MotionService.AttachTactile(BackToTop, 1.06f, 0.93f, -2f);
+        _overlayWheelHandler = OnOverlayPointerWheelChanged;
+        TopCollapsibleBand.AddHandler(PointerWheelChangedEvent, _overlayWheelHandler, handledEventsToo: true);
+        StickyDockBand.AddHandler(PointerWheelChangedEvent, _overlayWheelHandler, handledEventsToo: true);
     }
 
     private VodViewModel ViewModel => (VodViewModel)DataContext;
@@ -31,10 +44,6 @@ public sealed partial class VodPage : Page
         try { await ViewModel.InitializeAsync(); Diagnostics.Log("VodPage initialized"); }
         catch (Exception ex) { ViewModel.StatusMessage = "加载失败：" + ex.Message; }
     }
-
-    private ScrollViewer? _postersScroll;
-    private bool _browseLayoutReady;
-    private bool _scrolledCompact;
 
     private void OnSearchClick(object sender, RoutedEventArgs e) => App.Window.OpenSearch();
 
@@ -56,56 +65,150 @@ public sealed partial class VodPage : Page
     private void OnPostersLoaded(object sender, RoutedEventArgs e)
     {
         _browseLayoutReady = false;
-        _scrolledCompact = false;
-        BrowseHeader.Visibility = GalleryHost.Visibility = Visibility.Visible;
-        ApplyFilterDockVisual(compact: false);
+        _backToTopVisible = false;
+        _topHidden = false;
+        _reducedCompact = false;
+        TopCollapsibleBand.Visibility = Visibility.Visible;
+        TopCollapsibleBand.IsHitTestVisible = true;
         BackToTop.Visibility = Visibility.Collapsed;
+
+        MotionService.Changed -= OnMotionPreferenceChanged;
+        MotionService.Changed += OnMotionPreferenceChanged;
+
         _postersScroll = SearchPage.FindScrollViewer(Posters);
         if (_postersScroll is not null)
         {
+            _postersScroll.ViewChanged -= OnBrowseScroll;
             _postersScroll.ViewChanged += OnBrowseScroll;
             _postersScroll.ChangeView(null, 0, null, true);
         }
-        DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () => _browseLayoutReady = true);
+
+        SyncCollapsibleHeaderMetrics(forceRebind: true);
+        DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () =>
+        {
+            if (!IsLoaded) return;
+            _browseLayoutReady = true;
+            SyncCollapsibleHeaderMetrics(forceRebind: true);
+        });
     }
 
     private void OnPostersUnloaded(object sender, RoutedEventArgs e)
     {
         _browseLayoutReady = false;
+        MotionService.Changed -= OnMotionPreferenceChanged;
         if (_postersScroll is not null) _postersScroll.ViewChanged -= OnBrowseScroll;
         _postersScroll = null;
+        MotionService.UnbindCollapsibleHeader(TopCollapsibleBand, StickyDockBand, FilterDockGlass, FilterDockDivider);
     }
 
-    private void OnTopClick(object sender, RoutedEventArgs e) => _postersScroll?.ChangeView(null, 0, null);
+    private void OnMotionPreferenceChanged(object? sender, EventArgs e)
+    {
+        if (!IsLoaded) return;
+        SyncCollapsibleHeaderMetrics(forceRebind: true);
+    }
+
+    private void OnHeaderBandSizeChanged(object sender, SizeChangedEventArgs e)
+    {
+        if (!IsLoaded) return;
+        SyncCollapsibleHeaderMetrics(forceRebind: false);
+    }
+
+    private void SyncCollapsibleHeaderMetrics(bool forceRebind)
+    {
+        var topHeight = TopCollapsibleBand.Visibility == Visibility.Visible ? TopCollapsibleBand.ActualHeight : _collapseDistance;
+        var dockHeight = StickyDockBand.ActualHeight;
+        if (topHeight <= 0 || dockHeight <= 0) return;
+
+        var changed = Math.Abs(topHeight - _collapseDistance) > 0.5;
+        if (changed) _collapseDistance = topHeight;
+
+        if (!MotionService.CanAnimate)
+        {
+            MotionService.UnbindCollapsibleHeader(TopCollapsibleBand, StickyDockBand, FilterDockGlass, FilterDockDivider);
+            ApplyReducedMotionState(_postersScroll?.VerticalOffset ?? 0);
+            return;
+        }
+
+        TopCollapsibleBand.Visibility = Visibility.Visible;
+        var targetSpacer = topHeight + dockHeight + 6;
+        if (Math.Abs(ScrollTopSpacer.Height - targetSpacer) > 0.5)
+            ScrollTopSpacer.Height = targetSpacer;
+
+        if ((changed || forceRebind) && _postersScroll is not null)
+        {
+            MotionService.BindCollapsibleHeader(
+                _postersScroll,
+                TopCollapsibleBand,
+                StickyDockBand,
+                FilterDockGlass,
+                FilterDockDivider,
+                (float)topHeight);
+        }
+    }
+
+    private void ApplyReducedMotionState(double offset)
+    {
+        var compact = offset >= 40;
+        _reducedCompact = compact;
+        TopCollapsibleBand.Visibility = compact ? Visibility.Collapsed : Visibility.Visible;
+        TopCollapsibleBand.IsHitTestVisible = !compact;
+        FilterDockGlass.Opacity = compact ? 1.0 : 0.0;
+        FilterDockDivider.Opacity = compact ? 0.0 : 1.0;
+        var dockHeight = Math.Max(56, StickyDockBand.ActualHeight);
+        ScrollTopSpacer.Height = compact ? dockHeight + 6 : _collapseDistance + dockHeight + 6;
+    }
+
+    private void OnOverlayPointerWheelChanged(object sender, PointerRoutedEventArgs e)
+    {
+        if (_postersScroll is null) return;
+        var point = e.GetCurrentPoint(this);
+        var props = point.Properties;
+        if (props.IsHorizontalMouseWheel) return;
+        var shiftDown = InputKeyboardSource.GetKeyStateForCurrentThread(VirtualKey.Shift).HasFlag(Windows.UI.Core.CoreVirtualKeyStates.Down);
+        if (shiftDown) return;
+        var delta = props.MouseWheelDelta;
+        if (delta == 0) return;
+        var target = Math.Clamp(_postersScroll.VerticalOffset - delta * 0.9, 0, _postersScroll.ScrollableHeight);
+        if (Math.Abs(target - _postersScroll.VerticalOffset) > 0.5)
+        {
+            _postersScroll.ChangeView(null, target, null, disableAnimation: false);
+            e.Handled = true;
+        }
+    }
+
+    private void OnTopClick(object sender, RoutedEventArgs e) => _postersScroll?.ChangeView(null, 0, null, disableAnimation: false);
 
     private void OnBrowseScroll(object? sender, ScrollViewerViewChangedEventArgs e)
     {
-        if (!_browseLayoutReady) return;
-        var offset = _postersScroll?.VerticalOffset ?? 0;
-        if (offset > 0 && offset < 40) return;
-        var compact = offset >= 40;
-        if (compact == _scrolledCompact) return;
-        _scrolledCompact = compact;
-        BrowseHeader.Visibility = GalleryHost.Visibility = compact ? Visibility.Collapsed : Visibility.Visible;
-        ApplyFilterDockVisual(compact, animate: true);
-        if (compact) MotionService.EnterSection(FilterDock, offsetY: -6);
-        MotionService.SetFloatingVisible(BackToTop, compact, offsetY: 16, hiddenScale: 0.84f);
+        if (!_browseLayoutReady || _postersScroll is null) return;
+        var offset = _postersScroll.VerticalOffset;
+
+        if (!MotionService.CanAnimate)
+        {
+            if (offset > 0 && offset < 40) return;
+            var compact = offset >= 40;
+            if (compact != _reducedCompact) ApplyReducedMotionState(offset);
+            UpdateBackToTop(compact);
+            return;
+        }
+
+        var hideThreshold = Math.Max(36, _collapseDistance * 0.58);
+        var hideTop = offset >= hideThreshold;
+        if (hideTop != _topHidden)
+        {
+            _topHidden = hideTop;
+            TopCollapsibleBand.IsHitTestVisible = !hideTop;
+        }
+
+        var showFab = offset >= Math.Max(80, _collapseDistance * 0.85);
+        UpdateBackToTop(showFab);
     }
 
-    private void ApplyFilterDockVisual(bool compact, bool animate = false)
+    private void UpdateBackToTop(bool visible)
     {
-        FilterBar.Padding = compact ? new Thickness(12, 8, 12, 8) : new Thickness(0, 6, 0, 12);
-        FilterDock.Margin = compact ? new Thickness(0, 0, 0, 12) : new Thickness(0, 10, 0, 12);
-        if (animate)
-        {
-            MotionService.FadeOpacity(FilterDockGlass, compact ? 1f : 0f, 180);
-            MotionService.FadeOpacity(FilterDockDivider, compact ? 0f : 1f, 150);
-        }
-        else
-        {
-            FilterDockGlass.Opacity = compact ? 1.0 : 0.0;
-            FilterDockDivider.Opacity = compact ? 0.0 : 1.0;
-        }
+        if (visible == _backToTopVisible) return;
+        _backToTopVisible = visible;
+        MotionService.SetFloatingVisible(BackToTop, visible, offsetY: 16, hiddenScale: 0.84f);
     }
 
     private async void OnCategoryPillClick(object sender, RoutedEventArgs e)
@@ -124,6 +227,7 @@ public sealed partial class VodPage : Page
             ViewModel.SelectedCategory = category;
             button.IsChecked = true;
             MotionService.PulseElement(button, 0.93f);
+            _postersScroll?.ChangeView(null, 0, null, disableAnimation: false);
         }
     }
 
@@ -144,7 +248,7 @@ public sealed partial class VodPage : Page
         var width = Math.Max(1, args.NewSize.Width);
         var columns = Math.Max(1, (int)((width + columnGap) / (posterWidth + columnGap)));
         panel.ItemWidth = Math.Floor(width / columns);
-        panel.ItemHeight = 350;
+        panel.ItemHeight = 356;
     }
 
     private void OnFeaturedLoaded(object sender, RoutedEventArgs e)

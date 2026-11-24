@@ -1244,8 +1244,12 @@ public sealed partial class PlayerPage : Page
 
         async Task DoSearchAsync()
         {
-            var q = queryBox.Text.Trim();
-            if (q.Length == 0) return;
+            var q = DanDanPlayService.SanitizeSearchKeyword(queryBox.Text);
+            if (q.Length < 2)
+            {
+                statusText.Text = "请输入至少 2 个字符进行搜索。";
+                return;
+            }
             searchBtn.IsEnabled = false;
             statusText.Text = "正在搜索弹弹play 开放弹幕库…";
             try
@@ -1324,17 +1328,39 @@ public sealed partial class PlayerPage : Page
                     ViewModel.QualityMessage = "在线弹幕自动匹配已关闭，可在弹幕设置中手动匹配。";
                     return;
                 }
-                long epId;
                 if (_manualDanDanPlayEpisodeId is { } manualId)
                 {
-                    epId = manualId;
+                    comments = await App.Services.DanDanPlay.GetCommentsAsync(manualId, withRelated: true, chConvert: 1, token);
                 }
                 else
                 {
-                    var match = await ViewModel.MatchDanDanPlayAsync(token);
-                    epId = match.EpisodeId;
+                    try
+                    {
+                        var match = await ViewModel.MatchDanDanPlayAsync(token);
+                        comments = await App.Services.DanDanPlay.GetCommentsAsync(match.EpisodeId, withRelated: true, chConvert: 1, token);
+                    }
+                    catch (InvalidDataException ddpMiss) when (!token.IsCancellationRequested)
+                    {
+                        // DanDanPlay 主要覆盖番剧与动画；若未收录该影视，自动回退原站弹幕或 B 站在线弹幕库
+                        if (_danmakuAddress is { } originUri)
+                        {
+                            comments = await App.Services.Danmaku.LoadAsync(originUri, token);
+                            ViewModel.QualityMessage = "已回退原站弹幕";
+                        }
+                        else
+                        {
+                            try
+                            {
+                                var bili = await ViewModel.MatchOnlineMediaAsync(token);
+                                comments = await App.Services.Danmaku.LoadAsync(bili.Danmaku, token);
+                            }
+                            catch (Exception) when (!token.IsCancellationRequested)
+                            {
+                                throw ddpMiss;
+                            }
+                        }
+                    }
                 }
-                comments = await App.Services.DanDanPlay.GetCommentsAsync(epId, withRelated: true, chConvert: 1, token);
             }
             else
             {
@@ -1515,7 +1541,7 @@ public sealed partial class PlayerPage : Page
         var dialog = new ContentDialog
         {
             XamlRoot = XamlRoot,
-            Title = $"{provider} 网盘登录",
+            Title = $"{CloudAccountInfo.DisplayName(provider)}登录",
             Content = panel,
             CloseButtonText = "稍后",
             DefaultButton = ContentDialogButton.Close

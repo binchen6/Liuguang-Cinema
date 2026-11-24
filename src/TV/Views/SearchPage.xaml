@@ -21,6 +21,13 @@
             <Setter Property="Padding" Value="{StaticResource ControlPaddingHorizontal}" />
             <Setter Property="CornerRadius" Value="{StaticResource RadiusControl}" />
         </Style>
+        <Style x:Key="SearchScopeItemStyle" TargetType="ListViewItem" BasedOn="{StaticResource NavRailItemStyle}">
+            <Setter Property="Height" Value="NaN" />
+            <Setter Property="MinHeight" Value="54" />
+            <Setter Property="Padding" Value="12,8,12,8" />
+            <Setter Property="Margin" Value="0,2" />
+            <Setter Property="CornerRadius" Value="{StaticResource RadiusControl}" />
+        </Style>
     </Page.Resources>
 
     <Grid Padding="{StaticResource PagePaddingWide}">
@@ -99,7 +106,7 @@
                 <RowDefinition Height="*" />
             </Grid.RowDefinitions>
 
-            <Grid Width="220"
+            <Grid Width="244"
                   Padding="8,0"
                   ColumnSpacing="{StaticResource SpaceMini}" VerticalAlignment="Center">
                 <Grid.ColumnDefinitions>
@@ -161,17 +168,18 @@
             </Grid>
 
             <!-- 磨砂站点遥测侧栏 -->
-            <Border Grid.Row="1" Width="220"
+            <Border Grid.Row="1" Width="244"
                     Background="{ThemeResource GlassPanelBrush}"
                     BorderBrush="{ThemeResource GlassEdgeBrush}" BorderThickness="1"
-                    CornerRadius="{StaticResource RadiusPanel}" Padding="6,8">
+                    CornerRadius="{StaticResource RadiusPanel}" Padding="6,8,4,8">
                 <ListView AutomationProperties.Name="搜索站点"
                           ItemsSource="{Binding Scopes}"
                           SelectedItem="{Binding Scope, Mode=TwoWay}"
                           SelectionMode="Single"
                           Background="Transparent"
                           BorderThickness="0"
-                          ItemContainerStyle="{StaticResource RailListStyle}"
+                          Padding="0,0,8,0"
+                          ItemContainerStyle="{StaticResource SearchScopeItemStyle}"
                           ContainerContentChanging="OnScopeContainerChanging">
                     <ListView.ItemTemplate>
                         <DataTemplate>
@@ -180,11 +188,11 @@
                                     <ColumnDefinition Width="*" />
                                     <ColumnDefinition Width="Auto" />
                                 </Grid.ColumnDefinitions>
-                                <StackPanel Spacing="0" VerticalAlignment="Center">
+                                <StackPanel Spacing="2" VerticalAlignment="Center">
                                     <TextBlock Text="{Binding Name}" Style="{StaticResource BodyText}" FontWeight="SemiBold"
                                                MaxLines="1" TextTrimming="CharacterEllipsis" />
                                     <TextBlock Text="{Binding Group.Status}" Style="{StaticResource MetaText}"
-                                               TextTrimming="CharacterEllipsis"
+                                               MaxLines="1" TextTrimming="CharacterEllipsis"
                                                Visibility="{Binding Group.Status, Converter={StaticResource StringToVisibility}, FallbackValue=Collapsed}" />
                                 </StackPanel>
                                 <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
@@ -335,6 +343,14 @@
                                                                    Foreground="{ThemeResource TertiaryTextBrush}"
                                                                    HorizontalAlignment="Center" VerticalAlignment="Center" />
                                                 <Image x:Name="ResultArt" Source="{Binding Poster}" Stretch="UniformToFill" controls:PosterImage.AutoFit="True" />
+                                                <Rectangle VerticalAlignment="Bottom" Height="52" IsHitTestVisible="False">
+                                                    <Rectangle.Fill>
+                                                        <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
+                                                            <GradientStop Color="#000B0B0D" Offset="0" />
+                                                            <GradientStop Color="#720B0B0D" Offset="1" />
+                                                        </LinearGradientBrush>
+                                                    </Rectangle.Fill>
+                                                </Rectangle>
                                                 <Border Visibility="{Binding Item.Remarks, Converter={StaticResource StringToVisibility}}"
                                                         Background="{ThemeResource GlassDarkBadgeBrush}"
                                                         BorderBrush="#2EFFFFFF" BorderThickness="1"
@@ -345,7 +361,8 @@
                                                     <TextBlock Text="{Binding Item.Remarks}"
                                                                Style="{StaticResource MetaText}"
                                                                FontWeight="SemiBold"
-                                                               Foreground="{ThemeResource GlassDarkBadgeInkBrush}" />
+                                                               Foreground="{ThemeResource GlassDarkBadgeInkBrush}"
+                                                               MaxWidth="108" TextTrimming="CharacterEllipsis" />
                                                 </Border>
                                                 <Border Visibility="{Binding Rating, Converter={StaticResource StringToVisibility}}"
                                                         Background="{ThemeResource GlassDarkBadgeBrush}"
@@ -362,6 +379,14 @@
                                                                    Foreground="{ThemeResource GlassDarkBadgeInkBrush}" />
                                                     </StackPanel>
                                                 </Border>
+                                                <Grid x:Name="PlayOverlay" Background="#660B0B0D" Opacity="0">
+                                                    <Border x:Name="PlayBadge" Width="52" Height="52" CornerRadius="26"
+                                                            Background="#E8F4F3EE" BorderBrush="#66FFFFFF" BorderThickness="1"
+                                                            HorizontalAlignment="Center" VerticalAlignment="Center">
+                                                        <controls:LineIcon PathData="{StaticResource IconPlaySolid}" IconSize="20" IsFilled="True"
+                                                                           Margin="2,0,0,0" Foreground="#0D0D10" />
+                                                    </Border>
+                                                </Grid>
                                             </Grid>
                                         </Border>
 
@@ -401,9 +426,13 @@
                                 Spacing="{StaticResource SpaceSmall}"
                                 MaxWidth="{StaticResource TextParagraphMaxWidth}"
                                 HorizontalAlignment="Center" VerticalAlignment="Center">
-                        <FontIcon x:Name="EmptyIcon" Glyph="&#xE721;" FontSize="38"
-                                  Foreground="{ThemeResource SecondaryTextBrush}"
-                                  HorizontalAlignment="Center" />
+                        <Border Width="64" Height="64" CornerRadius="32"
+                                Background="{ThemeResource GlassPanelBrush}"
+                                BorderBrush="{ThemeResource GlassEdgeBrush}" BorderThickness="1"
+                                HorizontalAlignment="Center">
+                            <controls:LineIcon x:Name="EmptyIcon" PathData="{StaticResource IconSearch}" IconSize="28"
+                                               Foreground="{ThemeResource SecondaryTextBrush}" />
+                        </Border>
                         <TextBlock x:Name="EmptyTitle" Text="没有找到匹配的影片"
                                    Style="{StaticResource SectionTitleText}"
                                    HorizontalAlignment="Center" Margin="0,8,0,0" />

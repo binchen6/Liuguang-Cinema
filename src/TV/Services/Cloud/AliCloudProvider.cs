@@ -7,19 +7,29 @@ namespace TV.Services.Cloud;
 
 public sealed class AliCloudProvider : ICloudDriveProvider
 {
+    private const string VirtualDrivePrefix = "__drive__:";
+
+    private sealed record DriveAccountContext(
+        string AccessToken,
+        string DefaultDriveId,
+        string ResourceDriveId,
+        string BackupDriveId,
+        string UserId,
+        bool IsOpenApi,
+        AliDeviceSession? DeviceSession);
+
     private readonly CloudHttpClient _http;
     private readonly CloudShareTokenCache _tokens = new();
     private readonly Func<CancellationToken, Task<string>>? _credential;
     private readonly DatabaseService? _database;
     private readonly ConcurrentDictionary<string, string> _markers = new(StringComparer.Ordinal);
-    private string _accessToken = string.Empty;
-    private string _driveId = string.Empty;
+    private DriveAccountContext? _account;
     private DateTimeOffset _accessExpiresAt;
-    private bool _openApi;
     private readonly SemaphoreSlim _accountLock = new(1, 1);
     private static readonly Dictionary<string, string> Headers = new(StringComparer.OrdinalIgnoreCase)
     {
-        ["Referer"] = "https://www.aliyundrive.com/"
+        ["Referer"] = "https://www.alipan.com/",
+        ["Origin"] = "https://www.alipan.com"
     };
 
     public AliCloudProvider(CloudHttpClient http, Func<CancellationToken, Task<string>>? credential = null, DatabaseService? database = null)
@@ -30,6 +40,13 @@ public sealed class AliCloudProvider : ICloudDriveProvider
     }
     public CloudProviderKind Kind => CloudProviderKind.Ali;
     public bool CanHandle(string url) => CloudShareLink.TryParse(url, out var link) && link.Provider == Kind;
+
+    public void InvalidateAccountCache()
+    {
+        _account = null;
+        _accessExpiresAt = DateTimeOffset.MinValue;
+        _markers.Clear();
+    }
 
     public async Task<CloudShare> GetShareAsync(string url, CancellationToken cancellationToken = default)
     {
@@ -121,16 +138,22 @@ public sealed class AliCloudProvider : ICloudDriveProvider
         {
             if (!quality.Contains("原画", StringComparison.OrdinalIgnoreCase) && quality != "自动")
                 throw new NotSupportedException("阿里云盘当前线路仅提供原画。");
-            var (access, defaultDrive) = await GetAccountContextAsync(cancellationToken).ConfigureAwait(false);
-            var drive = string.IsNullOrWhiteSpace(file.FileToken) ? defaultDrive : file.FileToken;
-            var accountHeaders = AccountHeaders(access);
-            var response = await _http.PostJsonAsync(ApiBase + "/adrive/v1.0/openFile/getDownloadUrl",
-                new { drive_id = drive, file_id = file.FileId }, accountHeaders, cancellationToken).ConfigureAwait(false);
+            var response = await ExecuteDriveRequestAsync(async (ctx, ct) =>
+            {
+                var drive = string.IsNullOrWhiteSpace(file.FileToken) ? ctx.DefaultDriveId : file.FileToken;
+                var body = ctx.IsOpenApi
+                    ? (object)new { drive_id = drive, file_id = file.FileId }
+                    : new { drive_id = drive, file_id = file.FileId, expire_sec = 14400 };
+                var endpoints = ctx.IsOpenApi
+                    ? new[] { "https://openapi.alipan.com/adrive/v1.0/openFile/getDownloadUrl" }
+                    : new[] { "https://api.alipan.com/v2/file/get_download_url", "https://api.aliyundrive.com/v2/file/get_download_url" };
+                return await PostWithFallbackAsync(endpoints, body, AccountHeaders(ctx), ct).ConfigureAwait(false);
+            }, cancellationToken).ConfigureAwait(false);
             EnsureSuccess(response, "阿里个人文件原画播放失败");
-            var address = String(response.Json, "url") is { Length: > 0 } value ? value : String(response.Json, "download_url");
+            var address = First(String(response.Json, "url"), String(response.Json, "download_url"));
             if (!Uri.TryCreate(address, UriKind.Absolute, out _)) throw new InvalidDataException("阿里未返回个人文件播放地址。");
             var mediaType = Services.Playback.HlsManifest.RecognizeResponse("https://media.invalid/" + Uri.EscapeDataString(file.Name), null);
-            return new CloudPlayResult(address, accountHeaders, mediaType, CloudSubtitleFiles.Extension(file.Name));
+            return new CloudPlayResult(address, Headers, mediaType, CloudSubtitleFiles.Extension(file.Name));
         }
         var token = await GetShareTokenAsync(file.ShareId, file.Passcode, cancellationToken).ConfigureAwait(false);
         var headers = new Dictionary<string, string>(Headers, StringComparer.OrdinalIgnoreCase) { ["x-share-token"] = token };
@@ -144,41 +167,74 @@ public sealed class AliCloudProvider : ICloudDriveProvider
 
     public async Task<CloudDriveListing> ListFolderAsync(string folderId, string path, int page, CancellationToken cancellationToken = default)
     {
-        var (access, drive) = await GetAccountContextAsync(cancellationToken).ConfigureAwait(false);
+        var ctx = await GetAccountContextAsync(cancellationToken).ConfigureAwait(false);
         page = Math.Max(1, page);
-        var body = new Dictionary<string, object?>
+        var hasDualDrives = HasDualDrives(ctx);
+        if (hasDualDrives && string.Equals(folderId, "root", StringComparison.OrdinalIgnoreCase))
         {
-            ["drive_id"] = drive, ["parent_file_id"] = folderId, ["limit"] = 100,
-            ["order_by"] = "name", ["order_direction"] = "ASC"
-        };
-        return await ReadDriveAsync(ApiBase + "/adrive/v1.0/openFile/list", body,
-            $"list/{drive}/{folderId}", path, page, access, cancellationToken).ConfigureAwait(false);
+            return new CloudDriveListing(
+            [
+                new CloudDriveItem(Kind, EncodeVirtualFolder(ctx.ResourceDriveId, "root"), "root", "资源库", "/资源库", 0, true, null, ctx.ResourceDriveId),
+                new CloudDriveItem(Kind, EncodeVirtualFolder(ctx.BackupDriveId, "root"), "root", "备份盘", "/备份盘", 0, true, null, ctx.BackupDriveId)
+            ], false);
+        }
+
+        var (drive, parentId) = DecodeFolder(folderId, ctx.DefaultDriveId);
+        return await ReadDriveAsync(
+            isSearch: false,
+            driveId: drive,
+            parentOrQuery: parentId,
+            key: $"list/{drive}/{parentId}",
+            path: path,
+            page: page,
+            encodeSubfolders: hasDualDrives,
+            cancellationToken: cancellationToken).ConfigureAwait(false);
     }
 
     public async Task<CloudDriveListing> SearchFolderAsync(string keyword, int page, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(keyword)) return new CloudDriveListing([], false);
-        var (access, drive) = await GetAccountContextAsync(cancellationToken).ConfigureAwait(false);
+        var ctx = await GetAccountContextAsync(cancellationToken).ConfigureAwait(false);
         page = Math.Max(1, page);
-        var body = new Dictionary<string, object?>
+        var term = keyword.Trim();
+        var hasDualDrives = HasDualDrives(ctx);
+        if (hasDualDrives && page == 1)
         {
-            ["drive_id"] = drive, ["query"] = keyword.Trim(), ["limit"] = 100, ["order_by"] = "name ASC"
-        };
-        return await ReadDriveAsync(ApiBase + "/adrive/v1.0/openFile/search", body,
-            $"search/{drive}/{keyword.Trim()}", "/", page, access, cancellationToken).ConfigureAwait(false);
+            var resourceTask = ReadDriveAsync(true, ctx.ResourceDriveId, term, $"search/{ctx.ResourceDriveId}/{term}", "/资源库", 1, true, cancellationToken);
+            var backupTask = ReadDriveAsync(true, ctx.BackupDriveId, term, $"search/{ctx.BackupDriveId}/{term}", "/备份盘", 1, true, cancellationToken);
+            await Task.WhenAll(resourceTask, backupTask).ConfigureAwait(false);
+            var resource = await resourceTask.ConfigureAwait(false);
+            var backup = await backupTask.ConfigureAwait(false);
+            var merged = new List<CloudDriveItem>(resource.Items.Count + backup.Items.Count);
+            merged.AddRange(resource.Items);
+            merged.AddRange(backup.Items);
+            return new CloudDriveListing(merged, resource.HasMore);
+        }
+        var searchDrive = hasDualDrives ? ctx.ResourceDriveId : ctx.DefaultDriveId;
+        var rootPath = hasDualDrives ? "/资源库" : "/";
+        return await ReadDriveAsync(true, searchDrive, term, $"search/{searchDrive}/{term}", rootPath, page, hasDualDrives, cancellationToken).ConfigureAwait(false);
     }
 
-    private async Task<CloudDriveListing> ReadDriveAsync(string endpoint, Dictionary<string, object?> body, string key, string path,
-        int page, string access, CancellationToken cancellationToken)
+    private async Task<CloudDriveListing> ReadDriveAsync(bool isSearch, string driveId, string parentOrQuery, string key, string path,
+        int page, bool encodeSubfolders, CancellationToken cancellationToken)
     {
+        string? marker = null;
         if (page > 1)
         {
-            if (!_markers.TryGetValue($"{key}/{page}", out var marker)) throw new InvalidDataException("请按顺序加载下一页。");
-            body["marker"] = marker;
+            if (!_markers.TryGetValue($"{key}/{page}", out marker)) throw new InvalidDataException("请按顺序加载下一页。");
         }
-        var result = await _http.PostJsonAsync(endpoint, body, AccountHeaders(access), cancellationToken).ConfigureAwait(false);
-        if (result.StatusCode == System.Net.HttpStatusCode.Unauthorized)
-            throw new CloudAuthenticationException(Kind, "阿里云盘登录已失效，请重新扫码。");
+        var result = await ExecuteDriveRequestAsync(async (ctx, ct) =>
+        {
+            var body = BuildDriveBody(ctx.IsOpenApi, isSearch, driveId, parentOrQuery, marker);
+            var endpoints = (ctx.IsOpenApi, isSearch) switch
+            {
+                (true, false) => new[] { "https://openapi.alipan.com/adrive/v1.0/openFile/list" },
+                (true, true) => new[] { "https://openapi.alipan.com/adrive/v1.0/openFile/search" },
+                (false, false) => new[] { "https://api.alipan.com/adrive/v3/file/list", "https://api.aliyundrive.com/adrive/v3/file/list" },
+                (false, true) => new[] { "https://api.alipan.com/adrive/v3/file/search", "https://api.aliyundrive.com/adrive/v3/file/search" }
+            };
+            return await PostWithFallbackAsync(endpoints, body, AccountHeaders(ctx), ct).ConfigureAwait(false);
+        }, cancellationToken).ConfigureAwait(false);
         EnsureSuccess(result, "阿里个人云盘读取失败");
         var items = result.Json.TryGetProperty("items", out var list) && list.ValueKind == JsonValueKind.Array ? list : default;
         var entries = new List<CloudDriveItem>();
@@ -190,52 +246,164 @@ public sealed class AliCloudProvider : ICloudDriveProvider
                 if (id.Length == 0 || name.Length == 0) continue;
                 var parent = String(item, "parent_file_id");
                 var itemPath = JoinPath(path, name);
+                var isFolder = String(item, "type") == "folder" || String(item, "file_type") == "folder";
+                var entryId = isFolder && encodeSubfolders ? EncodeVirtualFolder(driveId, id) : id;
                 DateTimeOffset? modified = DateTimeOffset.TryParse(String(item, "updated_at"), out var updated) ? updated : null;
-                entries.Add(new CloudDriveItem(Kind, id, parent, name, itemPath, Long(item, "size"),
-                    String(item, "type") == "folder", modified, (string)body["drive_id"]!));
+                entries.Add(new CloudDriveItem(Kind, entryId, parent, name, itemPath, Long(item, "size"),
+                    isFolder, modified, driveId));
             }
         var next = String(result.Json, "next_marker");
         if (next.Length > 0) _markers[$"{key}/{page + 1}"] = next;
         return new CloudDriveListing(entries, next.Length > 0);
     }
 
-    private async Task<(string AccessToken, string DriveId)> GetAccountContextAsync(CancellationToken cancellationToken)
+    private static Dictionary<string, object?> BuildDriveBody(bool openApi, bool isSearch, string driveId, string parentOrQuery, string? marker)
     {
-        if (_accessToken.Length > 0 && _driveId.Length > 0 && _accessExpiresAt > DateTimeOffset.UtcNow.AddMinutes(2))
-            return (_accessToken, _driveId);
+        var body = new Dictionary<string, object?>
+        {
+            ["drive_id"] = driveId,
+            ["limit"] = 100
+        };
+        if (isSearch)
+        {
+            body["query"] = FormatSearchQuery(parentOrQuery);
+            body["order_by"] = openApi ? "name ASC" : "updated_at DESC";
+        }
+        else
+        {
+            body["parent_file_id"] = parentOrQuery;
+            body["order_by"] = "name";
+            body["order_direction"] = "ASC";
+            if (!openApi)
+            {
+                body["all"] = false;
+                body["url_expire_sec"] = 14400;
+                body["fields"] = "*";
+            }
+        }
+        if (!string.IsNullOrEmpty(marker)) body["marker"] = marker;
+        return body;
+    }
+
+    private static string FormatSearchQuery(string keyword)
+    {
+        var trimmed = keyword.Trim();
+        if (trimmed.Contains(" match ", StringComparison.OrdinalIgnoreCase)) return trimmed;
+        var escaped = trimmed.Replace("\\", "\\\\", StringComparison.Ordinal).Replace("\"", "\\\"", StringComparison.Ordinal);
+        return $"name match \"{escaped}\"";
+    }
+
+    private async Task<CloudHttpResult> ExecuteDriveRequestAsync(
+        Func<DriveAccountContext, CancellationToken, Task<CloudHttpResult>> send,
+        CancellationToken cancellationToken)
+    {
+        var ctx = await GetAccountContextAsync(cancellationToken).ConfigureAwait(false);
+        var result = await send(ctx, cancellationToken).ConfigureAwait(false);
+        if (result.StatusCode == System.Net.HttpStatusCode.Unauthorized)
+        {
+            InvalidateAccountCache();
+            ctx = await GetAccountContextAsync(cancellationToken).ConfigureAwait(false);
+            result = await send(ctx, cancellationToken).ConfigureAwait(false);
+            if (result.StatusCode == System.Net.HttpStatusCode.Unauthorized)
+                throw new CloudAuthenticationException(Kind, "阿里云盘登录已失效，请重新扫码。");
+        }
+        return result;
+    }
+
+    private async Task<CloudHttpResult> PostWithFallbackAsync(string[] endpoints, object body, Dictionary<string, string> headers, CancellationToken cancellationToken)
+    {
+        Exception? lastException = null;
+        CloudHttpResult? lastResult = null;
+        foreach (var endpoint in endpoints)
+        {
+            try
+            {
+                var result = await _http.PostJsonAsync(endpoint, body, headers, cancellationToken).ConfigureAwait(false);
+                if (result.StatusCode == System.Net.HttpStatusCode.OK || result.StatusCode == System.Net.HttpStatusCode.Unauthorized)
+                    return result;
+                lastResult = result;
+                Diagnostics.Log($"阿里网盘接口 {new Uri(endpoint).Host}{new Uri(endpoint).AbsolutePath}: HTTP {(int)result.StatusCode}");
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                lastException = ex;
+                Diagnostics.Log($"阿里网盘接口 {new Uri(endpoint).Host}{new Uri(endpoint).AbsolutePath}: {ex.GetType().Name}");
+            }
+        }
+        if (lastResult is not null) return lastResult;
+        throw lastException ?? new InvalidOperationException("阿里云盘接口请求失败。");
+    }
+
+    private async Task<DriveAccountContext> GetAccountContextAsync(CancellationToken cancellationToken)
+    {
+        var cached = _account;
+        if (cached is not null && cached.AccessToken.Length > 0 && cached.DefaultDriveId.Length > 0 &&
+            _accessExpiresAt > DateTimeOffset.UtcNow.AddMinutes(2))
+            return cached;
         await _accountLock.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            if (_accessToken.Length > 0 && _driveId.Length > 0 && _accessExpiresAt > DateTimeOffset.UtcNow.AddMinutes(2))
-                return (_accessToken, _driveId);
+            cached = _account;
+            if (cached is not null && cached.AccessToken.Length > 0 && cached.DefaultDriveId.Length > 0 &&
+                _accessExpiresAt > DateTimeOffset.UtcNow.AddMinutes(2))
+                return cached;
             if (_credential is null) throw new CloudAuthenticationException(Kind, "阿里云盘需要扫码登录。");
             var refresh = await _credential(cancellationToken).ConfigureAwait(false);
             if (string.IsNullOrWhiteSpace(refresh)) throw new CloudAuthenticationException(Kind, "阿里云盘需要扫码登录。");
             var token = await AliOAuth.RefreshAsync(_http, refresh, cancellationToken).ConfigureAwait(false);
             if (token is null) throw new CloudAuthenticationException(Kind, "阿里云盘登录已失效，请重新扫码。");
-            _openApi = token.IsOpenApi;
             if (_database is not null && token.RefreshToken.Length > 0 && token.RefreshToken != refresh)
                 await _database.SetSettingAsync("cloud.aliToken", SecretStore.Protect(token.RefreshToken), cancellationToken).ConfigureAwait(false);
-            _driveId = await ReadDriveIdAsync(token.AccessToken, token.IsOpenApi, cancellationToken).ConfigureAwait(false);
-            _accessToken = token.AccessToken;
+
+            var (defaultDrive, resourceDrive, backupDrive, userId) = await ReadDriveInfoAsync(token, cancellationToken).ConfigureAwait(false);
+            var primaryDrive = First(defaultDrive, resourceDrive, backupDrive);
+            if (primaryDrive.Length == 0)
+                throw new InvalidDataException("阿里未返回默认网盘 ID，请重新验证登录。");
+            if (backupDrive.Length == 0) backupDrive = defaultDrive.Length > 0 ? defaultDrive : primaryDrive;
+
+            AliDeviceSession? session = null;
+            if (!token.IsOpenApi && userId.Length > 0)
+                session = await TryCreateDeviceSessionAsync(token.AccessToken, userId, token.DeviceId, cancellationToken).ConfigureAwait(false);
+
+            var next = new DriveAccountContext(token.AccessToken, primaryDrive, resourceDrive, backupDrive, userId, token.IsOpenApi, session);
+            _account = next;
             _accessExpiresAt = DateTimeOffset.UtcNow.AddSeconds(token.ExpiresIn > 600 ? token.ExpiresIn - 300 : 1800);
-            return (_accessToken, _driveId);
+            return next;
         }
         finally { _accountLock.Release(); }
     }
 
-    private async Task<string> ReadDriveIdAsync(string access, bool openApi, CancellationToken cancellationToken)
+    private async Task<(string DefaultDrive, string ResourceDrive, string BackupDrive, string UserId)> ReadDriveInfoAsync(
+        AliOAuthToken token, CancellationToken cancellationToken)
     {
-        string[] endpoints = openApi
-            ? ["https://openapi.alipan.com/adrive/v1.0/user/getDriveInfo"]
-            : ["https://user.alipan.com/v2/user/get", "https://user.aliyundrive.com/v2/user/get", "https://api.aliyundrive.com/v2/user/get"];
+        var defaultDrive = token.DefaultDriveId;
+        var resourceDrive = token.ResourceDriveId;
+        var backupDrive = token.BackupDriveId;
+        var userId = token.UserId;
+
+        string[] endpoints = token.IsOpenApi
+            ? ["https://openapi.alipan.com/adrive/v1.0/user/getDriveInfo", "https://openapi.aliyundrive.com/adrive/v1.0/user/getDriveInfo"]
+            : ["https://api.alipan.com/v2/user/get", "https://api.aliyundrive.com/v2/user/get", "https://user.alipan.com/v2/user/get", "https://user.aliyundrive.com/v2/user/get"];
+
+        var headers = BearerHeaders(token.AccessToken);
         foreach (var endpoint in endpoints)
         {
             try
             {
-                var user = await _http.GetAsync(endpoint, AccountHeaders(access), cancellationToken).ConfigureAwait(false);
-                var drive = String(user.Json, "default_drive_id");
-                if (user.StatusCode == System.Net.HttpStatusCode.OK && drive.Length > 0) return drive;
+                var user = await _http.PostJsonAsync(endpoint, new { }, headers, cancellationToken).ConfigureAwait(false);
+                if (user.StatusCode == System.Net.HttpStatusCode.OK && user.Json.ValueKind == JsonValueKind.Object)
+                {
+                    var d = String(user.Json, "default_drive_id");
+                    var r = String(user.Json, "resource_drive_id");
+                    var b = String(user.Json, "backup_drive_id");
+                    var u = String(user.Json, "user_id");
+                    if (d.Length > 0) defaultDrive = d;
+                    if (r.Length > 0) resourceDrive = r;
+                    if (b.Length > 0) backupDrive = b;
+                    if (u.Length > 0) userId = u;
+                    if (First(defaultDrive, resourceDrive, backupDrive).Length > 0)
+                        return (defaultDrive, resourceDrive, backupDrive, userId);
+                }
                 Diagnostics.Log($"阿里账号信息接口 {new Uri(endpoint).Host}: HTTP {(int)user.StatusCode}");
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
@@ -243,16 +411,70 @@ public sealed class AliCloudProvider : ICloudDriveProvider
                 Diagnostics.Log($"阿里账号信息接口 {new Uri(endpoint).Host}: {ex.GetType().Name}");
             }
         }
-        throw new InvalidDataException("阿里未返回默认网盘 ID，请重新验证登录。");
+        return (defaultDrive, resourceDrive, backupDrive, userId);
     }
 
-    private static Dictionary<string, string> AccountHeaders(string access) => new(Headers, StringComparer.OrdinalIgnoreCase)
+    private async Task<AliDeviceSession?> TryCreateDeviceSessionAsync(string accessToken, string userId, string? existingDeviceId, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var session = AliDeviceSession.Create(userId, existingDeviceId);
+            var headers = BearerHeaders(accessToken);
+            headers["x-device-id"] = session.DeviceId;
+            headers["x-signature"] = session.SignatureHex;
+            headers["x-canary"] = "client=web,app=adrive,version=v6.8.12";
+            var payload = new { deviceName = "Edge浏览器", modelName = "Windows网页版", pubKey = session.PublicKeyHex };
+            var response = await _http.PostJsonAsync("https://api.alipan.com/users/v1/users/device/create_session",
+                payload, headers, cancellationToken).ConfigureAwait(false);
+            if (response.StatusCode == System.Net.HttpStatusCode.OK)
+                return session;
+            Diagnostics.Log($"阿里设备会话初始化返回 HTTP {(int)response.StatusCode}");
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            Diagnostics.Log($"阿里设备会话初始化跳过: {ex.GetType().Name}");
+        }
+        return null;
+    }
+
+    private static bool HasDualDrives(DriveAccountContext ctx) =>
+        ctx.ResourceDriveId.Length > 0 && ctx.BackupDriveId.Length > 0 &&
+        !ctx.ResourceDriveId.Equals(ctx.BackupDriveId, StringComparison.Ordinal);
+
+    private static string EncodeVirtualFolder(string driveId, string folderId) =>
+        VirtualDrivePrefix + driveId + ":" + folderId;
+
+    private static (string DriveId, string FolderId) DecodeFolder(string folderId, string fallbackDriveId)
+    {
+        if (folderId.StartsWith(VirtualDrivePrefix, StringComparison.Ordinal))
+        {
+            var rest = folderId[VirtualDrivePrefix.Length..];
+            var split = rest.IndexOf(':');
+            if (split > 0 && split < rest.Length - 1)
+                return (rest[..split], rest[(split + 1)..]);
+        }
+        return (fallbackDriveId, folderId);
+    }
+
+    private static Dictionary<string, string> BearerHeaders(string access) => new(Headers, StringComparer.OrdinalIgnoreCase)
     {
         ["Authorization"] = "Bearer " + access
     };
 
+    private static Dictionary<string, string> AccountHeaders(DriveAccountContext ctx)
+    {
+        var headers = BearerHeaders(ctx.AccessToken);
+        if (!ctx.IsOpenApi)
+            headers["x-canary"] = "client=web,app=adrive,version=v6.8.12";
+        if (ctx.DeviceSession is { } session)
+        {
+            headers["x-device-id"] = session.DeviceId;
+            headers["x-signature"] = session.SignatureHex;
+        }
+        return headers;
+    }
+
     private static string JoinPath(string parent, string name) => (parent.Length == 0 ? "/" : parent).TrimEnd('/') + "/" + name;
-    private string ApiBase => _openApi ? "https://openapi.alipan.com" : "https://api.aliyundrive.com";
 
     private static void EnsureSuccess(CloudHttpResult result, string fallback)
     {

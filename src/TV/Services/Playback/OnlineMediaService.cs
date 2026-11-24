@@ -13,11 +13,12 @@ public sealed class OnlineMediaService(SourceHttpClient http, BilibiliVodProvide
 {
     private readonly ConcurrentDictionary<string, (OnlineMediaMatch Match, DateTimeOffset Expires)> _matches = new(StringComparer.OrdinalIgnoreCase);
 
-    public async Task<OnlineMediaMatch> MatchAsync(string title, string episode, int index, CancellationToken token)
+    public async Task<OnlineMediaMatch> MatchAsync(string title, string episode, int index, CancellationToken token, string? year = null, string? typeName = null)
     {
-        var key = $"{MediaMatching.Title(title)}|{episode}|{index}";
+        var identity = MediaMatching.Parse(title, episode, index, year, typeName);
+        var key = identity.CanonicalKey + (identity.EpisodeNumber.HasValue || identity.IsMovie ? string.Empty : $"|idx{index}");
         if (_matches.TryGetValue(key, out var cached) && cached.Expires > DateTimeOffset.UtcNow) return cached.Match;
-        var match = await bilibili.MatchAsync(title, episode, index, token).ConfigureAwait(false);
+        var match = await bilibili.MatchAsync(title, episode, index, token, year, typeName).ConfigureAwait(false);
         if (_matches.Count >= 64)
         {
             foreach (var pair in _matches.Where(pair => pair.Value.Expires < DateTimeOffset.UtcNow)) _matches.TryRemove(pair.Key, out _);

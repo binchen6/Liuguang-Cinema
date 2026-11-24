@@ -46,12 +46,24 @@ public sealed partial class UpdateDialog : ContentDialog
         CloseButtonText = "取消下载";
         ProgressPanel.Visibility = Visibility.Visible;
         DownloadProgress.IsIndeterminate = true;
-        StatusText.Text = "正在连接 GitHub Release，下载完成后会自动校验并安装。";
+        StatusText.Text = "正在测速并优选最快下载线路，下载完成后会自动校验 SHA-256 并安装。";
         var progress = new Progress<UpdateDownloadProgress>(value =>
         {
+            if (value.Downloaded == 0 && !string.IsNullOrWhiteSpace(value.RouteLabel))
+            {
+                DownloadProgress.IsIndeterminate = true;
+                ProgressText.Text = value.RouteLabel;
+                return;
+            }
             DownloadProgress.IsIndeterminate = false;
             DownloadProgress.Value = Math.Clamp(value.Percent, 0, 100);
-            ProgressText.Text = $"{FormatSize(value.Downloaded)} / {FormatSize(value.Total)} · {value.Percent:0}%";
+            var speedText = value.BytesPerSecond >= 1024 * 1024
+                ? $" · {value.BytesPerSecond / 1024d / 1024:0.0} MB/s"
+                : value.BytesPerSecond >= 1024
+                    ? $" · {value.BytesPerSecond / 1024d:0} KB/s"
+                    : string.Empty;
+            var routeText = string.IsNullOrWhiteSpace(value.RouteLabel) ? string.Empty : $" · {value.RouteLabel}";
+            ProgressText.Text = $"{FormatSize(value.Downloaded)} / {FormatSize(value.Total)} · {value.Percent:0}%{speedText}{routeText}";
         });
         try
         {

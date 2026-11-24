@@ -61,6 +61,7 @@ public sealed partial class MainWindow : Window
         RestorePlacement();
         AppWindow.Changed += (_, _) => CapturePlacement();
         Title = "流光影院";
+        TryApplyWindowIcon();
         Diagnostics.Log("MainWindow initialized");
         MotionService.AttachTactile(BackButton, 1.04f, 0.94f, 0f);
         if (!App.PlayerOnly)
@@ -134,6 +135,17 @@ public sealed partial class MainWindow : Window
     public void SetTheme(ElementTheme theme)
     {
         if (Content is FrameworkElement root) root.RequestedTheme = theme;
+    }
+
+    private void TryApplyWindowIcon()
+    {
+        try
+        {
+            var iconPath = Path.Combine(AppContext.BaseDirectory, "Assets", "App.ico");
+            if (File.Exists(iconPath))
+                AppWindow.SetIcon(iconPath);
+        }
+        catch (Exception ex) { Diagnostics.Log($"窗口图标设置跳过: {ex.GetType().Name}"); }
     }
 
     private async Task LoadPreferencesAsync()
@@ -264,7 +276,6 @@ public sealed partial class MainWindow : Window
     private bool _syncingNav;
     private static readonly string[] PrimaryTags = { "vod", "live", "library", "cloud", "cast" };
     private static readonly Windows.UI.ViewManagement.AccessibilitySettings Accessibility = new();
-    private readonly Dictionary<ListViewItem, (UIElement? Plate, UIElement? Indicator)> _navVisualCache = [];
     private double _cachedWidePaneWidth;
 
     private void SyncNavSelection(string tag)
@@ -289,25 +300,13 @@ public sealed partial class MainWindow : Window
         UpdateNavVisuals(tag);
     }
 
-    // 校正每项选中底板，并将全局弹簧指示条平滑滑行到当前激活项（含设置按钮）。
+    // 将全局弹簧指示条平滑滑行到当前激活项（含设置按钮）。
     private void UpdateNavVisuals(string tag)
     {
-        FrameworkElement? activeTarget = tag == "settings" ? SettingsButton : null;
-        foreach (var item in NavList.Items.OfType<ListViewItem>())
-        {
-            var active = item.Tag as string == tag;
-            if (active) activeTarget = item;
-            if (!_navVisualCache.TryGetValue(item, out var cached) || cached.Plate is null)
-            {
-                cached = (FindTemplateChild(item, "SelectionPlate"), FindTemplateChild(item, "Indicator"));
-                if (cached.Plate is not null) _navVisualCache[item] = cached;
-            }
-            if (!active)
-                VisualStateManager.GoToState(item, "Unselected", false);
-            if (cached.Plate is { } plate) plate.Opacity = active ? 1 : 0;
-            // 侧栏使用全局弹簧 FloatingNavIndicator，隐藏各子项静态指示条避免双条重影
-            if (cached.Indicator is { } indicator) indicator.Opacity = 0;
-        }
+        FrameworkElement? activeTarget = tag == "settings"
+            ? SettingsButton
+            : NavList.Items.OfType<ListViewItem>().FirstOrDefault(item => item.Tag as string == tag)
+                ?? NavList.SelectedItem as FrameworkElement;
         ScheduleIndicatorGlide(activeTarget);
     }
 
@@ -330,18 +329,6 @@ public sealed partial class MainWindow : Window
             }
             catch { }
         });
-    }
-
-    private static FrameworkElement? FindTemplateChild(DependencyObject root, string name)
-    {
-        var count = VisualTreeHelper.GetChildrenCount(root);
-        for (var i = 0; i < count; i++)
-        {
-            var child = VisualTreeHelper.GetChild(root, i);
-            if (child is FrameworkElement element && element.Name == name) return element;
-            if (FindTemplateChild(child, name) is { } found) return found;
-        }
-        return null;
     }
 
     private void OnNavSelectionChanged(object sender, SelectionChangedEventArgs e)

@@ -5,6 +5,7 @@ using System.Reflection;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using TV.Services.Http;
 using TV.Services.Persistence;
 using TV.Services.Vod;
@@ -45,13 +46,15 @@ public sealed record DanDanPlayEpisode(long EpisodeId, string AnimeTitle, string
 
 public sealed record DanDanPlayAnimeGroup(long AnimeId, string AnimeTitle, string TypeDescription, IReadOnlyList<DanDanPlayEpisode> Episodes);
 
-public sealed class DanDanPlayService
+public sealed partial class DanDanPlayService
 {
     public const string OpenPlatformUrl = "https://doc.dandanplay.com/open/";
     public const string ApiBaseUrl = "https://api.dandanplay.net";
     public const string SettingAppId = "danmaku.dandanplay.appId";
     public const string SettingAppSecret = "danmaku.dandanplay.appSecret";
     private const int HashPrefixBytes = 16 * 1024 * 1024; // 16 MB per DanDanPlay /api/v2/match spec
+    private const int MaxEpisodeQueryNumber = 9999;
+    private const double MinTitleRelevanceScore = 230.0;
 
     private readonly SourceHttpClient _http;
     private readonly DatabaseService _database;
@@ -112,13 +115,14 @@ public sealed class DanDanPlayService
         int episodeIndex,
         string? localFilePath = null,
         int durationSeconds = 0,
-        CancellationToken token = default)
+        CancellationToken token = default,
+        string? year = null,
+        string? typeName = null)
     {
-        var cleanTitle = MediaMatching.Title(title);
-        var epNumber = MediaMatching.EpisodeNumber(episode) ?? MediaMatching.EpisodeNumber(title);
+        var identity = MediaMatching.Parse(title, episode, episodeIndex, year, typeName);
         var cacheKey = !string.IsNullOrWhiteSpace(localFilePath)
             ? "file:" + localFilePath
-            : $"{cleanTitle}|{epNumber?.ToString(CultureInfo.InvariantCulture) ?? episode}|{episodeIndex}";
+            : identity.CanonicalKey + (identity.EpisodeNumber.HasValue || identity.IsMovie ? string.Empty : $"|idx{episodeIndex}");
 
         if (_matchCache.TryGetValue(cacheKey, out var cached) && cached.Expires > DateTimeOffset.UtcNow)
             return cached.Episode;
@@ -130,47 +134,77 @@ public sealed class DanDanPlayService
         {
             try
             {
-                var (isMatched, match) = await MatchFileAsync(localFilePath, durationSeconds, token).ConfigureAwait(false);
-                if (isMatched && match is not null)
+                var (isMatched, matches) = await MatchFileAsync(localFilePath, durationSeconds, token).ConfigureAwait(false);
+                if (isMatched && matches.Count > 0)
                 {
-                    CacheMatch(cacheKey, match);
-                    return match;
+                    CacheMatch(cacheKey, matches[0]);
+                    return matches[0];
                 }
-                fileCandidate = match;
+                fileCandidate = PickBestFlatMatch(matches, identity, episode);
             }
             catch (OperationCanceledException) when (token.IsCancellationRequested) { throw; }
             catch (Exception ex)
             {
-                Diagnostics.Log($"DanDanPlay file hash match skipped: {ex.GetType().Name}");
+                Diagnostics.Log($"DanDanPlay file hash match skipped: {ex.GetType().Name} {ex.Message}");
             }
         }
 
-        // Strategy B: Search episodes via GET /api/v2/search/episodes
-        if (!string.IsNullOrWhiteSpace(cleanTitle))
-        {
-            var groups = await SearchEpisodesAsync(cleanTitle, epNumber, token).ConfigureAwait(false);
-            if (groups.Count == 0 && epNumber.HasValue)
-                groups = await SearchEpisodesAsync(cleanTitle, null, token).ConfigureAwait(false);
+        // Strategy B: Multi-candidate canonical search via GET /api/v2/search/episodes (v2 search engine)
+        var collectedGroups = new Dictionary<long, DanDanPlayAnimeGroup>();
+        var queries = BuildSearchQueries(identity);
+        var validEpParam = identity.EpisodeNumber is >= 1 and <= MaxEpisodeQueryNumber ? identity.EpisodeNumber : null;
 
-            var picked = PickBestEpisode(groups, cleanTitle, episode, epNumber, episodeIndex);
+        foreach (var query in queries)
+        {
+            var groups = await TrySearchEpisodesSafeAsync(query, validEpParam, useV2: true, token).ConfigureAwait(false);
+            if (groups.Count == 0 && validEpParam.HasValue)
+                groups = await TrySearchEpisodesSafeAsync(query, null, useV2: true, token).ConfigureAwait(false);
+            if (groups.Count == 0)
+                groups = await TrySearchEpisodesSafeAsync(query, validEpParam, useV2: false, token).ConfigureAwait(false);
+            if (groups.Count == 0 && validEpParam.HasValue)
+                groups = await TrySearchEpisodesSafeAsync(query, null, useV2: false, token).ConfigureAwait(false);
+
+            foreach (var group in groups)
+                collectedGroups.TryAdd(group.AnimeId, group);
+
+            var earlyPick = PickBestEpisode(collectedGroups.Values.ToArray(), identity, episode, episodeIndex);
+            if (earlyPick is not null && earlyPick.Value.Confidence >= 1100)
+            {
+                CacheMatch(cacheKey, earlyPick.Value.Episode);
+                return earlyPick.Value.Episode;
+            }
+        }
+
+        if (collectedGroups.Count > 0)
+        {
+            var picked = PickBestEpisode(collectedGroups.Values.ToArray(), identity, episode, episodeIndex);
             if (picked is not null)
             {
-                CacheMatch(cacheKey, picked);
-                return picked;
+                CacheMatch(cacheKey, picked.Value.Episode);
+                return picked.Value.Episode;
             }
         }
 
-        // Strategy C: Filename-only fallback via POST /api/v2/match
-        var syntheticName = !string.IsNullOrWhiteSpace(cleanTitle)
-            ? (epNumber is > 0 ? $"{cleanTitle} 第{epNumber:D2}集.mp4" : $"{cleanTitle}.mp4")
-            : Path.GetFileName(localFilePath ?? title);
-        if (!string.IsNullOrWhiteSpace(syntheticName))
+        // Strategy C: Verified filename-only fallback via POST /api/v2/match (without extension per official spec)
+        var syntheticName = BuildSyntheticMatchFileName(identity, localFilePath, title);
+        if (syntheticName.Length >= 2)
         {
-            var (_, nameMatch) = await MatchFileNameOnlyAsync(syntheticName, durationSeconds, token).ConfigureAwait(false);
-            if (nameMatch is not null)
+            try
             {
-                CacheMatch(cacheKey, nameMatch);
-                return nameMatch;
+                var (isMatched, matches) = await MatchFileNameOnlyAsync(syntheticName, durationSeconds, token).ConfigureAwait(false);
+                var nameMatch = isMatched && matches.Count > 0
+                    ? matches[0]
+                    : PickBestFlatMatch(matches, identity, episode);
+                if (nameMatch is not null)
+                {
+                    CacheMatch(cacheKey, nameMatch);
+                    return nameMatch;
+                }
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested) { throw; }
+            catch (Exception ex)
+            {
+                Diagnostics.Log($"DanDanPlay filename match fallback skipped: {ex.GetType().Name} {ex.Message}");
             }
         }
 
@@ -180,17 +214,48 @@ public sealed class DanDanPlayService
             return fileCandidate;
         }
 
-        throw new InvalidDataException($"弹弹play 弹幕库未找到与“{(string.IsNullOrWhiteSpace(cleanTitle) ? title : cleanTitle)}”匹配的剧集。");
+        var display = string.IsNullOrWhiteSpace(identity.CleanTitle) ? title : identity.CleanTitle;
+        throw new InvalidDataException($"弹弹play 弹幕库未找到与“{display}”匹配的剧集。");
     }
 
     public async Task<IReadOnlyList<DanDanPlayAnimeGroup>> SearchEpisodesAsync(string keyword, int? episodeNumber = null, CancellationToken token = default)
     {
-        var query = keyword.Trim();
-        if (query.Length == 0) return [];
-        var path = "/api/v2/search/episodes";
+        var query = SanitizeSearchKeyword(keyword);
+        if (query.Length < 2)
+            throw new InvalidDataException("弹弹play 搜索关键词至少需要 2 个有效字符。");
+
+        var groups = await SearchEpisodesCoreAsync(query, episodeNumber, useV2: true, token).ConfigureAwait(false);
+        if (groups.Count == 0)
+            groups = await SearchEpisodesCoreAsync(query, episodeNumber, useV2: false, token).ConfigureAwait(false);
+        return groups;
+    }
+
+    private async Task<IReadOnlyList<DanDanPlayAnimeGroup>> TrySearchEpisodesSafeAsync(
+        string keyword, int? episodeNumber, bool useV2, CancellationToken token)
+    {
+        var query = SanitizeSearchKeyword(keyword);
+        if (query.Length < 2) return [];
+        try
+        {
+            return await SearchEpisodesCoreAsync(query, episodeNumber, useV2, token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested) { throw; }
+        catch (InvalidDataException ex)
+        {
+            Diagnostics.Log($"DanDanPlay search skipped ({query}, ep={episodeNumber}, v2={useV2}): {ex.Message}");
+            return [];
+        }
+    }
+
+    private async Task<IReadOnlyList<DanDanPlayAnimeGroup>> SearchEpisodesCoreAsync(
+        string query, int? episodeNumber, bool useV2, CancellationToken token)
+    {
+        const string path = "/api/v2/search/episodes";
         var url = $"{ApiBaseUrl}{path}?anime={Uri.EscapeDataString(query)}";
-        if (episodeNumber is > 0)
+        if (episodeNumber is >= 1 and <= MaxEpisodeQueryNumber)
             url += $"&episode={episodeNumber.Value.ToString(CultureInfo.InvariantCulture)}";
+        if (useV2)
+            url += "&v2=true";
 
         var json = await SendSignedAsync(HttpMethod.Get, path, url, bodyJson: null, token).ConfigureAwait(false);
         using var doc = JsonDocument.Parse(json);
@@ -273,36 +338,39 @@ public sealed class DanDanPlayService
         }
     }
 
-    private async Task<(bool IsMatched, DanDanPlayEpisode? Episode)> MatchFileAsync(string localFilePath, int durationSeconds, CancellationToken token)
+    private async Task<(bool IsMatched, List<DanDanPlayEpisode> Matches)> MatchFileAsync(string localFilePath, int durationSeconds, CancellationToken token)
     {
         var info = new FileInfo(localFilePath);
-        if (!info.Exists || info.Length == 0) return (false, null);
+        if (!info.Exists || info.Length == 0) return (false, []);
         var hash = await ComputeFilePrefixMd5Async(localFilePath, token).ConfigureAwait(false);
+        var fileName = SanitizeMatchFileName(Path.GetFileNameWithoutExtension(info.Name));
+        if (fileName.Length < 2) fileName = SanitizeMatchFileName(info.Name);
         var payload = JsonSerializer.Serialize(new
         {
-            fileName = info.Name,
+            fileName,
             fileHash = hash,
             fileSize = info.Length,
-            videoDuration = Math.Max(0, durationSeconds),
+            videoDuration = Math.Clamp(durationSeconds, 0, 86400),
             matchMode = "hashAndFileName"
         });
         return await PostMatchAsync(payload, token).ConfigureAwait(false);
     }
 
-    private Task<(bool IsMatched, DanDanPlayEpisode? Episode)> MatchFileNameOnlyAsync(string fileName, int durationSeconds, CancellationToken token)
+    private Task<(bool IsMatched, List<DanDanPlayEpisode> Matches)> MatchFileNameOnlyAsync(string fileName, int durationSeconds, CancellationToken token)
     {
+        var cleanName = SanitizeMatchFileName(fileName);
         var payload = JsonSerializer.Serialize(new
         {
-            fileName,
+            fileName = cleanName,
             fileHash = "00000000000000000000000000000000",
             fileSize = 0L,
-            videoDuration = Math.Max(0, durationSeconds),
+            videoDuration = Math.Clamp(durationSeconds, 0, 86400),
             matchMode = "fileNameOnly"
         });
         return PostMatchAsync(payload, token);
     }
 
-    private async Task<(bool IsMatched, DanDanPlayEpisode? Episode)> PostMatchAsync(string bodyJson, CancellationToken token)
+    private async Task<(bool IsMatched, List<DanDanPlayEpisode> Matches)> PostMatchAsync(string bodyJson, CancellationToken token)
     {
         const string path = "/api/v2/match";
         var json = await SendSignedAsync(HttpMethod.Post, path, ApiBaseUrl + path, bodyJson, token).ConfigureAwait(false);
@@ -311,8 +379,9 @@ public sealed class DanDanPlayService
         EnsureSuccess(root, "弹弹play 文件匹配失败");
 
         var isMatched = root.TryGetProperty("isMatched", out var matchedProp) && matchedProp.ValueKind == JsonValueKind.True;
+        var results = new List<DanDanPlayEpisode>();
         if (!root.TryGetProperty("matches", out var matches) || matches.ValueKind != JsonValueKind.Array)
-            return (false, null);
+            return (false, results);
 
         foreach (var item in matches.EnumerateArray())
         {
@@ -321,61 +390,360 @@ public sealed class DanDanPlayService
             var animeTitle = ReadString(item, "animeTitle");
             var epTitle = ReadString(item, "episodeTitle");
             var typeDesc = ReadString(item, "typeDescription");
-            return (isMatched, new DanDanPlayEpisode(epId, animeTitle, epTitle, typeDesc));
+            results.Add(new DanDanPlayEpisode(epId, animeTitle, epTitle, typeDesc));
         }
 
-        return (false, null);
+        return (isMatched, results);
     }
 
-    private static DanDanPlayEpisode? PickBestEpisode(
+    private static List<string> BuildSearchQueries(MediaIdentity identity)
+    {
+        var list = new List<string>();
+        void Add(string value)
+        {
+            var sanitized = SanitizeSearchKeyword(value);
+            if (sanitized.Length >= 2 && !list.Any(q => q.Equals(sanitized, StringComparison.OrdinalIgnoreCase)))
+                list.Add(sanitized);
+        }
+
+        // Query BaseTitle first: DanDanPlay returns all seasons in one round-trip, and PickBestEpisode
+        // disambiguates the exact season with +320 / -420 season scoring.
+        Add(identity.BaseTitle);
+        if (identity.SeasonNumber is >= 2 and <= 10)
+        {
+            var zh = identity.SeasonNumber.Value switch
+            {
+                2 => "二", 3 => "三", 4 => "四", 5 => "五",
+                6 => "六", 7 => "七", 8 => "八", 9 => "九", 10 => "十", _ => identity.SeasonNumber.Value.ToString(CultureInfo.InvariantCulture)
+            };
+            Add($"{identity.BaseTitle} 第{zh}季");
+        }
+        Add(identity.CleanTitle);
+        foreach (var alias in identity.Aliases)
+            Add(alias);
+
+        return list;
+    }
+
+    private static string BuildSyntheticMatchFileName(MediaIdentity identity, string? localFilePath, string rawTitle)
+    {
+        var titlePart = !string.IsNullOrWhiteSpace(identity.BaseTitle) ? identity.BaseTitle : MediaMatching.StripMediaPathAndExtension(localFilePath ?? rawTitle);
+        if (titlePart.Length == 0) return string.Empty;
+        var sb = new StringBuilder(titlePart);
+        if (identity.SeasonNumber is >= 1 and <= 50 && identity.EpisodeNumber is >= 1 and <= MaxEpisodeQueryNumber)
+            sb.Append($" S{identity.SeasonNumber.Value:D2}E{identity.EpisodeNumber.Value:D2}");
+        else if (identity.SeasonNumber is >= 2 and <= 50)
+            sb.Append($" 第{identity.SeasonNumber.Value}季");
+        else if (identity.EpisodeNumber is >= 1 and <= MaxEpisodeQueryNumber)
+            sb.Append($" 第{identity.EpisodeNumber.Value:D2}集");
+        else if (!string.IsNullOrWhiteSpace(identity.SpecialTag))
+            sb.Append(' ').Append(identity.SpecialTag);
+        return SanitizeMatchFileName(sb.ToString());
+    }
+
+    internal static (DanDanPlayEpisode Episode, double Confidence)? PickBestEpisode(
         IReadOnlyList<DanDanPlayAnimeGroup> groups,
-        string cleanTitle,
+        MediaIdentity identity,
         string rawEpisode,
-        int? targetEpisodeNumber,
         int episodeIndex)
     {
         if (groups.Count == 0) return null;
-        var normQuery = SearchScoring.Normalize(cleanTitle);
 
-        var rankedGroups = groups
-            .Select(group =>
-            {
-                var normTitle = SearchScoring.Normalize(group.AnimeTitle);
-                var score = 0.0;
-                if (normTitle.Equals(normQuery, StringComparison.OrdinalIgnoreCase)) score += 1000;
-                else if (normTitle.StartsWith(normQuery, StringComparison.OrdinalIgnoreCase)) score += 700;
-                else if (normTitle.Contains(normQuery, StringComparison.OrdinalIgnoreCase)) score += 500;
-                else if (normQuery.Contains(normTitle, StringComparison.OrdinalIgnoreCase) && normTitle.Length >= 2) score += 350;
-                // Prefer closer title lengths to avoid picking spin-offs/OVAs over main series
-                score -= Math.Abs(normTitle.Length - normQuery.Length) * 5;
-                if (targetEpisodeNumber is > 1 && group.Episodes.Count >= targetEpisodeNumber.Value) score += 120;
-                if (targetEpisodeNumber is null && group.Episodes.Count == 1) score += 80;
-                return (Group: group, Score: score);
-            })
-            .OrderByDescending(x => x.Score)
-            .ToArray();
+        var wantedSeason = identity.SeasonNumber ?? 1;
+        var targetEp = identity.EpisodeNumber;
 
-        foreach (var candidate in rankedGroups)
+        (DanDanPlayEpisode Episode, double Confidence)? best = null;
+
+        foreach (var group in groups)
         {
-            var eps = candidate.Group.Episodes;
-            if (targetEpisodeNumber is > 0)
+            var titleScore = ComputeTitleRelevance(identity, group.AnimeTitle, out var candSeason);
+            if (titleScore < MinTitleRelevanceScore) continue;
+
+            var score = titleScore;
+
+            // Season alignment (critical for multi-season shows like 庆余年/葬送的芙莉莲/2.5次元的诱惑)
+            var effectiveCandSeason = candSeason ?? 1;
+            if (effectiveCandSeason == wantedSeason) score += 320;
+            else score -= 420;
+
+            // Media type alignment (movie vs TV vs OVA/SP)
+            var isCandMovie = group.TypeDescription.Contains("剧场", StringComparison.OrdinalIgnoreCase)
+                || group.TypeDescription.Contains("电影", StringComparison.OrdinalIgnoreCase);
+            var isCandOva = group.TypeDescription.Contains("OVA", StringComparison.OrdinalIgnoreCase)
+                || group.TypeDescription.Contains("OAD", StringComparison.OrdinalIgnoreCase)
+                || group.AnimeTitle.Contains("OVA", StringComparison.OrdinalIgnoreCase)
+                || group.AnimeTitle.Contains("总集篇", StringComparison.OrdinalIgnoreCase);
+
+            if (identity.IsMovie)
             {
-                var exact = eps.FirstOrDefault(e => MediaMatching.EpisodeNumber(e.EpisodeTitle) == targetEpisodeNumber.Value);
-                if (exact is not null) return exact;
-                if (targetEpisodeNumber.Value <= eps.Count)
-                    return eps[targetEpisodeNumber.Value - 1];
+                if (isCandMovie || group.Episodes.Count == 1) score += 220;
+                else if (group.Episodes.Count > 3) score -= 140;
             }
-            if (!string.IsNullOrWhiteSpace(rawEpisode))
+            else if (identity.SpecialTag is not null)
             {
-                var normEp = SearchScoring.Normalize(rawEpisode);
-                var titleMatch = eps.FirstOrDefault(e => SearchScoring.Normalize(e.EpisodeTitle).Contains(normEp, StringComparison.OrdinalIgnoreCase));
-                if (titleMatch is not null) return titleMatch;
+                if (isCandOva) score += 160;
             }
-            if (episodeIndex >= 0 && episodeIndex < eps.Count) return eps[episodeIndex];
-            if (eps.Count > 0) return eps[0];
+            else
+            {
+                if (isCandOva || isCandMovie) score -= 180;
+                else score += 60;
+            }
+
+            // Year hint bonus when title embeds release year
+            if (identity.Year.HasValue)
+            {
+                var yearText = identity.Year.Value.ToString(CultureInfo.InvariantCulture);
+                if (group.AnimeTitle.Contains(yearText, StringComparison.Ordinal)) score += 120;
+            }
+
+            var (pickedEp, epExact, epMatchBonus) = SelectEpisodeFromGroup(group.Episodes, identity, rawEpisode, episodeIndex);
+            if (pickedEp is null) continue;
+
+            score += epMatchBonus;
+            if (targetEp is >= 1 && !epExact)
+            {
+                var normalCount = group.Episodes.Count(e => !MediaMatching.IsSpecialEpisodeTitle(e.EpisodeTitle));
+                if (normalCount < targetEp.Value) score -= 260;
+            }
+
+            if (best is null || score > best.Value.Confidence)
+                best = (pickedEp, score);
         }
 
-        return null;
+        return best;
+    }
+
+    private static (DanDanPlayEpisode? Episode, bool Exact, double Bonus) SelectEpisodeFromGroup(
+        IReadOnlyList<DanDanPlayEpisode> episodes,
+        MediaIdentity identity,
+        string rawEpisode,
+        int episodeIndex)
+    {
+        if (episodes.Count == 0) return (null, false, 0);
+
+        var normalEps = episodes.Where(e => !MediaMatching.IsSpecialEpisodeTitle(e.EpisodeTitle)).ToArray();
+        var specialEps = episodes.Where(e => MediaMatching.IsSpecialEpisodeTitle(e.EpisodeTitle)).ToArray();
+
+        // Special episode requested (SP / OVA / PV / 番外)
+        if (identity.SpecialTag is not null)
+        {
+            if (identity.EpisodeNumber is >= 1)
+            {
+                var specialByNum = specialEps.FirstOrDefault(e => MediaMatching.EpisodeNumber(e.EpisodeTitle) == identity.EpisodeNumber.Value);
+                if (specialByNum is not null) return (specialByNum, true, 180);
+            }
+            if (specialEps.Length > 0) return (specialEps[0], false, 80);
+        }
+
+        // Movie or single-episode work
+        if (identity.IsMovie && !identity.EpisodeNumber.HasValue)
+        {
+            var main = normalEps.FirstOrDefault() ?? episodes[0];
+            return (main, episodes.Count == 1, episodes.Count == 1 ? 160 : 60);
+        }
+
+        // Numbered episode: ALWAYS prefer non-special episodes first so PV/SP at index 0 never shifts numbering
+        if (identity.EpisodeNumber is >= 1)
+        {
+            var target = identity.EpisodeNumber.Value;
+            var exactNormal = normalEps.FirstOrDefault(e => MediaMatching.EpisodeNumber(e.EpisodeTitle) == target);
+            if (exactNormal is not null) return (exactNormal, true, 200);
+
+            // Check leading integer in DanDanPlay titles like "1. 冒险的结束" or "05 标题"
+            var leadingNormal = normalEps.FirstOrDefault(e => LeadingEpisodeNumber(e.EpisodeTitle) == target);
+            if (leadingNormal is not null) return (leadingNormal, true, 180);
+
+            if (target <= normalEps.Length)
+                return (normalEps[target - 1], false, 110);
+
+            var exactAny = episodes.FirstOrDefault(e => MediaMatching.EpisodeNumber(e.EpisodeTitle) == target);
+            if (exactAny is not null) return (exactAny, true, 120);
+
+            if (target <= episodes.Count)
+                return (episodes[target - 1], false, 40);
+
+            return (null, false, -200);
+        }
+
+        // Unnumbered episode: try matching episode subtitle text before positional index
+        if (!string.IsNullOrWhiteSpace(rawEpisode))
+        {
+            var normEp = SearchScoring.Normalize(MediaMatching.StripMediaPathAndExtension(rawEpisode));
+            if (normEp.Length >= 2)
+            {
+                var byTitle = episodes.FirstOrDefault(e => SearchScoring.Normalize(e.EpisodeTitle).Contains(normEp, StringComparison.OrdinalIgnoreCase));
+                if (byTitle is not null) return (byTitle, true, 140);
+            }
+        }
+
+        var pool = normalEps.Length > 0 ? normalEps : episodes;
+        if (episodeIndex >= 0 && episodeIndex < pool.Count)
+            return (pool[episodeIndex], false, 40);
+        return (pool[0], false, 0);
+    }
+
+    private static DanDanPlayEpisode? PickBestFlatMatch(IReadOnlyList<DanDanPlayEpisode> matches, MediaIdentity identity, string rawEpisode)
+    {
+        if (matches.Count == 0) return null;
+        var wantedSeason = identity.SeasonNumber ?? 1;
+        DanDanPlayEpisode? best = null;
+        var bestScore = double.NegativeInfinity;
+
+        foreach (var match in matches)
+        {
+            var titleScore = ComputeTitleRelevance(identity, match.AnimeTitle, out var candSeason);
+            if (titleScore < MinTitleRelevanceScore) continue;
+
+            var score = titleScore + ((candSeason ?? 1) == wantedSeason ? 280 : -380);
+            if (identity.EpisodeNumber is >= 1)
+            {
+                var epNum = MediaMatching.EpisodeNumber(match.EpisodeTitle) ?? LeadingEpisodeNumber(match.EpisodeTitle);
+                if (epNum == identity.EpisodeNumber.Value && !MediaMatching.IsSpecialEpisodeTitle(match.EpisodeTitle))
+                    score += 240;
+                else if (epNum.HasValue && epNum.Value != identity.EpisodeNumber.Value)
+                    score -= 320;
+            }
+            else if (!string.IsNullOrWhiteSpace(rawEpisode))
+            {
+                var normEp = SearchScoring.Normalize(rawEpisode);
+                if (normEp.Length >= 2 && SearchScoring.Normalize(match.EpisodeTitle).Contains(normEp, StringComparison.OrdinalIgnoreCase))
+                    score += 120;
+            }
+
+            if (score > bestScore)
+            {
+                bestScore = score;
+                best = match;
+            }
+        }
+
+        return bestScore >= MinTitleRelevanceScore ? best : null;
+    }
+
+    internal static double ComputeTitleRelevance(MediaIdentity identity, string candidateTitle, out int? candidateSeason)
+    {
+        var (candBase, parsedSeason) = MediaMatching.ExtractBaseAndSeason(MediaMatching.Title(candidateTitle));
+        candidateSeason = parsedSeason;
+
+        var normCandFull = SearchScoring.Normalize(candidateTitle);
+        var normCandBase = SearchScoring.Normalize(candBase);
+        if (normCandBase.Length == 0) normCandBase = normCandFull;
+        if (normCandBase.Length == 0) return 0;
+
+        var best = 0.0;
+        var normClean = SearchScoring.Normalize(identity.CleanTitle);
+        if (normClean.Length > 0 && normCandFull.Equals(normClean, StringComparison.OrdinalIgnoreCase))
+            best = Math.Max(best, 1120);
+
+        foreach (var alias in identity.Aliases)
+        {
+            var normAlias = SearchScoring.Normalize(alias);
+            if (normAlias.Length == 0) continue;
+
+            var s = ScoreNormalizedPair(normAlias, normCandBase);
+            if (normCandFull != normCandBase)
+                s = Math.Max(s, ScoreNormalizedPair(normAlias, normCandFull));
+            if (s > best) best = s;
+        }
+
+        return best;
+    }
+
+    private static double ScoreNormalizedPair(string query, string candidate)
+    {
+        if (query.Equals(candidate, StringComparison.OrdinalIgnoreCase))
+            return 1000;
+
+        var minLen = Math.Min(query.Length, candidate.Length);
+        var maxLen = Math.Max(query.Length, candidate.Length);
+        var lengthRatio = maxLen > 0 ? (double)minLen / maxLen : 0;
+
+        if (minLen >= 2 && (candidate.StartsWith(query, StringComparison.OrdinalIgnoreCase) ||
+                            query.StartsWith(candidate, StringComparison.OrdinalIgnoreCase)))
+        {
+            if (lengthRatio >= 0.45)
+                return 620 + lengthRatio * 180 - Math.Abs(candidate.Length - query.Length) * 4;
+        }
+
+        if (minLen >= 2 && (candidate.Contains(query, StringComparison.OrdinalIgnoreCase) ||
+                            query.Contains(candidate, StringComparison.OrdinalIgnoreCase)))
+        {
+            if (lengthRatio >= 0.50)
+                return 420 + lengthRatio * 160 - Math.Abs(candidate.Length - query.Length) * 4;
+        }
+
+        var dice = BigramDiceSimilarity(query, candidate);
+        if (dice >= 0.62)
+            return dice * 420;
+
+        return 0;
+    }
+
+    private static double BigramDiceSimilarity(string a, string b)
+    {
+        if (a.Length < 2 || b.Length < 2) return 0;
+        var counts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        var totalA = a.Length - 1;
+        for (var i = 0; i < totalA; i++)
+        {
+            var bg = a.Substring(i, 2);
+            counts[bg] = counts.TryGetValue(bg, out var c) ? c + 1 : 1;
+        }
+        var overlap = 0;
+        var totalB = b.Length - 1;
+        for (var i = 0; i < totalB; i++)
+        {
+            var bg = b.Substring(i, 2);
+            if (counts.TryGetValue(bg, out var c) && c > 0)
+            {
+                overlap++;
+                counts[bg] = c - 1;
+            }
+        }
+        return (2.0 * overlap) / (totalA + totalB);
+    }
+
+    private static int? LeadingEpisodeNumber(string title)
+    {
+        var m = LeadingDigits().Match(title.Trim());
+        return m.Success && int.TryParse(m.Groups[1].Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var num) && num is >= 1 and <= 2000
+            ? num : null;
+    }
+
+    public static string SanitizeSearchKeyword(string? raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw)) return string.Empty;
+        var sb = new StringBuilder(raw.Length);
+        var prevSpace = false;
+        foreach (var ch in raw)
+        {
+            if (char.IsControl(ch) || ch is '\u200B' or '\uFEFF') continue;
+            if (char.IsWhiteSpace(ch))
+            {
+                if (!prevSpace && sb.Length > 0) { sb.Append(' '); prevSpace = true; }
+                continue;
+            }
+            sb.Append(ch);
+            prevSpace = false;
+            if (sb.Length >= 50) break;
+        }
+        return sb.ToString().Trim();
+    }
+
+    private static string SanitizeMatchFileName(string? raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw)) return string.Empty;
+        var stripped = MediaMatching.StripMediaPathAndExtension(raw);
+        var sb = new StringBuilder(stripped.Length);
+        foreach (var ch in stripped)
+        {
+            if (char.IsControl(ch) || ch is '\\' or '/' or ':' or '*' or '?' or '"' or '<' or '>' or '|')
+                sb.Append(' ');
+            else
+                sb.Append(ch);
+            if (sb.Length >= 200) break;
+        }
+        return MultiWhitespace().Replace(sb.ToString(), " ").Trim();
     }
 
     private async Task<string> SendSignedAsync(HttpMethod method, string apiPath, string url, string? bodyJson, CancellationToken token)
@@ -419,7 +787,7 @@ public sealed class DanDanPlayService
         var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
         {
             ["Accept"] = "application/json",
-            ["User-Agent"] = "LiuguangCinema/1.7 (DanDanPlay-OpenAPI)",
+            ["User-Agent"] = "LiuguangCinema/1.9 (DanDanPlay-OpenAPI)",
             ["X-AppId"] = appId,
             ["X-Timestamp"] = timestamp,
             ["X-Signature"] = signature
@@ -488,6 +856,8 @@ public sealed class DanDanPlayService
         if (root.TryGetProperty("success", out var success) && success.ValueKind == JsonValueKind.False)
         {
             var msg = ReadString(root, "errorMessage");
+            var detail = ReadString(root, "errorDetail");
+            if (detail.Length > 0) Diagnostics.Log($"DanDanPlay API errorDetail: {detail}");
             throw new InvalidDataException(string.IsNullOrWhiteSpace(msg) ? fallbackMessage : msg);
         }
     }
@@ -497,4 +867,10 @@ public sealed class DanDanPlayService
 
     private static long ReadInt64(JsonElement obj, string name) =>
         obj.TryGetProperty(name, out var prop) && prop.TryGetInt64(out var val) ? val : 0;
+
+    [GeneratedRegex(@"^(\d{1,4})(?:\s|\.|、|话|集|$)", RegexOptions.CultureInvariant)]
+    private static partial Regex LeadingDigits();
+
+    [GeneratedRegex(@"\s{2,}", RegexOptions.CultureInvariant)]
+    private static partial Regex MultiWhitespace();
 }

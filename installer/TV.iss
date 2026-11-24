@@ -99,9 +99,9 @@ Root: HKCU; Subkey: "Software\Classes\.rmvb\OpenWithProgids"; ValueType: string;
 Root: HKCU; Subkey: "Software\Classes\.ogv\OpenWithProgids"; ValueType: string; ValueName: "TV.Video"; ValueData: ""; Flags: uninsdeletevalue
 
 [Icons]
-Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"
+Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"; IconFilename: "{app}\{#MyAppExeName}"; IconIndex: 0
 Name: "{group}\卸载 {#MyAppName}"; Filename: "{uninstallexe}"
-Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"; Tasks: desktopicon
+Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"; IconFilename: "{app}\{#MyAppExeName}"; IconIndex: 0; Tasks: desktopicon
 
 [Run]
 Filename: "{app}\{#MyAppExeName}"; Description: "启动 {#MyAppName}"; Flags: nowait postinstall skipifsilent unchecked
@@ -111,8 +111,14 @@ const
   GenericWrite = $40000000;
   DeleteAccess = $00010000;
   CreateNew = 1;
+  OpenExisting = 3;
   DeleteOnClose = $04000000;
   AccessDenied = 5;
+  SHCNE_UPDATEITEM = $00002000;
+  SHCNE_ASSOCCHANGED = $08000000;
+  SHCNF_IDLIST = $0000;
+  SHCNF_PATHW = $0005;
+  SHCNF_FLUSH = $1000;
 
 function CreateFileW(const FileName: String; DesiredAccess, ShareMode: Cardinal;
   SecurityAttributes: THandle; CreationDisposition, FlagsAndAttributes: Cardinal;
@@ -125,14 +131,61 @@ function CloseHandle(Handle: THandle): Boolean;
 procedure SHChangeNotify(EventId: LongInt; Flags: LongWord; Item1, Item2: LongWord);
   external 'SHChangeNotify@shell32.dll stdcall';
 
+procedure SHChangeNotifyPath(EventId: LongInt; Flags: LongWord; const Item1: String; Item2: LongWord);
+  external 'SHChangeNotify@shell32.dll stdcall';
+
+procedure RefreshShellIcons;
+var
+  ExePath, IcoPath, GroupLink, DesktopLink, TaskbarLink: String;
+begin
+  ExePath := ExpandConstant('{app}\{#MyAppExeName}');
+  IcoPath := ExpandConstant('{app}\Assets\App.ico');
+  GroupLink := ExpandConstant('{group}\{#MyAppName}.lnk');
+  DesktopLink := ExpandConstant('{autodesktop}\{#MyAppName}.lnk');
+  TaskbarLink := ExpandConstant('{userappdata}\Microsoft\Internet Explorer\Quick Launch\User Pinned\TaskBar\{#MyAppName}.lnk');
+
+  if FileExists(ExePath) then
+    SHChangeNotifyPath(SHCNE_UPDATEITEM, SHCNF_PATHW or SHCNF_FLUSH, ExePath, 0);
+  if FileExists(IcoPath) then
+    SHChangeNotifyPath(SHCNE_UPDATEITEM, SHCNF_PATHW or SHCNF_FLUSH, IcoPath, 0);
+  if FileExists(GroupLink) then
+    SHChangeNotifyPath(SHCNE_UPDATEITEM, SHCNF_PATHW or SHCNF_FLUSH, GroupLink, 0);
+  if FileExists(DesktopLink) then
+    SHChangeNotifyPath(SHCNE_UPDATEITEM, SHCNF_PATHW or SHCNF_FLUSH, DesktopLink, 0);
+  if FileExists(TaskbarLink) then
+    SHChangeNotifyPath(SHCNE_UPDATEITEM, SHCNF_PATHW or SHCNF_FLUSH, TaskbarLink, 0);
+
+  SHChangeNotify(SHCNE_ASSOCCHANGED, SHCNF_IDLIST or SHCNF_FLUSH, 0, 0);
+end;
+
+procedure WaitForAppExecutableUnlock;
+var
+  ExePath: String;
+  Handle: THandle;
+  Attempt: Integer;
+begin
+  ExePath := ExpandConstant('{app}\{#MyAppExeName}');
+  if not FileExists(ExePath) then exit;
+  for Attempt := 1 to 50 do
+  begin
+    Handle := CreateFileW(ExePath, GenericWrite, 0, 0, OpenExisting, 0, 0);
+    if Handle <> THandle(-1) then
+    begin
+      CloseHandle(Handle);
+      exit;
+    end;
+    Sleep(160);
+  end;
+end;
+
 procedure CurStepChanged(CurStep: TSetupStep);
 begin
-  if CurStep = ssPostInstall then SHChangeNotify($08000000, 0, 0, 0);
+  if CurStep = ssPostInstall then RefreshShellIcons;
 end;
 
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
 begin
-  if CurUninstallStep = usPostUninstall then SHChangeNotify($08000000, 0, 0, 0);
+  if CurUninstallStep = usPostUninstall then SHChangeNotify(SHCNE_ASSOCCHANGED, SHCNF_IDLIST or SHCNF_FLUSH, 0, 0);
 end;
 
 function CheckInstallDirectory: String;
@@ -164,5 +217,6 @@ end;
 
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 begin
+  WaitForAppExecutableUnlock;
   Result := CheckInstallDirectory;
 end;

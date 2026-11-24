@@ -123,8 +123,7 @@ public sealed partial class SettingsPage : Page
             if (FindTemplateChild(section, "HeaderToggle") is not ToggleButton found) return;
             _headerToggleCache[section] = toggle = found;
         }
-        VisualStateManager.GoToState(toggle, active ? "Checked" : "Unchecked", true);
-        VisualStateManager.GoToState(toggle, "Normal", true);
+        VisualStateManager.GoToState(toggle, active ? "Checked" : "Normal", false);
     }
 
     private static FrameworkElement? FindTemplateChild(DependencyObject root, string name)

@@ -945,4 +945,106 @@ public static class MotionService
         parallax.SetReferenceParameter("Scroll", scrollProperties);
         visual.StartAnimation(nameof(visual.Offset), parallax);
     }
+
+    /// <summary>
+    /// GPU-thread, 100% continuously interruptible collapsing top-card + sticky frosted dock choreography.
+    /// Directly driven by ScrollViewerManipulationPropertySet at 120Hz+ with zero per-frame layout thrashing.
+    /// </summary>
+    public static void BindCollapsibleHeader(
+        ScrollViewer scrollViewer,
+        FrameworkElement topBand,
+        FrameworkElement stickyDock,
+        FrameworkElement dockGlass,
+        FrameworkElement dockDivider,
+        float collapseDistance)
+    {
+        var h = Math.Max(1f, collapseDistance);
+        var topVisual = PrepareVisual(topBand, topCenterPivot: true);
+        var dockVisual = PrepareVisual(stickyDock);
+        var glassVisual = PrepareVisual(dockGlass);
+        var dividerVisual = PrepareVisual(dockDivider);
+
+        if (!CanAnimate)
+        {
+            UnbindCollapsibleHeader(topBand, stickyDock, dockGlass, dockDivider);
+            return;
+        }
+
+        // Clip the shared stage host on the GPU so upward-translating header visuals never bleed into the window title bar.
+        if (topBand.Parent is FrameworkElement stageHost)
+        {
+            var hostVisual = ElementCompositionPreview.GetElementVisual(stageHost);
+            hostVisual.Clip ??= hostVisual.Compositor.CreateInsetClip();
+        }
+
+        // XAML Opacity multiplies with Composition Visual Opacity; normalize XAML Opacity to 1 so GPU drives [0..1].
+        topBand.Opacity = 1.0;
+        dockGlass.Opacity = 1.0;
+        dockDivider.Opacity = 1.0;
+
+        var scrollProps = ElementCompositionPreview.GetScrollViewerManipulationPropertySet(scrollViewer);
+        var c = topVisual.Compositor;
+        var hText = h.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture);
+
+        // Top header + gallery cards: weighted parallax glide up, subtle depth recession (1.0 -> 0.955), and smooth fade out
+        // before the sticky dock arrives at the top edge.
+        var topTranslate = c.CreateExpressionAnimation(
+            $"Vector3(0.0, -Clamp(-Scroll.Translation.Y, 0.0, {hText}) * 0.48, 0.0)");
+        topTranslate.SetReferenceParameter("Scroll", scrollProps);
+        topVisual.StartAnimation("Translation", topTranslate);
+
+        var topScale = c.CreateExpressionAnimation(
+            $"Vector3(Lerp(1.0, 0.955, Clamp(-Scroll.Translation.Y / {hText}, 0.0, 1.0)), Lerp(1.0, 0.955, Clamp(-Scroll.Translation.Y / {hText}, 0.0, 1.0)), 1.0)");
+        topScale.SetReferenceParameter("Scroll", scrollProps);
+        topVisual.StartAnimation(nameof(Visual.Scale), topScale);
+
+        var topOpacity = c.CreateExpressionAnimation(
+            $"Clamp(1.0 - (-Scroll.Translation.Y / ({hText} * 0.72)), 0.0, 1.0)");
+        topOpacity.SetReferenceParameter("Scroll", scrollProps);
+        topVisual.StartAnimation(nameof(Visual.Opacity), topOpacity);
+
+        // Sticky filter dock: tracks scroll 1:1 from Y = H up to Y = 0 and docks cleanly at top.
+        var dockTranslate = c.CreateExpressionAnimation(
+            $"Vector3(0.0, Max(0.0, {hText} + Scroll.Translation.Y), 0.0)");
+        dockTranslate.SetReferenceParameter("Scroll", scrollProps);
+        dockVisual.StartAnimation("Translation", dockTranslate);
+
+        // Frosted glass backdrop materializes smoothly as dock approaches top; hairline divider fades away in tandem.
+        var glassOpacity = c.CreateExpressionAnimation(
+            $"Clamp((-Scroll.Translation.Y - {hText} * 0.45) / ({hText} * 0.48), 0.0, 1.0)");
+        glassOpacity.SetReferenceParameter("Scroll", scrollProps);
+        glassVisual.StartAnimation(nameof(Visual.Opacity), glassOpacity);
+
+        var dividerOpacity = c.CreateExpressionAnimation(
+            $"Clamp(1.0 - ((-Scroll.Translation.Y - {hText} * 0.30) / ({hText} * 0.38)), 0.0, 1.0)");
+        dividerOpacity.SetReferenceParameter("Scroll", scrollProps);
+        dividerVisual.StartAnimation(nameof(Visual.Opacity), dividerOpacity);
+    }
+
+    public static void UnbindCollapsibleHeader(
+        FrameworkElement topBand,
+        FrameworkElement stickyDock,
+        FrameworkElement dockGlass,
+        FrameworkElement dockDivider)
+    {
+        var topVisual = PrepareVisual(topBand, topCenterPivot: true);
+        topVisual.StopAnimation("Translation");
+        topVisual.StopAnimation(nameof(Visual.Scale));
+        topVisual.StopAnimation(nameof(Visual.Opacity));
+        topVisual.Properties.InsertVector3("Translation", Vector3.Zero);
+        topVisual.Scale = Vector3.One;
+        topVisual.Opacity = 1f;
+
+        var dockVisual = PrepareVisual(stickyDock);
+        dockVisual.StopAnimation("Translation");
+        dockVisual.Properties.InsertVector3("Translation", Vector3.Zero);
+
+        var glassVisual = PrepareVisual(dockGlass);
+        glassVisual.StopAnimation(nameof(Visual.Opacity));
+        glassVisual.Opacity = 1f;
+
+        var dividerVisual = PrepareVisual(dockDivider);
+        dividerVisual.StopAnimation(nameof(Visual.Opacity));
+        dividerVisual.Opacity = 1f;
+    }
 }
