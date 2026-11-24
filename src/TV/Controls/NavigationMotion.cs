@@ -102,6 +102,10 @@ public sealed class NavigationRailController
     private ScrollViewer? _innerScroller;
     private bool _hasPlaced;
     private int _syncVersion;
+    private bool _waitingLayout;
+    private int _pendingLayoutVersion;
+    private bool _pendingLayoutAnimate;
+    private bool _pendingLayoutBringIntoView;
 
     internal NavigationRailController(
         bool isVertical,
@@ -160,8 +164,41 @@ public sealed class NavigationRailController
 
     public void Sync(bool animate, bool bringIntoView = false)
     {
+        DetachLayoutWait();
         var version = ++_syncVersion;
         ScheduleSync(version, animate, bringIntoView, retry: 0);
+    }
+
+    private bool HasPendingSelection() =>
+        _listView is not null && (_listView.SelectedItem is not null || _listView.SelectedIndex >= 0);
+
+    private void AttachLayoutWait(int version, bool animate, bool bringIntoView)
+    {
+        _pendingLayoutVersion = version;
+        _pendingLayoutAnimate = animate;
+        _pendingLayoutBringIntoView = bringIntoView;
+        if (_waitingLayout) return;
+        _waitingLayout = true;
+        _host.LayoutUpdated += OnHostLayoutUpdated;
+    }
+
+    private void DetachLayoutWait()
+    {
+        if (!_waitingLayout) return;
+        _waitingLayout = false;
+        _host.LayoutUpdated -= OnHostLayoutUpdated;
+    }
+
+    private void OnHostLayoutUpdated(object? sender, object e)
+    {
+        if (_pendingLayoutVersion != _syncVersion || !_host.IsLoaded || _host.XamlRoot is null)
+        {
+            DetachLayoutWait();
+            return;
+        }
+        TryAttachInnerScroller();
+        if (ApplyImmediate(_pendingLayoutAnimate, _pendingLayoutBringIntoView))
+            DetachLayoutWait();
     }
 
     private void TryAttachInnerScroller()
@@ -189,7 +226,15 @@ public sealed class NavigationRailController
             if (version != _syncVersion) return;
             if (!_host.IsLoaded || _host.XamlRoot is null) return;
             TryAttachInnerScroller();
-            if (!ApplyImmediate(animate, bringIntoView) && retry < 4)
+            if (ApplyImmediate(animate, bringIntoView))
+            {
+                DetachLayoutWait();
+                return;
+            }
+            // Container not yet realized or not yet measured (e.g., after Categories rebuild):
+            // attach one-shot LayoutUpdated self-healing + bounded dispatcher retries so indicator NEVER stays lost.
+            AttachLayoutWait(version, animate, bringIntoView);
+            if (retry < 8)
                 ScheduleSync(version, animate, bringIntoView, retry + 1);
         });
     }
@@ -200,6 +245,11 @@ public sealed class NavigationRailController
         var target = _targetResolver();
         if (target is null)
         {
+            // CRITICAL: When ListView has an active SelectedItem/SelectedIndex whose item container
+            // hasn't realized yet (common on non-virtualized StackPanel after Items.Clear()+Add()),
+            // return false so ScheduleSync & LayoutUpdated retry instead of permanently hiding the indicator.
+            if (HasPendingSelection())
+                return false;
             MotionService.HideNavIndicator(_indicator);
             return true;
         }

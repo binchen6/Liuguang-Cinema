@@ -11,7 +11,7 @@
 ## 1. 令牌复用、统一导航与滚轮契约
 
 - `Styles/Tokens.xaml`、`Styles/Icons.xaml`、`Styles/Controls.xaml`、`Styles/Navigation.xaml` 与 `App.xaml` 是全站样式的唯一入口；新增或修改页面必须复用既有语义资源键，禁止硬编码色值、字号或零散图标。
-- **统一单选导航与杜绝选中残留**：所有横向与竖向单选导航必须使用 `SelectionMode="Single"` 的 `ListView` + `Styles/Navigation.xaml` 统一视觉状态模板 + `Controls/NavigationMotion.cs`（严禁使用 `ItemsControl + ToggleButton(OneWay)`），保证物理上不可能出现多选态残留；非虚拟化横向项模型需重写 `ToString()` 返回可读名称。
+- **统一单选导航与杜绝选中残留**：所有横向与竖向单选导航必须使用 `SelectionMode="Single"` 的 `ListView` + `Styles/Navigation.xaml` 统一视觉状态模板 + `Controls/NavigationMotion.cs`（严禁使用 `ItemsControl + ToggleButton(OneWay)`），保证物理上不可能出现多选态残留；列表重建且存在待定位选中项时，由 `NavigationRailController` 通过一次性 `LayoutUpdated` 自愈等待项容器生成（不提前隐藏指示器），同序列刷新直接复用既有分类项集合；非虚拟化横向项模型需重写 `ToString()` 返回可读名称。
 - **层级与盒子分块合理性**：每屏同时可见的真实 `AcrylicBrush` 宏观层严格控制在 `≤ 4` 块（侧栏、命令条/筛选坞、主检视台）；次级表单分组（如设置页多张卡片）采用零额外模糊的轻透建筑表面 `SettingsCardBackgroundBrush`，兼顾层次主次与 120Hz 滚动帧率；空闲状态条与加载进度条内嵌于父级栏位或按需显隐，严禁在 `Grid RowSpacing` 中留下幽灵空带；所有可滚动列表为右侧滚动条预留 `8–12 DIP` 避让内边距。
 - **全站滚轮一致性（`Controls/ScrollWheelBehavior.cs`）**：
   - 独立横向条（云盘账号卡/面包屑、媒体库分段槽/监视目录）启用 `HorizontalWheelMode="Direct"`，普通滚轮与 `Shift+滚轮` 均可平滑横滑；
@@ -41,7 +41,7 @@
 - **播放防休眠与防息屏**：默认开启播放时防止电脑息屏与系统休眠（基于内核 `PowerCreateRequest` / `PowerSetRequest` Display+System 电源可用性请求，支持播放器与投屏双源引用计数）；暂停、停止、离开页面或退出应用立即释放；支持在「设置 → 播放」与播放器「更多选项」随时切换。
 - **显隐锁定**：鼠标悬停于任一控件表面、拖拽进度条，或菜单、字幕/弹幕设置、登录、换源及其他对话框打开期间锁定控制层，禁止自动隐藏。
 - **零延迟反馈**：播放/暂停采用乐观 UI 同步与高优原生命令队列；进度条拖动支持实时预览时间；音量、倍速、进度、字幕延迟等提示统一使用 `GlassSurface` 光学磨砂 OSD；保留 `Space`、方向键、`M`、`F`、`P`、`D`、`Z/X`、`A`、`I`、`Esc` 全部快捷键。
-- **弹层与确认**：更新、登录、下载、二维码等弹层自适应窗口高度，非模态浮层支持轻点外部与 `Esc` 关闭；高风险清理、删除与退出账号必须二次确认；长耗时任务提供即时取消入口。
+- **弹层、单一滚动条与确认**：WinUI 3 `FlyoutPresenter` 与 `ContentDialog` 已内置宿主 `ScrollViewer`，严禁在可滚动弹层内容内再嵌套外层 `ScrollViewer` 导致双层滚动条叠加（播放器动态弹层统一由 `FlyoutPresenterStyle.MaxHeight` 控高并由单一滚动条滚动，内嵌独立 `ListView` 的弹层通过 `PlayerGlassStaticFlyoutPresenterStyle` / `StaticListFlyoutPresenterStyle` 禁用宿主滚动条）；菜单项触发的二次弹层须显式锚定至对应工具栏按钮而非已收起的 `MenuFlyoutItem`；更新、登录、下载、二维码等弹层自适应窗口高度，非模态浮层支持轻点外部与 `Esc` 关闭；高风险清理、删除与退出账号必须二次确认；长耗时任务提供即时取消入口。
 
 ---
 

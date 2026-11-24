@@ -306,14 +306,28 @@ public sealed partial class VodViewModel : ObservableObject
         _suppressSelection = true;
         SelectedSite = site;
         _siteFilters = response.Filters;
-        Categories.Clear();
+        var nextCategories = new List<VodCategory>(response.Categories.Count + 1);
         if (response.List.Count > 0 || response.Categories.Count > 0)
-            Categories.Add(new VodCategory
+            nextCategories.Add(new VodCategory
             {
                 Id = string.Empty,
                 Name = fromDouban ? "豆瓣推荐" : response.HomeCategoryName is { Length: > 0 } name ? name : "推荐"
             });
-        foreach (var category in response.Categories) Categories.Add(category);
+        nextCategories.AddRange(response.Categories);
+
+        var sameCategories = Categories.Count == nextCategories.Count;
+        for (var i = 0; sameCategories && i < nextCategories.Count; i++)
+        {
+            sameCategories = string.Equals(Categories[i].Id, nextCategories[i].Id, StringComparison.Ordinal)
+                && string.Equals(Categories[i].Name, nextCategories[i].Name, StringComparison.Ordinal);
+        }
+
+        // 同站切回「最新影片」或缓存→网络刷新分类未变时，复用现有列表实例避免销毁重建导致胶囊闪烁/失锚
+        if (!sameCategories)
+        {
+            Categories.Clear();
+            foreach (var category in nextCategories) Categories.Add(category);
+        }
         SelectedCategory = Categories.FirstOrDefault();
         UpdateCategoryFilters(SelectedCategory);
         _suppressSelection = false;

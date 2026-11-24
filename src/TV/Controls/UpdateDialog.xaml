@@ -39,7 +39,7 @@
             <TextBlock Text="CHANGELOG · 更新内容" Style="{StaticResource EyebrowText}" />
             <Border BorderBrush="{ThemeResource DividerBrush}" BorderThickness="1" CornerRadius="{StaticResource RadiusControl}"
                     Background="{ThemeResource SurfaceBrush}" MaxHeight="280">
-                <ScrollViewer MaxHeight="280" VerticalScrollBarVisibility="Auto" Padding="4,2,8,2">
+                <ScrollViewer MaxHeight="280" VerticalScrollBarVisibility="Auto" IsVerticalScrollChainingEnabled="True" Padding="4,2,8,2">
                     <TextBlock x:Name="NotesText" Margin="10" Style="{StaticResource SecondaryText}"
                                Foreground="{ThemeResource PrimaryTextBrush}" TextWrapping="Wrap" LineHeight="23"
                                IsTextSelectionEnabled="True" />

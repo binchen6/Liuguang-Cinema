@@ -335,6 +335,7 @@ public static class MotionService
         {
             visual.StopAnimation("Translation");
             visual.StopAnimation(nameof(Visual.Scale));
+            visual.StopAnimation(nameof(Visual.Opacity));
             visual.Properties.InsertVector3("Translation", target);
             visual.Scale = Vector3.One;
             visual.Opacity = 1f;
@@ -342,6 +343,7 @@ public static class MotionService
         }
 
         var c = visual.Compositor;
+        visual.StopAnimation(nameof(Visual.Opacity));
         visual.Opacity = 1f;
         visual.StartAnimation("Translation", CreateSpringVector3(c, target, dampingRatio: 0.76f, periodMs: 36));
 
@@ -376,6 +378,7 @@ public static class MotionService
         {
             visual.StopAnimation("Translation");
             visual.StopAnimation(nameof(Visual.Scale));
+            visual.StopAnimation(nameof(Visual.Opacity));
             visual.Properties.InsertVector3("Translation", target);
             visual.Scale = Vector3.One;
             visual.Opacity = 1f;
@@ -383,6 +386,7 @@ public static class MotionService
         }
 
         var c = visual.Compositor;
+        visual.StopAnimation(nameof(Visual.Opacity));
         visual.Opacity = 1f;
         visual.StartAnimation("Translation", CreateSpringVector3(c, target, dampingRatio: 0.80f, periodMs: 34));
 
@@ -413,6 +417,7 @@ public static class MotionService
         {
             visual.StopAnimation("Translation");
             visual.StopAnimation(nameof(Visual.Scale));
+            visual.StopAnimation(nameof(Visual.Opacity));
             visual.Properties.InsertVector3("Translation", target);
             visual.Scale = Vector3.One;
             visual.Opacity = 1f;
@@ -420,6 +425,7 @@ public static class MotionService
         }
 
         var c = visual.Compositor;
+        visual.StopAnimation(nameof(Visual.Opacity));
         visual.Opacity = 1f;
         visual.StartAnimation("Translation", CreateSpringVector3(c, target, dampingRatio: 0.76f, periodMs: 36));
 

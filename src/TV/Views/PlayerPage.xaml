@@ -413,14 +413,16 @@
                                             <controls:LineIcon PathData="{StaticResource IconPlaylist}" IconSize="18" Foreground="#FFF8F7F2" />
                                             <Button.Flyout>
                                                 <Flyout x:Name="PlaylistFlyout" Placement="TopEdgeAlignedLeft"
-                                                        FlyoutPresenterStyle="{StaticResource PlayerGlassFlyoutPresenterStyle}"
+                                                        FlyoutPresenterStyle="{StaticResource PlayerGlassStaticFlyoutPresenterStyle}"
                                                         Opening="OnPlaylistOpening" Closed="OnPlaylistClosed">
                                                     <StackPanel Width="256" Spacing="{StaticResource SpaceSmall}">
                                                         <controls:AnchoredChoice Header="线路" ItemsSource="{Binding Lines}" DisplayMemberPath="Name"
                                                                                  SelectedItem="{Binding SelectedLine, Mode=TwoWay}"
                                                                                  HorizontalAlignment="Stretch" PlaceholderText="选择线路"/>
                                                         <ListView x:Name="PlaylistEpisodes" ItemsSource="{Binding Episodes}" SelectedItem="{Binding SelectedEpisode, Mode=TwoWay}"
-                                                                  SelectionMode="Single" AutomationProperties.Name="集数列表">
+                                                                  SelectionMode="Single" Padding="0,0,8,0"
+                                                                  ScrollViewer.HorizontalScrollMode="Disabled"
+                                                                  AutomationProperties.Name="集数列表">
                                                             <ListView.ItemTemplate>
                                                                 <DataTemplate>
                                                                     <TextBlock Text="{Binding Name}" Padding="6,8" TextTrimming="CharacterEllipsis"/>
@@ -449,7 +451,7 @@
                                             </Grid>
                                             <Button.Flyout>
                                                 <Flyout x:Name="VolumeFlyout" Placement="Top"
-                                                        FlyoutPresenterStyle="{StaticResource PlayerGlassFlyoutPresenterStyle}"
+                                                        FlyoutPresenterStyle="{StaticResource PlayerGlassStaticFlyoutPresenterStyle}"
                                                         Opening="OnMenuFlyoutOpening" Closed="OnMenuFlyoutClosed">
                                                     <Grid ColumnSpacing="{StaticResource SpaceSmall}">
                                                         <Grid.ColumnDefinitions>

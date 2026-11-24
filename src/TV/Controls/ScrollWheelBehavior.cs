@@ -98,7 +98,7 @@ public static class ScrollWheelBehavior
 
         PointerEventHandler handler = (_, args) => HandleNumberBoxGuard(scroller, args);
         NumberBoxGuardHandlers.AddOrUpdate(scroller, handler);
-        scroller.AddHandler(UIElement.PointerWheelChangedEvent, handler, handledEventsToo: true);
+        scroller.AddHandler(UIElement.PointerWheelChangedEvent, handler, handledEventsToo: false);
     }
 
     private static void HandleHorizontalWheel(FrameworkElement host, HorizontalWheelMode mode, PointerRoutedEventArgs e)
@@ -143,6 +143,7 @@ public static class ScrollWheelBehavior
 
     private static void HandleNumberBoxGuard(ScrollViewer scroller, PointerRoutedEventArgs e)
     {
+        if (e.Handled) return;
         if (e.OriginalSource is not DependencyObject source) return;
         if (FindAncestorNumberBox(source) is not { } box) return;
         // If user explicitly focused the NumberBox to adjust its value, allow normal NumberBox wheel stepping.

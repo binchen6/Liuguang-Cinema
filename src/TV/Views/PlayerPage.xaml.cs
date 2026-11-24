@@ -721,7 +721,8 @@ public sealed partial class PlayerPage : Page
     private void OnSubtitleSettingsClick(object sender, RoutedEventArgs e)
     {
         PlaybackOptionsFlyout.Hide();
-        _ = OpenSubtitleSettingsAsync(sender as FrameworkElement ?? SubtitleSettingsButton);
+        var anchor = sender is MenuFlyoutItem ? PlaybackOptionsButton : sender as FrameworkElement ?? SubtitleSettingsButton;
+        _ = OpenSubtitleSettingsAsync(anchor);
     }
 
     private async void OnAiGenerateSubtitleClick(object sender, RoutedEventArgs e)
@@ -990,12 +991,16 @@ public sealed partial class PlayerPage : Page
             root.Children.Add(fileRow);
             root.Children.Add(utilRow);
 
+            root.Padding = new Thickness(0, 0, 12, 0);
             var flyout = new Flyout
             {
-                Placement = FlyoutPlacementMode.TopEdgeAlignedRight,
-                FlyoutPresenterStyle = Application.Current.Resources["PlayerGlassFlyoutPresenterStyle"] as Style,
-                Content = new ScrollViewer { MaxHeight = Math.Max(220, ActualHeight - 116), Padding = new Thickness(0, 0, 8, 0), Content = root }
+                Placement = ReferenceEquals(target, PlaybackOptionsButton)
+                    ? FlyoutPlacementMode.BottomEdgeAlignedRight
+                    : FlyoutPlacementMode.TopEdgeAlignedRight,
+                FlyoutPresenterStyle = CreatePlayerScrollableFlyoutStyle(Math.Max(220, ActualHeight - 130)),
+                Content = root
             };
+            flyout.Opened += (_, _) => AttachFlyoutNumberBoxGuard(root);
             flyout.Closed += (_, _) => { _subtitleFlyout = null; if (IsLoaded) ShowControls(); };
 
             genBtn.Click += async (_, _) =>
@@ -1362,13 +1367,16 @@ public sealed partial class PlayerPage : Page
             footerRow.Children.Add(resetDefaults);
             footerRow.Children.Add(save);
 
-            var options = new StackPanel { Width = 336, Spacing = 10, Children = { enabled, advanced, matchDanDan, searchDanDan, matchBili, loadLocal, footerRow } };
+            var options = new StackPanel { Width = 336, Padding = new Thickness(0, 0, 12, 0), Spacing = 10, Children = { enabled, advanced, matchDanDan, searchDanDan, matchBili, loadLocal, footerRow } };
             var flyout = new Flyout
             {
-                Placement = FlyoutPlacementMode.TopEdgeAlignedRight,
-                FlyoutPresenterStyle = Application.Current.Resources["PlayerGlassFlyoutPresenterStyle"] as Style,
-                Content = new ScrollViewer { MaxHeight = Math.Max(180, ActualHeight - 116), Padding = new Thickness(0, 0, 8, 0), Content = options }
+                Placement = ReferenceEquals(target, PlaybackOptionsButton)
+                    ? FlyoutPlacementMode.BottomEdgeAlignedRight
+                    : FlyoutPlacementMode.TopEdgeAlignedRight,
+                FlyoutPresenterStyle = CreatePlayerScrollableFlyoutStyle(Math.Max(220, ActualHeight - 130)),
+                Content = options
             };
+            flyout.Opened += (_, _) => AttachFlyoutNumberBoxGuard(options);
             flyout.Closed += (_, _) => { _danmakuFlyout = null; if (IsLoaded) ShowControls(); };
 
             loadLocal.Click += async (_, _) =>
@@ -1928,6 +1936,30 @@ public sealed partial class PlayerPage : Page
         Diagnostics.Log($"Player chrome & cursor auto-hidden after 3s idle (blankCursor={ProtectedCursor is not null}, swapChain={_videoSwapChainPanel is not null})");
     }
 
+    private static Style CreatePlayerScrollableFlyoutStyle(double maxHeight)
+    {
+        var style = new Style(typeof(FlyoutPresenter))
+        {
+            BasedOn = Application.Current.Resources["PlayerGlassFlyoutPresenterStyle"] as Style
+        };
+        style.Setters.Add(new Setter(FrameworkElement.MaxHeightProperty, maxHeight));
+        return style;
+    }
+
+    private static void AttachFlyoutNumberBoxGuard(FrameworkElement content)
+    {
+        DependencyObject? current = VisualTreeHelper.GetParent(content);
+        while (current is not null)
+        {
+            if (current is ScrollViewer scroller)
+            {
+                ScrollWheelBehavior.SetGuardNumberBoxWheel(scroller, true);
+                return;
+            }
+            current = VisualTreeHelper.GetParent(current);
+        }
+    }
+
     private void OnMenuFlyoutOpening(object? sender, object e) => _hideTimer.Stop();
 
     private void OnMenuFlyoutClosed(object? sender, object e)
@@ -2060,12 +2092,13 @@ public sealed partial class PlayerPage : Page
             try { await ViewModel.SaveTimingAsync(intro.Value, outro.Value, enabled.IsOn); message.Text = ViewModel.TimingMessage; }
             catch (Exception ex) { message.Text = ex.Message; }
         };
-        var content = new StackPanel { Width = 332, Spacing = 12, Children = { intro, markIntro, outro, markOutro, enabled, message, clear, save } };
+        var content = new StackPanel { Width = 332, Padding = new Thickness(0, 0, 12, 0), Spacing = 12, Children = { intro, markIntro, outro, markOutro, enabled, message, clear, save } };
         var flyout = new Flyout
         {
-            FlyoutPresenterStyle = Application.Current.Resources["PlayerGlassFlyoutPresenterStyle"] as Style,
-            Content = new ScrollViewer { Content = content, MaxHeight = Math.Max(240, ActualHeight - 100) }
+            FlyoutPresenterStyle = CreatePlayerScrollableFlyoutStyle(Math.Max(240, ActualHeight - 120)),
+            Content = content
         };
+        flyout.Opened += (_, _) => AttachFlyoutNumberBoxGuard(content);
         flyout.Closed += (_, _) => { _timingFlyout = null; if (IsLoaded) ShowControls(); };
         _timingFlyout = flyout;
         PlaybackOptionsFlyout.Hide();

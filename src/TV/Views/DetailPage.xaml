@@ -174,7 +174,10 @@
                                                 <TextBlock Text="选择一集或多集，批量下载会保存到设置中的默认目录。"
                                                            Style="{StaticResource SecondaryText}" TextWrapping="Wrap" />
                                                 <ListView x:Name="EpisodeToSave" ItemsSource="{Binding Episodes}"
-                                                          SelectionMode="Multiple" MaxHeight="220" AutomationProperties.Name="下载集数">
+                                                          SelectionMode="Multiple" MaxHeight="220" Padding="0,0,8,0"
+                                                          ScrollViewer.HorizontalScrollMode="Disabled"
+                                                          ScrollViewer.IsVerticalScrollChainingEnabled="True"
+                                                          AutomationProperties.Name="下载集数">
                                                     <ListView.ItemTemplate>
                                                         <DataTemplate><TextBlock Text="{Binding Name}" Style="{StaticResource BodyText}" /></DataTemplate>
                                                     </ListView.ItemTemplate>
@@ -292,8 +295,11 @@
                                 HorizontalAlignment="Left"
                                 Visibility="{Binding Detail.HasSourceShares, Converter={StaticResource BoolToVisibility}}">
                             <Button.Flyout>
-                                <Flyout Placement="BottomEdgeAlignedLeft">
-                                    <ListView MaxHeight="320" MinWidth="208" ItemsSource="{Binding Detail.SourceShares}"
+                                <Flyout Placement="BottomEdgeAlignedLeft"
+                                        FlyoutPresenterStyle="{StaticResource StaticListFlyoutPresenterStyle}">
+                                    <ListView MaxHeight="320" MinWidth="208" Padding="0,0,8,0"
+                                              ScrollViewer.HorizontalScrollMode="Disabled"
+                                              ItemsSource="{Binding Detail.SourceShares}"
                                               SelectionMode="None">
                                         <ListView.ItemTemplate>
                                             <DataTemplate>

@@ -93,7 +93,12 @@ public sealed partial class VodPage : Page
     private void OnVodViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
         if (e.PropertyName == nameof(VodViewModel.SelectedCategory))
+        {
+            // 若 ListView 已指向同一选中项（由用户直接点击触发），保留正在滑行的弹簧动画不被 animate:false 覆盖
+            if (_observed is not null && ReferenceEquals(CategoryNavList.SelectedItem, _observed.SelectedCategory))
+                return;
             SyncCategorySelection(animate: false);
+        }
     }
 
     private void SyncCategorySelection(bool animate)

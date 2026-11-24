@@ -706,13 +706,30 @@
         </Setter>
     </Style>
 
-    <!-- 播放器清透烟熏玻璃弹出面板与菜单（无磨砂，高清晰文字可读性） -->
+    <!-- 播放器清透烟熏玻璃弹出面板与菜单（单一由 FlyoutPresenter 托管的滚动条，杜绝双层滚动条叠加） -->
     <Style x:Key="PlayerGlassFlyoutPresenterStyle" TargetType="FlyoutPresenter">
         <Setter Property="Background" Value="{StaticResource PlayerGlassFlyoutBrush}" />
         <Setter Property="BorderBrush" Value="{StaticResource PlayerGlassBorderBrush}" />
         <Setter Property="BorderThickness" Value="1" />
         <Setter Property="CornerRadius" Value="14" />
+        <Setter Property="Padding" Value="14,14,6,14" />
+        <Setter Property="ScrollViewer.HorizontalScrollMode" Value="Disabled" />
+        <Setter Property="ScrollViewer.HorizontalScrollBarVisibility" Value="Disabled" />
+        <Setter Property="ScrollViewer.VerticalScrollMode" Value="Enabled" />
+        <Setter Property="ScrollViewer.VerticalScrollBarVisibility" Value="Auto" />
+    </Style>
+    <!-- 内嵌独立 ListView 或定高内容的播放器弹层：禁用外层 FlyoutPresenter 滚动条避免叠加 -->
+    <Style x:Key="PlayerGlassStaticFlyoutPresenterStyle" TargetType="FlyoutPresenter" BasedOn="{StaticResource PlayerGlassFlyoutPresenterStyle}">
         <Setter Property="Padding" Value="14" />
+        <Setter Property="ScrollViewer.VerticalScrollMode" Value="Disabled" />
+        <Setter Property="ScrollViewer.VerticalScrollBarVisibility" Value="Disabled" />
+    </Style>
+    <!-- 通用内嵌 ListView 弹层：禁用外层 FlyoutPresenter 滚动条避免双滚动条 -->
+    <Style x:Key="StaticListFlyoutPresenterStyle" TargetType="FlyoutPresenter">
+        <Setter Property="ScrollViewer.HorizontalScrollMode" Value="Disabled" />
+        <Setter Property="ScrollViewer.HorizontalScrollBarVisibility" Value="Disabled" />
+        <Setter Property="ScrollViewer.VerticalScrollMode" Value="Disabled" />
+        <Setter Property="ScrollViewer.VerticalScrollBarVisibility" Value="Disabled" />
     </Style>
     <Style x:Key="PlayerGlassMenuFlyoutPresenterStyle" TargetType="MenuFlyoutPresenter">
         <Setter Property="Background" Value="{StaticResource PlayerGlassFlyoutBrush}" />

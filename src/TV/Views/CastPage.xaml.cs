@@ -376,8 +376,7 @@ public sealed partial class CastPage : Page
             {
                 XamlRoot = XamlRoot, Title = "手机扫码投屏", PrimaryButtonText = "复制链接", CloseButtonText = "关闭",
                 DefaultButton = ContentDialogButton.Primary, MaxWidth = 400,
-                Content = new ScrollViewer { Content = details, MaxHeight = Math.Max(200, ActualHeight - 160),
-                    VerticalScrollBarVisibility = ScrollBarVisibility.Auto }
+                Content = details
             };
             dialog.PrimaryButtonClick += async (_, eventArgs) =>
             {

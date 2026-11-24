@@ -6,6 +6,7 @@
 
 ### 1. 彻底根治点播及全站导航多选残留，统一全站横向/竖向导航体系
 - **根因彻底消除**：定位点播页分类胶囊点击后全部卡死在白色选中态的根本原因——旧实现采用 `ItemsControl + ToggleButton(IsChecked Mode=OneWay)` 并在点击回调写入本地值，导致 WinUI 3 `OneWay` 绑定永久失效。现全面重构为 `SelectionMode="Single"` 的 `ListView` + 外层共享 `ScrollViewer` + 单实例高反差弹簧滑行胶囊（`CategoryGlidePill`），从架构层面杜绝多选态残留与横向滚动 1 帧滞后。
+- **切回「最新影片」及重建期指示器自愈**：修复从其他分类切回「最新影片」时因 `Categories.Clear()` 重建项容器延迟导致白色胶囊丢失（黑字悬空）的问题——同站分类序列未变时复用现有 `Categories` 项集合零闪烁平滑滑行回位，跨站或缓存→网络重建时由 `NavigationRailController` 挂载一次性 `LayoutUpdated` 自愈监听与有界重试（不提前隐藏指示器），并补齐 `MotionService` `Opacity` 动画清理与点击弹簧动画保护。
 - **统一导航样式与动效控制器**：新增 `src/TV/Styles/Navigation.xaml` 与 `src/TV/Controls/NavigationMotion.cs`（`NavigationRailController`），集中托管全站 7 处竖向/横向导航的完整 WinUI 3 `CommonStates`（含 `SelectedUnfocused / PointerOverSelected / PressedSelected / SelectedDisabled`）、前景继承字阶、滚动跟随、移出视口自动淡隐与主题切换重锚定，并按用途做克制而合理的差异化：
   - **主侧栏 / 设置分区 / 搜索站点 / 直播分组**：统一贴边 `3px` 朱砂竖向弹性滑轨（`GlideVerticalIndicator`）；高频百项的直播频道列表保持克制行内指示（`VerticalNavInlineItemStyle`），不做跨屏长跳；
   - **点播分类 / 媒体库分段**：高反差弹簧滑行胶囊（`PillMatchWidth`），媒体库搭配顶部光丝、底部朱砂微光点与内容区水平方向切换；
@@ -34,16 +35,18 @@
   - **搜索页**：将「站点 · SITES」标题与分隔线完整封装进左侧 `GlassSurface` 遥测面板，并与右侧结果/历史栏底部分隔线像素级齐平；预选浮层每行补齐轻量搜索图标；
   - **云盘页 & 媒体库页**：将云盘 `2px` 加载进度条内嵌进 `PathBar` 玻璃条底部（与搜索页统一）、收拢媒体库未展开 `InfoBar` 与空本地监视目录的占位行，彻底消除 40px 幽灵空带；云盘文件行改用专用透明细线行样式（不再混用侧栏 `RailListStyle`）；
   - **设置页（8 子分区）**：`SettingsCardStyle` 切换至零额外模糊的轻透建筑表面 `SettingsCardBackgroundBrush`（将同屏 `AcrylicBrush` 控制在 ≤ 2 层，主次层次更清晰且滚动更丝滑）；「外观与内容」合理拆分为「外观与窗口」与「推荐与元数据」两张卡片；补齐「播放」「网盘」表单行内分割线与「关于」子页统一标头，替换最后一处杂散字体删除图标为 `LineIcon`；
-  - **详情页 / 直播页 / 投屏页**：详情画报补齐内倒角与顶部焦散高光与下方双栏工作台材质统一；全站可滚动列表/侧栏统一预留 `8–12 DIP` 右侧滚动条避让内边距，投屏舞台矮窗自动启用纵滑。
+  - **全站弹层单一滚动条统一与锚点治理**：彻底修复播放器弹幕设置、字幕设置与片头片尾时间设置等 `Flyout` 以及投屏扫码 `ContentDialog` 因在自带宿主 `ScrollViewer` 内再嵌套内层 `ScrollViewer` 引发的两层滚动条并排叠加问题；移除冗余内层 `ScrollViewer`，通过 `FlyoutPresenterStyle.MaxHeight` 与 `PlayerGlassStaticFlyoutPresenterStyle` / `StaticListFlyoutPresenterStyle`（针对选集、音量、网盘资源等内嵌列表弹层禁用外层滚动条）实现全站任意弹层严格仅有一条清晰滚动条，同时补齐弹层内未聚焦 `NumberBox` 滚轮防劫持（并消除重复处理导致的双倍滚速）及播放器「更多选项 → 字幕设置与时间轴…」锚定至工具栏按钮而非已关闭菜单项的隐患。
+  - **详情页 / 直播页 / 投屏页**：详情画报补齐内倒角与顶部焦散高光与下方双栏工作台材质统一；全站可滚动列表/侧栏统一预留 `8–12 DIP` 右侧滚动条避让内边距，投屏舞台矮窗自动启用纵滑，更新弹窗日志区启用纵滑链传递。
 
 ## 验证范围
 
 - `dotnet build src/TV/TV.csproj -c Release -p:Platform=x64 --no-restore`：0 错误，全站 20 个源 XAML 文件字号审计全部 `>= 12px`。
-- 实机回归与双主题视觉验收（0 `last-error.log`）：
-  - 深/浅双主题 16 屏全站截屏与单选断言：点播（9 分类连点仅单选）、搜索（4 站点仅单选）、云盘（4 网盘仅单选）、媒体库（4 分段仅单选）全通过；
+- 实机回归与专项复现验收（0 `last-error.log`）：
+  - 深/浅双主题 16 屏全站截屏与单选断言：点播（9 分类连点仅单选、切回「最新影片」与跨站重建胶囊无丢失）、搜索（4 站点仅单选）、云盘（4 网盘仅单选）、媒体库（4 分段仅单选）全通过；
+  - 播放器弹幕/字幕弹层 UIA RawView 校验与滚屏实拍：确认 `VERTICALLY_SCROLLABLE=1`（单一滚动条无叠加）且菜单项二次弹层锚定正常；
   - 播放页实机 4.2s 静置验证：`Blank InputCursor ready (48x48)` 与 `Player chrome & cursor auto-hidden after 3s idle (blankCursor=True, swapChain=True)` 通过；
-  - `workspace_layout_regression`、`library_regression`、`cast_regression` 与 `popup_regression`（全部 19 处弹层锚定与弹幕锚点）全部通过。
+  - `workspace_layout_regression`、`library_regression`、`cast_regression`（含投屏扫码弹窗可见性）与 `popup_regression`（全部 19 处弹层锚定与弹幕锚点 `[0, 0]`）全部通过。
 - 发行产物、秒开防回退验速与增量一致性核验：
-  - 完整安装包 `TV-Setup-1.9.3-x64.exe`（138.22 MB）：三次启动实测 **314 / 447 / 236 ms**（通过冷启 ≤ 2500 ms、热启 ≤ 1000 ms 及 `.iss` 守卫门限）；
-  - 增量更新包 `TV-Update-1.9.3-from-1.9.2-x64.exe`（9.59 MB，20 个变更文件，8.28 MB 净载荷）：两次启动实测 **1016 / 226 ms**，实机静默升级 `1.9.2 → 1.9.3` 全部 **962/962 文件** SHA-256 与 1.9.3 便携包 **100% 逐字节一致**；
+  - 完整安装包 `TV-Setup-1.9.3-x64.exe`（138.22 MB）：三次启动实测 **290 / 222 / 218 ms**（通过冷启 ≤ 2500 ms、热启 ≤ 1000 ms 及 `.iss` 守卫门限）；
+  - 增量更新包 `TV-Update-1.9.3-from-1.9.2-x64.exe`（9.59 MB，21 个变更文件，8.28 MB 净载荷）：两次启动实测 **910 / 229 ms**，实机静默升级 `1.9.2 → 1.9.3` 全部 **962/962 文件** SHA-256 与 1.9.3 便携包 **100% 逐字节一致**；
   - 便携免安装包 `TV-1.9.3-win-x64-portable.zip`（188.49 MB）及全部 `.sha256` 校验文件均通过核验。
