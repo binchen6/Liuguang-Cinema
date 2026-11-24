@@ -329,6 +329,7 @@ public static class MotionService
         var target = new Vector3(0f, (float)targetY, 0f);
         var prevY = state.LastIndicatorPos;
         state.LastIndicatorPos = targetY;
+        indicator.Opacity = 1.0;
 
         if (!animate || !CanAnimate)
         {
@@ -356,7 +357,7 @@ public static class MotionService
     }
 
     /// <summary>
-    /// Elastic spring-physics horizontal segmented pill glide (Library segmented track).
+    /// Elastic spring-physics horizontal segmented pill glide (Vod category chips & Library segmented track).
     /// Smoothly translates X while preserving true rounded geometry and giving subtle kinetic squeeze.
     /// </summary>
     public static void GlideHorizontalPill(FrameworkElement pill, double targetX, double targetWidth, bool animate)
@@ -366,6 +367,7 @@ public static class MotionService
         var target = new Vector3((float)targetX, 0f, 0f);
         var prevX = state.LastIndicatorPos;
         state.LastIndicatorPos = targetX;
+        pill.Opacity = 1.0;
 
         if (targetWidth > 0 && Math.Abs(pill.Width - targetWidth) > 0.5)
             pill.Width = targetWidth;
@@ -382,16 +384,64 @@ public static class MotionService
 
         var c = visual.Compositor;
         visual.Opacity = 1f;
-        visual.StartAnimation("Translation", CreateSpringVector3(c, target, dampingRatio: 0.78f, periodMs: 36));
+        visual.StartAnimation("Translation", CreateSpringVector3(c, target, dampingRatio: 0.80f, periodMs: 34));
 
         var travel = double.IsNaN(prevX) ? 0d : Math.Abs(targetX - prevX);
         if (travel > 12d)
         {
-            var stretchX = (float)Math.Clamp(1.0 + travel / 480.0, 1.03, 1.10);
+            var stretchX = (float)Math.Clamp(1.0 + travel / 520.0, 1.03, 1.09);
             visual.StartAnimation(nameof(Visual.Scale),
-                CreateSpringVector3(c, Vector3.One, dampingRatio: 0.78f, periodMs: 34,
+                CreateSpringVector3(c, Vector3.One, dampingRatio: 0.78f, periodMs: 32,
                     initialValue: new Vector3(stretchX, 0.95f, 1f)));
         }
+    }
+
+    /// <summary>
+    /// Elastic spring-physics fixed-width horizontal bar glide (CloudDrive account cards bottom indicator).
+    /// Mirrors GlideVerticalIndicator with travel-proportional horizontal stretch pulse.
+    /// </summary>
+    public static void GlideHorizontalBar(FrameworkElement bar, double targetX, bool animate)
+    {
+        var state = GetState(bar);
+        var visual = PrepareVisual(bar, centerPivot: true);
+        var target = new Vector3((float)targetX, 0f, 0f);
+        var prevX = state.LastIndicatorPos;
+        state.LastIndicatorPos = targetX;
+        bar.Opacity = 1.0;
+
+        if (!animate || !CanAnimate)
+        {
+            visual.StopAnimation("Translation");
+            visual.StopAnimation(nameof(Visual.Scale));
+            visual.Properties.InsertVector3("Translation", target);
+            visual.Scale = Vector3.One;
+            visual.Opacity = 1f;
+            return;
+        }
+
+        var c = visual.Compositor;
+        visual.Opacity = 1f;
+        visual.StartAnimation("Translation", CreateSpringVector3(c, target, dampingRatio: 0.76f, periodMs: 36));
+
+        var travel = double.IsNaN(prevX) ? 0d : Math.Abs(targetX - prevX);
+        if (travel > 8d)
+        {
+            var stretchX = (float)Math.Clamp(1.0 + travel / 190.0, 1.14, 1.44);
+            var squashY = (float)Math.Clamp(1.0 - (stretchX - 1.0) * 0.25, 0.86, 0.96);
+            visual.StartAnimation(nameof(Visual.Scale),
+                CreateSpringVector3(c, Vector3.One, dampingRatio: 0.74f, periodMs: 34,
+                    initialValue: new Vector3(stretchX, squashY, 1f)));
+        }
+    }
+
+    /// <summary>
+    /// Cleanly hides a gliding navigation indicator when there is no active selection or the active item scrolled out of view.
+    /// </summary>
+    public static void HideNavIndicator(FrameworkElement indicator)
+    {
+        var visual = PrepareVisual(indicator, centerPivot: true);
+        visual.StopAnimation(nameof(Visual.Opacity));
+        visual.Opacity = 0f;
     }
 
     /// <summary>

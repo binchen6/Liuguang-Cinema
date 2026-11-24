@@ -3,9 +3,8 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:controls="using:TV.Controls"
     Background="Transparent" Loaded="OnLoaded" Unloaded="OnUnloaded" SizeChanged="OnPageSizeChanged">
-    <Grid x:Name="CloudRoot" Padding="{StaticResource PagePaddingWide}" RowSpacing="20">
+    <Grid x:Name="CloudRoot" Padding="{StaticResource PagePaddingWide}" RowSpacing="16">
         <Grid.RowDefinitions>
-            <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
@@ -38,90 +37,114 @@
             </StackPanel>
         </Grid>
 
-        <!-- 磨砂网盘账号卡 -->
-        <ListView x:Name="AccountStrip" Grid.Row="1" ItemsSource="{Binding Accounts}" SelectedItem="{Binding SelectedAccount, Mode=TwoWay}"
-                  SelectionMode="Single" Background="Transparent" BorderThickness="0" Padding="0"
-                  AutomationProperties.Name="网盘账号"
-                  ContainerContentChanging="OnAccountContainerChanging"
-                  ScrollViewer.HorizontalScrollMode="Enabled" ScrollViewer.HorizontalScrollBarVisibility="Hidden"
-                  ScrollViewer.VerticalScrollMode="Disabled">
-            <ListView.ItemsPanel><ItemsPanelTemplate><ItemsStackPanel Orientation="Horizontal" /></ItemsPanelTemplate></ListView.ItemsPanel>
-            <ListView.ItemContainerStyle>
-                <Style TargetType="ListViewItem" BasedOn="{StaticResource NavRailItemStyle}">
-                    <Setter Property="Height" Value="72" />
-                    <Setter Property="MinWidth" Value="180" />
-                    <Setter Property="Padding" Value="14,0,16,0" />
-                    <Setter Property="Margin" Value="0,0,10,0" />
-                    <Setter Property="CornerRadius" Value="{StaticResource RadiusCard}" />
-                    <Setter Property="Background" Value="{ThemeResource GlassPanelBrush}" />
-                    <Setter Property="BorderBrush" Value="{ThemeResource GlassEdgeBrush}" />
-                    <Setter Property="BorderThickness" Value="1" />
-                </Style>
-            </ListView.ItemContainerStyle>
-            <ListView.ItemTemplate>
-                <DataTemplate>
-                    <StackPanel VerticalAlignment="Center" Spacing="3">
-                        <StackPanel Orientation="Horizontal" Spacing="7" VerticalAlignment="Center">
-                            <Grid Width="7" Height="7" VerticalAlignment="Center">
-                                <Ellipse Fill="{ThemeResource SuccessBrush}"
-                                         Visibility="{Binding IsLoggedIn, Converter={StaticResource BoolToVisibility}}" />
-                                <Ellipse Fill="{ThemeResource DangerBrush}"
-                                         Visibility="{Binding IsWarning, Converter={StaticResource BoolToVisibility}}" />
-                                <Ellipse Fill="{ThemeResource TertiaryTextBrush}" Opacity="0.55"
-                                         Visibility="{Binding IsNeutral, Converter={StaticResource BoolToVisibility}}" />
-                            </Grid>
-                            <TextBlock Text="{Binding Name}" Style="{StaticResource BodyText}" FontWeight="SemiBold"
-                                       MaxLines="1" TextTrimming="CharacterEllipsis" />
-                        </StackPanel>
-                        <TextBlock Text="{Binding Status}" Style="{StaticResource MetaText}"
-                                   MaxLines="1" TextTrimming="CharacterEllipsis" />
-                    </StackPanel>
-                </DataTemplate>
-            </ListView.ItemTemplate>
-        </ListView>
-
-        <!-- 一体化五层光学磨砂路径与搜索带 -->
-        <controls:GlassSurface x:Name="PathBar" Grid.Row="2" Style="{StaticResource AppBarGlassStyle}" Padding="12,8">
-            <Grid ColumnSpacing="{StaticResource SpaceSmall}">
-                <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-                <ScrollViewer HorizontalScrollMode="Enabled" HorizontalScrollBarVisibility="Hidden" VerticalScrollMode="Disabled" VerticalAlignment="Center">
-                    <ItemsControl ItemsSource="{Binding Breadcrumbs}">
-                        <ItemsControl.ItemsPanel><ItemsPanelTemplate><StackPanel Orientation="Horizontal" /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
-                        <ItemsControl.ItemTemplate>
-                            <DataTemplate>
-                                <StackPanel Orientation="Horizontal" Spacing="2" VerticalAlignment="Center">
-                                    <Button Content="{Binding Name}" Command="{Binding DataContext.OpenBreadcrumbCommand, ElementName=PageRoot}" CommandParameter="{Binding}"
-                                            Click="OnBreadcrumbVisualClick"
-                                            Style="{StaticResource GhostButtonStyle}" AutomationProperties.Name="云盘目录" />
-                                    <controls:LineIcon PathData="{StaticResource IconChevronRight}" IconSize="12"
-                                                       Foreground="{ThemeResource TertiaryTextBrush}" Opacity="0.65" VerticalAlignment="Center" />
+        <!-- 统一横向卡片导航（四网盘状态卡 + 底部弹簧滑行朱砂指示条，支持滚轮横滑） -->
+        <ScrollViewer x:Name="AccountScroller" Grid.Row="1"
+                      controls:ScrollWheelBehavior.HorizontalWheelMode="Direct"
+                      HorizontalScrollMode="Enabled" HorizontalScrollBarVisibility="Hidden"
+                      VerticalScrollMode="Disabled" VerticalScrollBarVisibility="Disabled">
+            <Grid x:Name="AccountTrackHost">
+                <ListView x:Name="AccountStrip" ItemsSource="{Binding Accounts}" SelectedItem="{Binding SelectedAccount, Mode=TwoWay}"
+                          SelectionMode="Single" Background="Transparent" BorderThickness="0" Padding="0,0,0,2"
+                          AutomationProperties.Name="网盘账号"
+                          ItemContainerStyle="{StaticResource HorizontalNavCardItemStyle}"
+                          ContainerContentChanging="OnAccountContainerChanging"
+                          ScrollViewer.HorizontalScrollMode="Disabled"
+                          ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                          ScrollViewer.VerticalScrollMode="Disabled"
+                          ScrollViewer.VerticalScrollBarVisibility="Disabled">
+                    <ListView.ItemsPanel>
+                        <ItemsPanelTemplate>
+                            <StackPanel Orientation="Horizontal" />
+                        </ItemsPanelTemplate>
+                    </ListView.ItemsPanel>
+                    <ListView.ItemContainerTransitions>
+                        <TransitionCollection />
+                    </ListView.ItemContainerTransitions>
+                    <ListView.ItemTemplate>
+                        <DataTemplate>
+                            <StackPanel VerticalAlignment="Center" Spacing="3">
+                                <StackPanel Orientation="Horizontal" Spacing="7" VerticalAlignment="Center">
+                                    <Grid Width="7" Height="7" VerticalAlignment="Center">
+                                        <Ellipse Fill="{ThemeResource SuccessBrush}"
+                                                 Visibility="{Binding IsLoggedIn, Converter={StaticResource BoolToVisibility}}" />
+                                        <Ellipse Fill="{ThemeResource DangerBrush}"
+                                                 Visibility="{Binding IsWarning, Converter={StaticResource BoolToVisibility}}" />
+                                        <Ellipse Fill="{ThemeResource TertiaryTextBrush}" Opacity="0.55"
+                                                 Visibility="{Binding IsNeutral, Converter={StaticResource BoolToVisibility}}" />
+                                    </Grid>
+                                    <TextBlock Text="{Binding Name}" Style="{StaticResource NavItemTextStyle}" FontWeight="SemiBold"
+                                               MaxLines="1" />
                                 </StackPanel>
-                            </DataTemplate>
-                        </ItemsControl.ItemTemplate>
-                    </ItemsControl>
-                </ScrollViewer>
-                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="{StaticResource SpaceMini}">
-                    <TextBox x:Name="SearchBox" Width="232" PlaceholderText="搜索当前网盘" Text="{Binding Query, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                             KeyDown="OnSearchKeyDown" AutomationProperties.Name="搜索我的云盘" />
-                    <Button x:Name="CloudSearchButton" Content="搜索" Command="{Binding SearchCommand}" Style="{StaticResource PrimaryButtonStyle}"
-                            AutomationProperties.Name="搜索云盘文件" />
-                </StackPanel>
+                                <TextBlock Text="{Binding Status}" Style="{StaticResource MetaText}"
+                                           MaxLines="1" TextTrimming="CharacterEllipsis" />
+                            </StackPanel>
+                        </DataTemplate>
+                    </ListView.ItemTemplate>
+                </ListView>
+                <!-- 底部水平弹性朱砂光轨：在四张网盘卡底缘居中丝滑跟随 -->
+                <Border x:Name="AccountGlideBar" Width="28" Height="3" CornerRadius="1.5"
+                        Background="{ThemeResource SelectionIndicatorBrush}"
+                        HorizontalAlignment="Left" VerticalAlignment="Bottom"
+                        Margin="0,0,0,6" Opacity="0" IsHitTestVisible="False" />
+            </Grid>
+        </ScrollViewer>
+
+        <!-- 一体化五层光学磨砂路径与搜索带（内嵌 2px 细丝进度条，消除空闲空带） -->
+        <controls:GlassSurface x:Name="PathBar" Grid.Row="2" Style="{StaticResource AppBarGlassStyle}" Padding="12,8">
+            <Grid RowSpacing="0">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+                <Grid ColumnSpacing="{StaticResource SpaceSmall}">
+                    <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                    <ScrollViewer x:Name="BreadcrumbScroller"
+                                  controls:ScrollWheelBehavior.HorizontalWheelMode="Direct"
+                                  HorizontalScrollMode="Enabled" HorizontalScrollBarVisibility="Hidden"
+                                  VerticalScrollMode="Disabled" VerticalScrollBarVisibility="Disabled"
+                                  VerticalAlignment="Center">
+                        <ItemsControl ItemsSource="{Binding Breadcrumbs}">
+                            <ItemsControl.ItemsPanel><ItemsPanelTemplate><StackPanel Orientation="Horizontal" /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <StackPanel Orientation="Horizontal" Spacing="2" VerticalAlignment="Center">
+                                        <Button Content="{Binding Name}" Command="{Binding DataContext.OpenBreadcrumbCommand, ElementName=PageRoot}" CommandParameter="{Binding}"
+                                                Click="OnBreadcrumbVisualClick"
+                                                Style="{StaticResource GhostButtonStyle}" AutomationProperties.Name="云盘目录" />
+                                        <controls:LineIcon PathData="{StaticResource IconChevronRight}" IconSize="12"
+                                                           Foreground="{ThemeResource TertiaryTextBrush}" Opacity="0.65" VerticalAlignment="Center" />
+                                    </StackPanel>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </ScrollViewer>
+                    <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="{StaticResource SpaceMini}">
+                        <TextBox x:Name="SearchBox" Width="232" PlaceholderText="搜索当前网盘" Text="{Binding Query, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                 KeyDown="OnSearchKeyDown" AutomationProperties.Name="搜索我的云盘" />
+                        <Button x:Name="CloudSearchButton" Content="搜索" Command="{Binding SearchCommand}" Style="{StaticResource PrimaryButtonStyle}"
+                                AutomationProperties.Name="搜索云盘文件" />
+                    </StackPanel>
+                </Grid>
+                <ProgressBar Grid.Row="1" Height="2" Margin="2,8,2,0" IsIndeterminate="{Binding IsLoading}"
+                             Foreground="{ThemeResource VermilionBrush}"
+                             Visibility="{Binding IsLoading, Converter={StaticResource BoolToVisibility}}" />
             </Grid>
         </controls:GlassSurface>
 
-        <ProgressBar Grid.Row="3" Height="2" IsIndeterminate="{Binding IsLoading}" Foreground="{ThemeResource VermilionBrush}"
-                     Visibility="{Binding IsLoading, Converter={StaticResource BoolToVisibility}}" />
-
-        <!-- 文件列表 -->
-        <Grid x:Name="EntriesHost" Grid.Row="4">
+        <!-- 文件列表（专用透明细线行容器，不混用侧边导航栏样式） -->
+        <Grid x:Name="EntriesHost" Grid.Row="3">
             <ListView ItemsSource="{Binding Entries}" SelectionMode="None" IsItemClickEnabled="True" ItemClick="OnEntryClick"
-                      Background="Transparent" BorderThickness="0" Padding="0,0,8,0" AutomationProperties.Name="云盘文件"
+                      Background="Transparent" BorderThickness="0" Padding="0,0,12,0" AutomationProperties.Name="云盘文件"
                       ScrollViewer.HorizontalScrollMode="Disabled">
                 <ListView.ItemContainerStyle>
-                    <Style TargetType="ListViewItem" BasedOn="{StaticResource RailListStyle}">
-                        <Setter Property="Height" Value="NaN" />
-                        <Setter Property="MinHeight" Value="64" />
+                    <Style TargetType="ListViewItem">
+                        <Setter Property="Padding" Value="6,0,6,0" />
                         <Setter Property="Margin" Value="0,0,0,2" />
+                        <Setter Property="MinHeight" Value="64" />
+                        <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                        <Setter Property="VerticalContentAlignment" Value="Center" />
+                        <Setter Property="CornerRadius" Value="{StaticResource RadiusControl}" />
+                        <Setter Property="UseSystemFocusVisuals" Value="True" />
                     </Style>
                 </ListView.ItemContainerStyle>
                 <ListView.ItemTemplate>
@@ -176,7 +199,7 @@
             </ScrollViewer>
         </Grid>
 
-        <Grid Grid.Row="5" MinHeight="40">
+        <Grid Grid.Row="4" MinHeight="36">
             <TextBlock Text="{Binding StatusMessage}" Style="{StaticResource MetaText}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
             <Button Content="加载更多" Command="{Binding LoadMoreCommand}" Visibility="{Binding HasMore, Converter={StaticResource BoolToVisibility}}"
                     Style="{StaticResource SecondaryButtonStyle}" HorizontalAlignment="Center" />

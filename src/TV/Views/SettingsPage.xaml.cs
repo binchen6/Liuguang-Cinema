@@ -10,16 +10,16 @@ public sealed partial class SettingsPage : Page
 {
     private readonly List<(Expander Section, UIElement Pane)> _sections = new();
     private readonly Dictionary<Expander, ToggleButton> _headerToggleCache = [];
+    private readonly NavigationRailController _sectionNav;
     private Expander? _activeSection;
     private bool _switchingSection;
-    private bool _hasAnimatedIndicator;
     private Flyout? _loginFlyout;
 
     public SettingsPage()
     {
         InitializeComponent();
+        _sectionNav = NavigationMotion.AttachVerticalCustom(SettingsNavHost, SettingsNavIndicator, () => _activeSection);
         WireSectionNavigation();
-        SettingsNavHost.SizeChanged += (_, _) => { if (_activeSection is not null) ScheduleIndicatorGlide(_activeSection); };
         Unloaded += (_, _) => _loginFlyout?.Hide();
     }
 
@@ -88,33 +88,13 @@ public sealed partial class SettingsPage : Page
                 SettingsScroller.ChangeView(null, 0, null, true);
                 MotionService.EnterSection(activePane, offsetY: 12);
             }
-            ScheduleIndicatorGlide(section);
+            _sectionNav.Sync(animate: true);
             DispatcherQueue.TryEnqueue(() =>
             {
                 foreach (var (candidate, _) in _sections) ResetSectionVisual(candidate, ReferenceEquals(candidate, _activeSection));
             });
         }
         finally { _switchingSection = false; }
-    }
-
-    private void ScheduleIndicatorGlide(Expander target)
-    {
-        DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Normal, () =>
-        {
-            if (!IsLoaded || target.XamlRoot is null || SettingsNavHost.XamlRoot is null) return;
-            try
-            {
-                var pt = target.TransformToVisual(SettingsNavHost).TransformPoint(new Windows.Foundation.Point(0, 0));
-                var centerY = pt.Y + (target.ActualHeight - SettingsNavIndicator.Height) * 0.5;
-                if (centerY >= 0)
-                {
-                    SettingsNavIndicator.Opacity = 1;
-                    MotionService.GlideVerticalIndicator(SettingsNavIndicator, centerY, animate: _hasAnimatedIndicator);
-                    _hasAnimatedIndicator = true;
-                }
-            }
-            catch { }
-        });
     }
 
     private void ResetSectionVisual(Expander section, bool active)

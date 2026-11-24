@@ -8,7 +8,7 @@
     Background="Black" RequestedTheme="Dark"
     Loaded="OnLoaded"
     Unloaded="OnUnloaded"
-    PointerMoved="OnPointerMoved"
+    SizeChanged="OnPageSizeChanged"
     PointerExited="OnPointerExited"
     PointerWheelChanged="OnPointerWheelChanged"
     Tapped="OnTapped"

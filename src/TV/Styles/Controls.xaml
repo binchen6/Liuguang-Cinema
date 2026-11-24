@@ -160,133 +160,146 @@
         </ResourceDictionary>
 
         <ResourceDictionary x:Key="Light">
-            <SolidColorBrush x:Key="TextFillColorPrimaryBrush" Color="#141416" />
-            <SolidColorBrush x:Key="TextFillColorSecondaryBrush" Color="#595962" />
-            <SolidColorBrush x:Key="TextFillColorTertiaryBrush" Color="#84848F" />
-            <SolidColorBrush x:Key="TextFillColorDisabledBrush" Color="#6684848F" />
-            <SolidColorBrush x:Key="TextOnAccentFillColorPrimaryBrush" Color="#FAF9F5" />
-            <SolidColorBrush x:Key="TextOnAccentFillColorSecondaryBrush" Color="#CCFAF9F5" />
-            <SolidColorBrush x:Key="TextOnAccentFillColorDisabledBrush" Color="#80141416" />
-            <SolidColorBrush x:Key="AccentTextFillColorPrimaryBrush" Color="#CE3A2B" />
-            <SolidColorBrush x:Key="AccentTextFillColorSecondaryBrush" Color="#B02D20" />
-            <SolidColorBrush x:Key="AccentTextFillColorTertiaryBrush" Color="#8F2217" />
-            <SolidColorBrush x:Key="AccentTextFillColorDisabledBrush" Color="#66CE3A2B" />
+            <SolidColorBrush x:Key="TextFillColorPrimaryBrush" Color="#1F2024" />
+            <SolidColorBrush x:Key="TextFillColorSecondaryBrush" Color="#53555E" />
+            <SolidColorBrush x:Key="TextFillColorTertiaryBrush" Color="#72747F" />
+            <SolidColorBrush x:Key="TextFillColorDisabledBrush" Color="#6672747F" />
+            <SolidColorBrush x:Key="TextOnAccentFillColorPrimaryBrush" Color="#FAF8F4" />
+            <SolidColorBrush x:Key="TextOnAccentFillColorSecondaryBrush" Color="#CCFAF8F4" />
+            <SolidColorBrush x:Key="TextOnAccentFillColorDisabledBrush" Color="#801F2024" />
+            <SolidColorBrush x:Key="AccentTextFillColorPrimaryBrush" Color="#C93A2B" />
+            <SolidColorBrush x:Key="AccentTextFillColorSecondaryBrush" Color="#AB2E21" />
+            <SolidColorBrush x:Key="AccentTextFillColorTertiaryBrush" Color="#8A2318" />
+            <SolidColorBrush x:Key="AccentTextFillColorDisabledBrush" Color="#66C93A2B" />
 
-            <SolidColorBrush x:Key="SolidBackgroundFillColorBaseBrush" Color="#F6F5F0" />
-            <SolidColorBrush x:Key="SolidBackgroundFillColorSecondaryBrush" Color="#FFFFFF" />
-            <SolidColorBrush x:Key="SolidBackgroundFillColorTertiaryBrush" Color="#EFECE4" />
-            <SolidColorBrush x:Key="SolidBackgroundFillColorQuarternaryBrush" Color="#E6E3DA" />
-            <SolidColorBrush x:Key="LayerFillColorDefaultBrush" Color="#B3FFFFFF" />
-            <SolidColorBrush x:Key="LayerFillColorAltBrush" Color="#80FFFFFF" />
-            <SolidColorBrush x:Key="CardBackgroundFillColorDefaultBrush" Color="#FFFFFFFF" />
-            <SolidColorBrush x:Key="CardBackgroundFillColorSecondaryBrush" Color="#EFECE4" />
-            <SolidColorBrush x:Key="CardStrokeColorDefaultBrush" Color="#14000000" />
-            <SolidColorBrush x:Key="CardStrokeColorDefaultSolidBrush" Color="#E2DFD7" />
-            <SolidColorBrush x:Key="DividerStrokeColorDefaultBrush" Color="#14000000" />
+            <SolidColorBrush x:Key="SolidBackgroundFillColorBaseBrush" Color="#ECE9E1" />
+            <SolidColorBrush x:Key="SolidBackgroundFillColorSecondaryBrush" Color="#F7F5F0" />
+            <SolidColorBrush x:Key="SolidBackgroundFillColorTertiaryBrush" Color="#E3DFD5" />
+            <SolidColorBrush x:Key="SolidBackgroundFillColorQuarternaryBrush" Color="#DAD5C9" />
+            <SolidColorBrush x:Key="LayerFillColorDefaultBrush" Color="#C4FAF8F3" />
+            <SolidColorBrush x:Key="LayerFillColorAltBrush" Color="#8CF7F5F0" />
+            <SolidColorBrush x:Key="CardBackgroundFillColorDefaultBrush" Color="#F7F5F0" />
+            <SolidColorBrush x:Key="CardBackgroundFillColorSecondaryBrush" Color="#E8E4DA" />
+            <SolidColorBrush x:Key="CardStrokeColorDefaultBrush" Color="#1E2E2A22" />
+            <SolidColorBrush x:Key="CardStrokeColorDefaultSolidBrush" Color="#D6D1C6" />
+            <SolidColorBrush x:Key="DividerStrokeColorDefaultBrush" Color="#1A2E2A22" />
 
-            <!-- 和纸磨砂浮层与对话框 -->
-            <AcrylicBrush x:Key="FlyoutPresenterBackground" TintColor="#FFFFFF" TintOpacity="0.76" TintLuminosityOpacity="0.84" FallbackColor="#F6FFFFFF" />
-            <AcrylicBrush x:Key="MenuFlyoutPresenterBackground" TintColor="#FFFFFF" TintOpacity="0.78" TintLuminosityOpacity="0.86" FallbackColor="#F6FFFFFF" />
+            <!-- 月白晶玉磨砂浮层与对话框（清澈透光 + 暖矿石立体边框） -->
+            <AcrylicBrush x:Key="FlyoutPresenterBackground" TintColor="#FAF8F3" TintOpacity="0.76" TintLuminosityOpacity="0.80" FallbackColor="#F5F8F6F0" />
+            <AcrylicBrush x:Key="MenuFlyoutPresenterBackground" TintColor="#FAF8F3" TintOpacity="0.78" TintLuminosityOpacity="0.82" FallbackColor="#F6F8F6F0" />
             <LinearGradientBrush x:Key="MenuFlyoutPresenterBorderBrush" StartPoint="0.1,0" EndPoint="0.9,1">
-                <GradientStop Color="#E6FFFFFF" Offset="0" />
-                <GradientStop Color="#16000000" Offset="0.4" />
-                <GradientStop Color="#22000000" Offset="1" />
+                <GradientStop Color="#28322D25" Offset="0" />
+                <GradientStop Color="#1C322D25" Offset="0.4" />
+                <GradientStop Color="#342E2921" Offset="1" />
             </LinearGradientBrush>
-            <AcrylicBrush x:Key="ContentDialogBackground" TintColor="#FAF9F5" TintOpacity="0.82" TintLuminosityOpacity="0.88" FallbackColor="#FCFAF9F5" />
+            <AcrylicBrush x:Key="ContentDialogBackground" TintColor="#F7F5F0" TintOpacity="0.82" TintLuminosityOpacity="0.86" FallbackColor="#FAF7F5F0" />
             <LinearGradientBrush x:Key="ContentDialogBorderBrush" StartPoint="0.1,0" EndPoint="0.9,1">
-                <GradientStop Color="#E6FFFFFF" Offset="0" />
-                <GradientStop Color="#18000000" Offset="0.4" />
-                <GradientStop Color="#24000000" Offset="1" />
+                <GradientStop Color="#2A322D25" Offset="0" />
+                <GradientStop Color="#1E322D25" Offset="0.4" />
+                <GradientStop Color="#362E2921" Offset="1" />
             </LinearGradientBrush>
 
-            <SolidColorBrush x:Key="ControlFillColorDefaultBrush" Color="#B8FFFFFF" />
-            <SolidColorBrush x:Key="ControlFillColorSecondaryBrush" Color="#8CFFFFFF" />
-            <SolidColorBrush x:Key="ControlFillColorTertiaryBrush" Color="#59FFFFFF" />
-            <SolidColorBrush x:Key="ControlFillColorDisabledBrush" Color="#4DF6F5F0" />
+            <SolidColorBrush x:Key="ControlFillColorDefaultBrush" Color="#C8FAF8F3" />
+            <SolidColorBrush x:Key="ControlFillColorSecondaryBrush" Color="#A6F6F3EC" />
+            <SolidColorBrush x:Key="ControlFillColorTertiaryBrush" Color="#72EFEBE1" />
+            <SolidColorBrush x:Key="ControlFillColorDisabledBrush" Color="#59E6E2D8" />
             <SolidColorBrush x:Key="ControlFillColorTransparentBrush" Color="#00FFFFFF" />
-            <SolidColorBrush x:Key="ControlStrokeColorDefaultBrush" Color="#1C000000" />
-            <SolidColorBrush x:Key="ControlStrokeColorSecondaryBrush" Color="#12000000" />
+            <SolidColorBrush x:Key="ControlStrokeColorDefaultBrush" Color="#24302B22" />
+            <SolidColorBrush x:Key="ControlStrokeColorSecondaryBrush" Color="#18302B22" />
             <SolidColorBrush x:Key="ControlStrokeColorOnAccentDefaultBrush" Color="#00FFFFFF" />
-            <SolidColorBrush x:Key="SubtleFillColorSecondaryBrush" Color="#0D000000" />
-            <SolidColorBrush x:Key="SubtleFillColorTertiaryBrush" Color="#08000000" />
+            <SolidColorBrush x:Key="SubtleFillColorSecondaryBrush" Color="#0F2C2820" />
+            <SolidColorBrush x:Key="SubtleFillColorTertiaryBrush" Color="#092C2820" />
             <SolidColorBrush x:Key="SubtleFillColorTransparentBrush" Color="#00000000" />
             <SolidColorBrush x:Key="SubtleFillColorDisabledBrush" Color="#00FFFFFF" />
 
-            <SolidColorBrush x:Key="AccentFillColorDefaultBrush" Color="#CE3A2B" />
-            <SolidColorBrush x:Key="AccentFillColorSecondaryBrush" Color="#B53022" />
-            <SolidColorBrush x:Key="AccentFillColorTertiaryBrush" Color="#962418" />
-            <SolidColorBrush x:Key="AccentFillColorDisabledBrush" Color="#4DCE3A2B" />
+            <SolidColorBrush x:Key="AccentFillColorDefaultBrush" Color="#C93A2B" />
+            <SolidColorBrush x:Key="AccentFillColorSecondaryBrush" Color="#B13022" />
+            <SolidColorBrush x:Key="AccentFillColorTertiaryBrush" Color="#922418" />
+            <SolidColorBrush x:Key="AccentFillColorDisabledBrush" Color="#4DC93A2B" />
 
-            <SolidColorBrush x:Key="ButtonBackground" Color="#B8FFFFFF" />
-            <SolidColorBrush x:Key="ButtonBackgroundPointerOver" Color="#F2FFFFFF" />
-            <SolidColorBrush x:Key="ButtonBackgroundPressed" Color="#E6EAE7DF" />
-            <SolidColorBrush x:Key="ButtonBackgroundDisabled" Color="#4DF6F5F0" />
-            <SolidColorBrush x:Key="ButtonForeground" Color="#141416" />
-            <SolidColorBrush x:Key="ButtonForegroundPointerOver" Color="#000000" />
-            <SolidColorBrush x:Key="ButtonForegroundPressed" Color="#3A3A42" />
-            <SolidColorBrush x:Key="ButtonForegroundDisabled" Color="#6684848F" />
-            <SolidColorBrush x:Key="ButtonBorderBrush" Color="#1C000000" />
-            <SolidColorBrush x:Key="ButtonBorderBrushPointerOver" Color="#2C000000" />
-            <SolidColorBrush x:Key="ButtonBorderBrushPressed" Color="#14000000" />
-            <SolidColorBrush x:Key="ButtonBorderBrushDisabled" Color="#0E000000" />
+            <!-- 次级按钮：温润半透玉瓷面 + 清晰暖矿石倒角边 -->
+            <LinearGradientBrush x:Key="ButtonBackground" StartPoint="0,0" EndPoint="0,1">
+                <GradientStop Color="#D9FAF8F3" Offset="0" />
+                <GradientStop Color="#B8F0ECE3" Offset="1" />
+            </LinearGradientBrush>
+            <LinearGradientBrush x:Key="ButtonBackgroundPointerOver" StartPoint="0,0" EndPoint="0,1">
+                <GradientStop Color="#F2FCFBF7" Offset="0" />
+                <GradientStop Color="#DCF5F2EA" Offset="1" />
+            </LinearGradientBrush>
+            <SolidColorBrush x:Key="ButtonBackgroundPressed" Color="#E6E2D8" />
+            <SolidColorBrush x:Key="ButtonBackgroundDisabled" Color="#66E8E4DA" />
+            <SolidColorBrush x:Key="ButtonForeground" Color="#1F2024" />
+            <SolidColorBrush x:Key="ButtonForegroundPointerOver" Color="#141518" />
+            <SolidColorBrush x:Key="ButtonForegroundPressed" Color="#3C3E46" />
+            <SolidColorBrush x:Key="ButtonForegroundDisabled" Color="#6672747F" />
+            <LinearGradientBrush x:Key="ButtonBorderBrush" StartPoint="0,0" EndPoint="0,1">
+                <GradientStop Color="#22302B22" Offset="0" />
+                <GradientStop Color="#2E302B22" Offset="1" />
+            </LinearGradientBrush>
+            <LinearGradientBrush x:Key="ButtonBorderBrushPointerOver" StartPoint="0,0" EndPoint="0,1">
+                <GradientStop Color="#30302B22" Offset="0" />
+                <GradientStop Color="#42302B22" Offset="1" />
+            </LinearGradientBrush>
+            <SolidColorBrush x:Key="ButtonBorderBrushPressed" Color="#20302B22" />
+            <SolidColorBrush x:Key="ButtonBorderBrushDisabled" Color="#12302B22" />
 
-            <SolidColorBrush x:Key="TextControlBackground" Color="#C2FFFFFF" />
-            <SolidColorBrush x:Key="TextControlBackgroundPointerOver" Color="#F2FFFFFF" />
-            <SolidColorBrush x:Key="TextControlBackgroundFocused" Color="#FFFFFFFF" />
-            <SolidColorBrush x:Key="TextControlBackgroundDisabled" Color="#4DF6F5F0" />
-            <SolidColorBrush x:Key="TextControlForeground" Color="#141416" />
-            <SolidColorBrush x:Key="TextControlForegroundPointerOver" Color="#000000" />
-            <SolidColorBrush x:Key="TextControlForegroundFocused" Color="#000000" />
-            <SolidColorBrush x:Key="TextControlForegroundDisabled" Color="#6684848F" />
-            <SolidColorBrush x:Key="TextControlBorderBrush" Color="#1C000000" />
-            <SolidColorBrush x:Key="TextControlBorderBrushPointerOver" Color="#2C000000" />
-            <SolidColorBrush x:Key="TextControlBorderBrushFocused" Color="#CE3A2B" />
-            <SolidColorBrush x:Key="TextControlBorderBrushDisabled" Color="#0E000000" />
-            <SolidColorBrush x:Key="TextControlPlaceholderForeground" Color="#84848F" />
-            <SolidColorBrush x:Key="TextControlPlaceholderForegroundPointerOver" Color="#595962" />
-            <SolidColorBrush x:Key="TextControlPlaceholderForegroundFocused" Color="#84848F" />
+            <SolidColorBrush x:Key="TextControlBackground" Color="#D2FAF8F3" />
+            <SolidColorBrush x:Key="TextControlBackgroundPointerOver" Color="#EDFCFBF7" />
+            <SolidColorBrush x:Key="TextControlBackgroundFocused" Color="#FCFBF7" />
+            <SolidColorBrush x:Key="TextControlBackgroundDisabled" Color="#66E8E4DA" />
+            <SolidColorBrush x:Key="TextControlForeground" Color="#1F2024" />
+            <SolidColorBrush x:Key="TextControlForegroundPointerOver" Color="#141518" />
+            <SolidColorBrush x:Key="TextControlForegroundFocused" Color="#141518" />
+            <SolidColorBrush x:Key="TextControlForegroundDisabled" Color="#6672747F" />
+            <SolidColorBrush x:Key="TextControlBorderBrush" Color="#26302B22" />
+            <SolidColorBrush x:Key="TextControlBorderBrushPointerOver" Color="#38302B22" />
+            <SolidColorBrush x:Key="TextControlBorderBrushFocused" Color="#C93A2B" />
+            <SolidColorBrush x:Key="TextControlBorderBrushDisabled" Color="#14302B22" />
+            <SolidColorBrush x:Key="TextControlPlaceholderForeground" Color="#72747F" />
+            <SolidColorBrush x:Key="TextControlPlaceholderForegroundPointerOver" Color="#53555E" />
+            <SolidColorBrush x:Key="TextControlPlaceholderForegroundFocused" Color="#72747F" />
 
-            <SolidColorBrush x:Key="ComboBoxBackground" Color="#B8FFFFFF" />
-            <SolidColorBrush x:Key="ComboBoxBackgroundPointerOver" Color="#F2FFFFFF" />
-            <SolidColorBrush x:Key="ComboBoxBackgroundPressed" Color="#E6EAE7DF" />
-            <SolidColorBrush x:Key="ComboBoxForeground" Color="#141416" />
-            <SolidColorBrush x:Key="ComboBoxBorderBrush" Color="#1C000000" />
-            <SolidColorBrush x:Key="ComboBoxBorderBrushPointerOver" Color="#2C000000" />
-            <SolidColorBrush x:Key="ComboBoxDropDownBackground" Color="#FFFFFFFF" />
-            <SolidColorBrush x:Key="ComboBoxDropDownBorderBrush" Color="#24000000" />
-            <SolidColorBrush x:Key="ComboBoxDropDownForeground" Color="#141416" />
+            <SolidColorBrush x:Key="ComboBoxBackground" Color="#D2FAF8F3" />
+            <SolidColorBrush x:Key="ComboBoxBackgroundPointerOver" Color="#F0FCFBF7" />
+            <SolidColorBrush x:Key="ComboBoxBackgroundPressed" Color="#E6E2D8" />
+            <SolidColorBrush x:Key="ComboBoxForeground" Color="#1F2024" />
+            <SolidColorBrush x:Key="ComboBoxBorderBrush" Color="#24302B22" />
+            <SolidColorBrush x:Key="ComboBoxBorderBrushPointerOver" Color="#38302B22" />
+            <SolidColorBrush x:Key="ComboBoxDropDownBackground" Color="#FAF8F3" />
+            <SolidColorBrush x:Key="ComboBoxDropDownBorderBrush" Color="#2A302B22" />
+            <SolidColorBrush x:Key="ComboBoxDropDownForeground" Color="#1F2024" />
 
-            <!-- 选择胶囊（未选素雅 / 选中松烟墨高反差） -->
-            <SolidColorBrush x:Key="ToggleButtonBackground" Color="#80FFFFFF" />
-            <SolidColorBrush x:Key="ToggleButtonBackgroundPointerOver" Color="#D9FFFFFF" />
-            <SolidColorBrush x:Key="ToggleButtonBackgroundPressed" Color="#E6EAE7DF" />
-            <SolidColorBrush x:Key="ToggleButtonBackgroundChecked" Color="#141416" />
-            <SolidColorBrush x:Key="ToggleButtonBackgroundCheckedPointerOver" Color="#2A2A30" />
-            <SolidColorBrush x:Key="ToggleButtonBackgroundCheckedPressed" Color="#08080A" />
-            <SolidColorBrush x:Key="ToggleButtonForeground" Color="#595962" />
-            <SolidColorBrush x:Key="ToggleButtonForegroundPointerOver" Color="#141416" />
-            <SolidColorBrush x:Key="ToggleButtonForegroundPressed" Color="#3A3A42" />
-            <SolidColorBrush x:Key="ToggleButtonForegroundChecked" Color="#FAF9F5" />
+            <!-- 切换按钮（未选玉瓷 / 选中深松烟墨） -->
+            <SolidColorBrush x:Key="ToggleButtonBackground" Color="#A6F8F6F0" />
+            <SolidColorBrush x:Key="ToggleButtonBackgroundPointerOver" Color="#E6FCFBF7" />
+            <SolidColorBrush x:Key="ToggleButtonBackgroundPressed" Color="#E4DFD4" />
+            <SolidColorBrush x:Key="ToggleButtonBackgroundChecked" Color="#23252B" />
+            <SolidColorBrush x:Key="ToggleButtonBackgroundCheckedPointerOver" Color="#353842" />
+            <SolidColorBrush x:Key="ToggleButtonBackgroundCheckedPressed" Color="#16171B" />
+            <SolidColorBrush x:Key="ToggleButtonForeground" Color="#53555E" />
+            <SolidColorBrush x:Key="ToggleButtonForegroundPointerOver" Color="#1F2024" />
+            <SolidColorBrush x:Key="ToggleButtonForegroundPressed" Color="#3C3E46" />
+            <SolidColorBrush x:Key="ToggleButtonForegroundChecked" Color="#FAF8F4" />
             <SolidColorBrush x:Key="ToggleButtonForegroundCheckedPointerOver" Color="#FFFFFF" />
-            <SolidColorBrush x:Key="ToggleButtonForegroundCheckedPressed" Color="#EAE8E0" />
-            <SolidColorBrush x:Key="ToggleButtonBorderBrush" Color="#16000000" />
-            <SolidColorBrush x:Key="ToggleButtonBorderBrushPointerOver" Color="#28000000" />
-            <SolidColorBrush x:Key="ToggleButtonBorderBrushPressed" Color="#18000000" />
-            <SolidColorBrush x:Key="ToggleButtonBorderBrushChecked" Color="#141416" />
-            <SolidColorBrush x:Key="ToggleButtonBorderBrushCheckedPointerOver" Color="#2A2A30" />
-            <SolidColorBrush x:Key="ToggleButtonBorderBrushCheckedPressed" Color="#08080A" />
+            <SolidColorBrush x:Key="ToggleButtonForegroundCheckedPressed" Color="#EAE7DF" />
+            <SolidColorBrush x:Key="ToggleButtonBorderBrush" Color="#22302B22" />
+            <SolidColorBrush x:Key="ToggleButtonBorderBrushPointerOver" Color="#34302B22" />
+            <SolidColorBrush x:Key="ToggleButtonBorderBrushPressed" Color="#22302B22" />
+            <SolidColorBrush x:Key="ToggleButtonBorderBrushChecked" Color="#23252B" />
+            <SolidColorBrush x:Key="ToggleButtonBorderBrushCheckedPointerOver" Color="#353842" />
+            <SolidColorBrush x:Key="ToggleButtonBorderBrushCheckedPressed" Color="#16171B" />
 
             <SolidColorBrush x:Key="ListViewItemBackground" Color="#00FFFFFF" />
-            <SolidColorBrush x:Key="ListViewItemBackgroundPointerOver" Color="#0B000000" />
-            <SolidColorBrush x:Key="ListViewItemBackgroundPressed" Color="#12000000" />
-            <SolidColorBrush x:Key="ListViewItemBackgroundSelected" Color="#12000000" />
-            <SolidColorBrush x:Key="ListViewItemBackgroundSelectedPointerOver" Color="#18000000" />
-            <SolidColorBrush x:Key="ListViewItemBackgroundSelectedPressed" Color="#0E000000" />
-            <SolidColorBrush x:Key="ListViewItemForeground" Color="#141416" />
-            <SolidColorBrush x:Key="ListViewItemForegroundPointerOver" Color="#000000" />
-            <SolidColorBrush x:Key="ListViewItemForegroundPressed" Color="#3A3A42" />
-            <SolidColorBrush x:Key="ListViewItemForegroundSelected" Color="#141416" />
-            <Color x:Key="ListViewItemSelectionIndicatorColor">#FFCE3A2B</Color>
+            <SolidColorBrush x:Key="ListViewItemBackgroundPointerOver" Color="#0D2C2820" />
+            <SolidColorBrush x:Key="ListViewItemBackgroundPressed" Color="#152C2820" />
+            <SolidColorBrush x:Key="ListViewItemBackgroundSelected" Color="#142C2820" />
+            <SolidColorBrush x:Key="ListViewItemBackgroundSelectedPointerOver" Color="#1B2C2820" />
+            <SolidColorBrush x:Key="ListViewItemBackgroundSelectedPressed" Color="#112C2820" />
+            <SolidColorBrush x:Key="ListViewItemForeground" Color="#1F2024" />
+            <SolidColorBrush x:Key="ListViewItemForegroundPointerOver" Color="#141518" />
+            <SolidColorBrush x:Key="ListViewItemForegroundPressed" Color="#3C3E46" />
+            <SolidColorBrush x:Key="ListViewItemForegroundSelected" Color="#1F2024" />
+            <Color x:Key="ListViewItemSelectionIndicatorColor">#FFC93A2B</Color>
         </ResourceDictionary>
 
         <ResourceDictionary x:Key="HighContrast">
@@ -525,6 +538,8 @@
                             CornerRadius="{TemplateBinding CornerRadius}">
                         <Grid>
                             <Border CornerRadius="22" Background="{ThemeResource GlassVolumeBrush}" IsHitTestVisible="False" />
+                            <Border Margin="1" CornerRadius="21" BorderThickness="1"
+                                    BorderBrush="{ThemeResource GlassInnerBevelBrush}" IsHitTestVisible="False" />
                             <Border Height="1" VerticalAlignment="Top" Margin="14,0"
                                     Background="{ThemeResource GlassCausticBrush}" IsHitTestVisible="False" />
                             <Border x:Name="HoverOverlay" CornerRadius="22" Background="Transparent" IsHitTestVisible="False" />
@@ -707,206 +722,7 @@
         <Setter Property="Padding" Value="4" />
     </Style>
 
-    <!-- 筛选胶囊：极简圆弧，选中转为墨白高反差 -->
-    <Style x:Key="FilterChipStyle" TargetType="ToggleButton" BasedOn="{StaticResource DefaultToggleButtonStyle}">
-        <Setter Property="Height" Value="36" />
-        <Setter Property="MinHeight" Value="36" />
-        <Setter Property="Padding" Value="18,0" />
-        <Setter Property="FontSize" Value="{StaticResource FontSizeSecondary}" />
-        <Setter Property="FontWeight" Value="SemiBold" />
-        <Setter Property="CornerRadius" Value="{StaticResource RadiusChip}" />
-        <Setter Property="BorderThickness" Value="1" />
-    </Style>
-
-    <!-- 侧栏与页面内导航项：48 高，极轻磨砂激活底板 + 朱砂指示条（严格遵循 WinUI 3 ListViewItem CommonStates 契约） -->
-    <Style x:Key="NavRailItemStyle" TargetType="ListViewItem">
-        <Setter Property="MinHeight" Value="{StaticResource NavItemHeight}" />
-        <Setter Property="Height" Value="NaN" />
-        <Setter Property="Padding" Value="14,0" />
-        <Setter Property="Margin" Value="10,2" />
-        <Setter Property="CornerRadius" Value="{StaticResource RadiusControl}" />
-        <Setter Property="FontSize" Value="{StaticResource FontSizeBody}" />
-        <Setter Property="HorizontalContentAlignment" Value="Stretch" />
-        <Setter Property="VerticalContentAlignment" Value="Center" />
-        <Setter Property="UseSystemFocusVisuals" Value="True" />
-        <Setter Property="Background" Value="Transparent" />
-        <Setter Property="BorderBrush" Value="Transparent" />
-        <Setter Property="BorderThickness" Value="0" />
-        <Setter Property="Template">
-            <Setter.Value>
-                <ControlTemplate TargetType="ListViewItem">
-                    <Grid x:Name="Root"
-                          Background="{TemplateBinding Background}"
-                          BorderBrush="{TemplateBinding BorderBrush}"
-                          BorderThickness="{TemplateBinding BorderThickness}"
-                          CornerRadius="{TemplateBinding CornerRadius}">
-                        <Border x:Name="HoverOverlay"
-                                Background="Transparent"
-                                CornerRadius="{TemplateBinding CornerRadius}"
-                                IsHitTestVisible="False" />
-                        <Border x:Name="SelectionPlate"
-                                Background="{ThemeResource GlassActivePlateBrush}"
-                                BorderBrush="{ThemeResource GlassEdgeBrush}"
-                                BorderThickness="1"
-                                CornerRadius="{TemplateBinding CornerRadius}"
-                                Opacity="0"
-                                IsHitTestVisible="False" />
-                        <Grid>
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="3" />
-                                <ColumnDefinition Width="*" />
-                            </Grid.ColumnDefinitions>
-                            <Border x:Name="Indicator" Width="3" Height="18" CornerRadius="1.5"
-                                    Background="{ThemeResource SelectionIndicatorBrush}" Opacity="0"
-                                    VerticalAlignment="Center" IsHitTestVisible="False" />
-                            <ContentPresenter x:Name="Presenter" Grid.Column="1"
-                                              Content="{TemplateBinding Content}"
-                                              ContentTemplate="{TemplateBinding ContentTemplate}"
-                                              Padding="{TemplateBinding Padding}"
-                                              HorizontalContentAlignment="{TemplateBinding HorizontalContentAlignment}"
-                                              VerticalContentAlignment="{TemplateBinding VerticalContentAlignment}" />
-                        </Grid>
-                        <VisualStateManager.VisualStateGroups>
-                            <VisualStateGroup x:Name="CommonStates">
-                                <VisualState x:Name="Normal" />
-                                <VisualState x:Name="PointerOver">
-                                    <VisualState.Setters>
-                                        <Setter Target="HoverOverlay.Background" Value="{ThemeResource NavHoverBrush}" />
-                                    </VisualState.Setters>
-                                </VisualState>
-                                <VisualState x:Name="Pressed">
-                                    <VisualState.Setters>
-                                        <Setter Target="HoverOverlay.Background" Value="{ThemeResource SurfaceHoverBrush}" />
-                                    </VisualState.Setters>
-                                </VisualState>
-                                <VisualState x:Name="Selected">
-                                    <VisualState.Setters>
-                                        <Setter Target="SelectionPlate.Opacity" Value="1" />
-                                        <Setter Target="Indicator.Opacity" Value="1" />
-                                    </VisualState.Setters>
-                                </VisualState>
-                                <VisualState x:Name="PointerOverSelected">
-                                    <VisualState.Setters>
-                                        <Setter Target="SelectionPlate.Opacity" Value="1" />
-                                        <Setter Target="Indicator.Opacity" Value="1" />
-                                        <Setter Target="HoverOverlay.Background" Value="{ThemeResource NavHoverBrush}" />
-                                    </VisualState.Setters>
-                                </VisualState>
-                                <VisualState x:Name="PressedSelected">
-                                    <VisualState.Setters>
-                                        <Setter Target="SelectionPlate.Opacity" Value="1" />
-                                        <Setter Target="Indicator.Opacity" Value="1" />
-                                        <Setter Target="HoverOverlay.Background" Value="{ThemeResource SurfaceHoverBrush}" />
-                                    </VisualState.Setters>
-                                </VisualState>
-                            </VisualStateGroup>
-                            <VisualStateGroup x:Name="DisabledStates">
-                                <VisualState x:Name="Enabled" />
-                                <VisualState x:Name="Disabled">
-                                    <VisualState.Setters>
-                                        <Setter Target="Root.Opacity" Value="0.42" />
-                                    </VisualState.Setters>
-                                </VisualState>
-                            </VisualStateGroup>
-                            <VisualStateGroup x:Name="MultiSelectStates">
-                                <VisualState x:Name="MultiSelectDisabled" />
-                                <VisualState x:Name="MultiSelectEnabled" />
-                            </VisualStateGroup>
-                        </VisualStateManager.VisualStateGroups>
-                    </Grid>
-                </ControlTemplate>
-            </Setter.Value>
-        </Setter>
-    </Style>
-
-    <!-- 应用主侧栏导航项：指示条由全局弹簧 FloatingNavIndicator 统一绘制，不内嵌静态指示条，杜绝重影 -->
-    <Style x:Key="MainNavRailItemStyle" TargetType="ListViewItem" BasedOn="{StaticResource NavRailItemStyle}">
-        <Setter Property="Template">
-            <Setter.Value>
-                <ControlTemplate TargetType="ListViewItem">
-                    <Grid x:Name="Root"
-                          Background="{TemplateBinding Background}"
-                          BorderBrush="{TemplateBinding BorderBrush}"
-                          BorderThickness="{TemplateBinding BorderThickness}"
-                          CornerRadius="{TemplateBinding CornerRadius}">
-                        <Border x:Name="HoverOverlay"
-                                Background="Transparent"
-                                CornerRadius="{TemplateBinding CornerRadius}"
-                                IsHitTestVisible="False" />
-                        <Border x:Name="SelectionPlate"
-                                Background="{ThemeResource GlassActivePlateBrush}"
-                                BorderBrush="{ThemeResource GlassEdgeBrush}"
-                                BorderThickness="1"
-                                CornerRadius="{TemplateBinding CornerRadius}"
-                                Opacity="0"
-                                IsHitTestVisible="False" />
-                        <Grid>
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="3" />
-                                <ColumnDefinition Width="*" />
-                            </Grid.ColumnDefinitions>
-                            <ContentPresenter x:Name="Presenter" Grid.Column="1"
-                                              Content="{TemplateBinding Content}"
-                                              ContentTemplate="{TemplateBinding ContentTemplate}"
-                                              Padding="{TemplateBinding Padding}"
-                                              HorizontalContentAlignment="{TemplateBinding HorizontalContentAlignment}"
-                                              VerticalContentAlignment="{TemplateBinding VerticalContentAlignment}" />
-                        </Grid>
-                        <VisualStateManager.VisualStateGroups>
-                            <VisualStateGroup x:Name="CommonStates">
-                                <VisualState x:Name="Normal" />
-                                <VisualState x:Name="PointerOver">
-                                    <VisualState.Setters>
-                                        <Setter Target="HoverOverlay.Background" Value="{ThemeResource NavHoverBrush}" />
-                                    </VisualState.Setters>
-                                </VisualState>
-                                <VisualState x:Name="Pressed">
-                                    <VisualState.Setters>
-                                        <Setter Target="HoverOverlay.Background" Value="{ThemeResource SurfaceHoverBrush}" />
-                                    </VisualState.Setters>
-                                </VisualState>
-                                <VisualState x:Name="Selected">
-                                    <VisualState.Setters>
-                                        <Setter Target="SelectionPlate.Opacity" Value="1" />
-                                    </VisualState.Setters>
-                                </VisualState>
-                                <VisualState x:Name="PointerOverSelected">
-                                    <VisualState.Setters>
-                                        <Setter Target="SelectionPlate.Opacity" Value="1" />
-                                        <Setter Target="HoverOverlay.Background" Value="{ThemeResource NavHoverBrush}" />
-                                    </VisualState.Setters>
-                                </VisualState>
-                                <VisualState x:Name="PressedSelected">
-                                    <VisualState.Setters>
-                                        <Setter Target="SelectionPlate.Opacity" Value="1" />
-                                        <Setter Target="HoverOverlay.Background" Value="{ThemeResource SurfaceHoverBrush}" />
-                                    </VisualState.Setters>
-                                </VisualState>
-                            </VisualStateGroup>
-                            <VisualStateGroup x:Name="DisabledStates">
-                                <VisualState x:Name="Enabled" />
-                                <VisualState x:Name="Disabled">
-                                    <VisualState.Setters>
-                                        <Setter Target="Root.Opacity" Value="0.42" />
-                                    </VisualState.Setters>
-                                </VisualState>
-                            </VisualStateGroup>
-                            <VisualStateGroup x:Name="MultiSelectStates">
-                                <VisualState x:Name="MultiSelectDisabled" />
-                                <VisualState x:Name="MultiSelectEnabled" />
-                            </VisualStateGroup>
-                        </VisualStateManager.VisualStateGroups>
-                    </Grid>
-                </ControlTemplate>
-            </Setter.Value>
-        </Setter>
-    </Style>
-
-    <!-- 页面内导航列表（站点/分组/云盘文件） -->
-    <Style x:Key="RailListStyle" TargetType="ListViewItem" BasedOn="{StaticResource NavRailItemStyle}">
-        <Setter Property="Padding" Value="12,0,14,0" />
-        <Setter Property="Margin" Value="0,2" />
-    </Style>
+    <!-- 横向与竖向导航项样式已集中收拢至 Styles/Navigation.xaml 统一管理 -->
 
     <!-- 建筑磨砂玻璃主面板（详情工作台 / 投屏控制台 / 直播面板） -->
     <Style x:Key="PanelCardStyle" TargetType="Border">
@@ -917,9 +733,9 @@
         <Setter Property="Padding" Value="{StaticResource CardPadding}" />
     </Style>
 
-    <!-- 磨砂设置分组卡片 -->
+    <!-- 轻透建筑设置分组卡片（无额外重度 Acrylic 模糊层，保证多卡同屏滚动满帧与层级主次分明） -->
     <Style x:Key="SettingsCardStyle" TargetType="Border">
-        <Setter Property="Background" Value="{ThemeResource GlassPanelBrush}" />
+        <Setter Property="Background" Value="{ThemeResource SettingsCardBackgroundBrush}" />
         <Setter Property="BorderBrush" Value="{ThemeResource GlassEdgeBrush}" />
         <Setter Property="BorderThickness" Value="1" />
         <Setter Property="CornerRadius" Value="{StaticResource RadiusPanel}" />

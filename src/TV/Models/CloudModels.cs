@@ -11,6 +11,7 @@ public sealed record CloudAccountInfo(
     string AccountName = "")
 {
     public string Name => DisplayName(Provider);
+    public override string ToString() => Name;
 
     public static string DisplayName(CloudProviderKind provider) => provider switch
     {

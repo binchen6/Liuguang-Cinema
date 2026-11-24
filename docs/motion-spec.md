@@ -24,7 +24,7 @@
 | 按压微缩 / 光学脉冲 | Spring | `Damping 0.72–0.86`, `Period 28–30ms` | `SetCardPressed`、`PulseElement` |
 | 通用触感按钮 | Spring | `Damping 0.82–0.84`, `Period 28–34ms` | `AttachTactile` |
 | 海报悬停双层景深 | Spring | 卡片 `0.80–0.82 / 36ms` · 内图 `0.86 / 44ms` · 播放徽章 `0.74 / 32ms` | `SetCardHover`、`ResetCard` |
-| 侧栏 / 分段弹性滑轨 | Spring | 垂直 `0.76 / 36ms`（拉伸 `0.74 / 34ms`）· 水平胶囊 `0.78 / 36ms` | `GlideVerticalIndicator`、`GlideHorizontalPill` |
+| 侧栏 / 分段弹性滑轨 | Spring | 垂直 `0.76 / 36ms`（拉伸 `0.74 / 34ms`）· 水平胶囊 `0.80 / 34ms` · 水平光轨 `0.76 / 36ms` | `GlideVerticalIndicator`、`GlideHorizontalPill`、`GlideHorizontalBar`、`HideNavIndicator` |
 | 浮层与 OSD 气囊 | Spring | `Damping 0.78–0.86`, `Period 28–34ms` | `SetFloatingVisible`、`SetOverlayVisible`、`ShowOsdToast` |
 | 页面转场 / 级联入场 | Spring | `EnterPage` / `EnterSection` (`0.89 / 40ms`) / `StaggerEntrance` (`0.90 / 42ms`) | `EnterPage`、`EnterSection`、`Reveal`、`StaggerEntrance` |
 | 播放器悬浮控制坞 | Spring + CubicBezier | 展开 `0.86–0.88 / 38–40ms` · 收起 `200–210ms EaseInCubic` | `SetPlayerChromeVisible` |
@@ -48,9 +48,11 @@
 - **`BindCoverParallax` / `UnbindCoverParallax`（详情页）**：环境柔光底图随页面向下滚动产生 `0.22x`（上限 `56px`）柔和视差；监听 `MotionService.Changed` 实时切换，离页由 `UnbindCoverParallax` 彻底释放表达式。
 - **`BindProgressiveBlur`**：支持头部透明与轻视差随滚动平滑衰减。
 
-### 3.3 弹性形变滑行指示器（`GlideVerticalIndicator` / `GlideHorizontalPill`）
-- 主侧栏与设置侧轨根据真实位移 `Δy` 驱动 `Translation.Y`，并触发瞬时纵向拉伸回弹，赋予指示条有机流光触感。
-- 媒体库分段滑轨同步弹簧插值 `Translation.X` 与宽度缩放比例，在四个分区间丝滑穿行且随时可中途折返。
+### 3.3 统一弹性形变导航控制器（`Controls/NavigationMotion.cs` + `GlideVerticalIndicator` / `GlideHorizontalPill` / `GlideHorizontalBar`）
+- 全站 7 处导航统一接入 `NavigationMotion`（`AttachVerticalList` / `AttachVerticalCustom` / `AttachHorizontalList`），自动监听 `ScrollViewer.ViewChanged`、容器虚拟化复用、`SizeChanged` 与 `ActualThemeChanged` 重锚定，选中项移出视口时经 `HideNavIndicator` 洁净淡隐，按用途差异化配置合理细节：
+  - **竖向导航（主侧栏 / 设置分区 / 搜索站点 / 直播分组）**：`GlideVerticalIndicator` 依据位移 `Δy` 驱动 `Translation.Y` 并触发瞬时纵向拉伸回弹；高频百项的直播频道列表克制使用 `VerticalNavInlineItemStyle` 行内指示，不做跨屏长跳。
+  - **横向胶囊 / 分段（点播分类 / 媒体库）**：外层共享 `ScrollViewer` + `GlideHorizontalPill`（`PillMatchWidth`），滑行胶囊与选项同帧跟随无滚动延迟；媒体库附加水平方向性 `EnterSection`。
+  - **横向状态卡（我的云盘）**：`GlideHorizontalBar`（`BottomAccentBar`）在四张网盘卡底缘居中弹性滑行拉伸，并配合账号切换方向性 `EnterSection`。
 
 ### 3.4 双层深度海报与触感微交互（`SetCardHover` / `SetCardPressed` / `ResetCard` / `AttachTactile` / `PulseElement`）
 - **海报悬停**：卡片整体抬升并微放大，裁切框内海报图片独立微缩放营造画框景深，中央磨砂圆镜播放徽章弹簧弹出；点播、搜索、详情推荐、媒体库继续观看与详情选集矩阵在虚拟化容器复用时均通过 `ResetCard` 瞬间复位，杜绝悬停态残留。

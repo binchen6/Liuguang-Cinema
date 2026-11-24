@@ -4,36 +4,15 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     IsHitTestVisible="False"
     Loaded="OnLoaded">
-    <!-- 原研哉建筑感极克制画布环境光场：柔和天光 + 微弱冷蓝景深 + 极轻朱砂余晖，为全站磨砂玻璃提供真实透光介质；高对比模式自动隐藏 -->
+    <!-- 原研哉建筑感主题自适应光场：暗室极轻电影余辉 / 素白晨光青瓷漫射，为全站磨砂玻璃提供真实透光纵深；高对比自动隐藏 -->
     <Grid Background="{ThemeResource AppCanvasGradientBrush}">
         <Grid x:Name="AmbientLayer" IsHitTestVisible="False">
-            <Ellipse Width="920" Height="920" HorizontalAlignment="Left" VerticalAlignment="Top"
-                     Margin="-320,-360,0,0" Opacity="0.085">
-                <Ellipse.Fill>
-                    <RadialGradientBrush>
-                        <GradientStop Color="#FFFFFF" Offset="0" />
-                        <GradientStop Color="#00FFFFFF" Offset="1" />
-                    </RadialGradientBrush>
-                </Ellipse.Fill>
-            </Ellipse>
-            <Ellipse Width="760" Height="760" HorizontalAlignment="Center" VerticalAlignment="Top"
-                     Margin="220,-280,0,0" Opacity="0.055">
-                <Ellipse.Fill>
-                    <RadialGradientBrush>
-                        <GradientStop Color="#6E92D8" Offset="0" />
-                        <GradientStop Color="#006E92D8" Offset="1" />
-                    </RadialGradientBrush>
-                </Ellipse.Fill>
-            </Ellipse>
-            <Ellipse Width="740" Height="740" HorizontalAlignment="Right" VerticalAlignment="Bottom"
-                     Margin="0,0,-260,-280" Opacity="0.055">
-                <Ellipse.Fill>
-                    <RadialGradientBrush>
-                        <GradientStop Color="#E8503E" Offset="0" />
-                        <GradientStop Color="#00E8503E" Offset="1" />
-                    </RadialGradientBrush>
-                </Ellipse.Fill>
-            </Ellipse>
+            <Ellipse Width="960" Height="960" HorizontalAlignment="Left" VerticalAlignment="Top"
+                     Margin="-300,-340,0,0" Fill="{ThemeResource BackdropGlowPrimaryBrush}" />
+            <Ellipse Width="820" Height="820" HorizontalAlignment="Center" VerticalAlignment="Top"
+                     Margin="200,-260,0,0" Fill="{ThemeResource BackdropGlowSecondaryBrush}" />
+            <Ellipse Width="780" Height="780" HorizontalAlignment="Right" VerticalAlignment="Bottom"
+                     Margin="0,0,-240,-260" Fill="{ThemeResource BackdropGlowAccentBrush}" />
         </Grid>
     </Grid>
 </UserControl>

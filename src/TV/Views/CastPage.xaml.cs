@@ -87,9 +87,10 @@ public sealed partial class CastPage : Page
             BodyStageColumn.Width = new GridLength(1, GridUnitType.Star);
             BodyTopRow.Height = new GridLength(1, GridUnitType.Star);
             BodyBottomRow.Height = new GridLength(0);
-            StageFrame.VerticalScrollMode = ScrollMode.Disabled;
-            StageFrame.VerticalScrollBarVisibility = ScrollBarVisibility.Disabled;
-            StageFrame.VerticalContentAlignment = VerticalAlignment.Stretch;
+            var shortWindow = args.NewSize.Height < 520;
+            StageFrame.VerticalScrollMode = shortWindow ? ScrollMode.Enabled : ScrollMode.Disabled;
+            StageFrame.VerticalScrollBarVisibility = shortWindow ? ScrollBarVisibility.Auto : ScrollBarVisibility.Disabled;
+            StageFrame.VerticalContentAlignment = shortWindow ? VerticalAlignment.Top : VerticalAlignment.Stretch;
             BodyGrid.ColumnSpacing = 32;
             BodyGrid.RowSpacing = 0;
             Grid.SetRow(CastScroll, 0);

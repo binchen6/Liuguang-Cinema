@@ -14,10 +14,10 @@
 
 | 模块 | 核心能力 |
 | --- | --- |
-| **视觉与动效** | 原研哉灵感「白 · 隙 · 镜」设计语言、自研五层光学磨砂玻璃 `GlassSurface`（菲涅尔双倒角 + 顶部焦散光丝 + 性能优先零模糊高频微件）、**暗室素墨 / 素白画廊**双主题 + 高对比度模式；120Hz GPU Compositor 可打断弹簧动效与 1:1 跟手吸顶收起交互 |
+| **视觉与动效** | 原研哉灵感「白 · 隙 · 镜」设计语言、自研五层光学磨砂玻璃 `GlassSurface`（菲涅尔双倒角 + 顶部焦散光丝 + 性能优先零模糊高频微件）、**暗室素墨 / 素白画廊（温润护眼版）**双主题 + 高对比度模式；统一全站横向/竖向导航样式与 120Hz GPU 可打断弹簧动效、全站一致滚轮行为 |
 | **点播与直播** | 兼容 TVBox 单仓/多仓/直播源；20+ 站点原生 C# 高速适配 + Java CatVod 兼容层；分类筛选、选集、多线路、EPG 节目单、收藏与断点续播 |
-| **跨站搜索与换源** | 并发跨站检索、非抢焦中文 IME 联想浮层、单站重试与验证、同名片源一键切换、失效地址自动刷新与历史换源保护 |
-| **原生影院播放器** | LibVLC 硬件解码（无硬解自动回退）、五层光学磨砂玻璃双分体顶栏与修身悬浮控制坞、默认开启内核级播放防息屏/防休眠、无操作 3 秒且指针离开控件同步隐藏鼠标、倍速/画质/画面比例/多音轨、零延迟播放暂停、全屏、画中画与弱网智能预缓存 |
+| **跨站搜索与换源** | 并发跨站检索、0ms 本地即时 + 80ms 流式并发非抢焦中文 IME 搜索预测浮层、单站重试与验证、同名片源一键切换、失效地址自动刷新与历史换源保护 |
+| **原生影院播放器** | LibVLC 硬件解码（无硬解自动回退）、五层光学磨砂玻璃双分体顶栏与修身悬浮控制坞、默认开启内核级播放防息屏/防休眠、无操作 3 秒且指针离开控件同步隐藏 WinUI 3 原生透明鼠标、倍速/画质/画面比例/多音轨、零延迟播放暂停、全屏、画中画与弱网智能预缓存 |
 | **跨源弹幕与字幕** | 接入**弹弹play 开放弹幕网络**（16 MB 哈希 + 规范化跨源 `MediaMatching` 匹配 + 手动搜集）与 B 站弹幕、PLL 单调 VSync 防回退渲染；支持字幕前移/后移与 `0.80x–1.25x` 调速 |
 | **AI 字幕与实时翻译** | 接入阿里云百炼 API：自动提取音轨生成字级时间轴字幕（`paraformer-v2` / `qwen3-asr-flash-filetrans`）、多语种双语翻译（`qwen-mt-flash` / `qwen-mt-plus`）与 WASAPI 进程级实时字幕（`qwen3-asr-flash-realtime`） |
 | **四大网盘直播** | 阿里（含资源库/备份盘双目录与纯 C# 设备会话签名）、夸克、UC、百度登录与个人云盘浏览；回环安全媒体代理、分块 Range 预读与地址自动续签 |
@@ -42,8 +42,8 @@
 > 社区开源版本尚未附带商业 Authenticode 证书，开启 Windows 11 **智能应用控制（Smart App Control）** 或 SmartScreen 的设备可能出现提示或拦截，详见 [智能应用控制与签名说明](docs/smart-app-control.md)。下载后请核对官方 SHA-256：
 
 ```powershell
-Get-FileHash .\TV-Setup-1.9.2-x64.exe -Algorithm SHA256
-Get-Content .\TV-Setup-1.9.2-x64.exe.sha256
+Get-FileHash .\TV-Setup-1.9.3-x64.exe -Algorithm SHA256
+Get-Content .\TV-Setup-1.9.3-x64.exe.sha256
 ```
 
 ---
@@ -133,7 +133,7 @@ installer/ & scripts/    Inno Setup 安装/增量脚本、构建签名与回归�
 docs/                    设计规范、开发指南、版本说明与图文介绍
 ```
 
-更多文档见 [文档中心](docs/README.md)：[项目图文介绍](docs/showcase.md) · [开发指南](docs/development.md) · [品牌设计语言](docs/brand-design-system.md) · [设计契约](docs/design-guide.md) · [动效规范](docs/motion-spec.md) · [智能应用控制说明](docs/smart-app-control.md) · [站点验收](docs/site-verification.md) · [1.9.2 发行说明](docs/releases/release-1.9.2.md)。
+更多文档见 [文档中心](docs/README.md)：[项目图文介绍](docs/showcase.md) · [开发指南](docs/development.md) · [品牌设计语言](docs/brand-design-system.md) · [设计契约](docs/design-guide.md) · [动效规范](docs/motion-spec.md) · [智能应用控制说明](docs/smart-app-control.md) · [站点验收](docs/site-verification.md) · [1.9.3 发行说明](docs/releases/release-1.9.3.md)。
 
 ---
 

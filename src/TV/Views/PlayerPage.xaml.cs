@@ -50,14 +50,20 @@ public sealed partial class PlayerPage : Page
     private bool _danmakuPrefsLoaded;
     private bool _seekDragging;
     private bool _seekHandlersWired;
+    private bool _pointerHandlersWired;
     private readonly PointerEventHandler _seekPressedHandler;
     private readonly PointerEventHandler _seekReleasedHandler;
+    private readonly PointerEventHandler _pointerMovedHandler;
     private readonly HashSet<object> _hoveredControls = [];
     private bool _pointerOverControls;
     private bool _pointerInsidePage;
     private bool _cursorHidden;
-    private int _cursorHideDepth;
+    private NativePoint _hiddenCursorScreenPos;
+    private bool _hasHiddenCursorPos;
+    private NativePoint _lastScreenCursorPos;
+    private bool _hasLastScreenCursorPos;
     private Windows.Foundation.Point _lastPointerPos = new(double.NaN, double.NaN);
+    private UIElement? _videoSwapChainPanel;
     private bool _mediaInfoVisible;
     private bool _aiBannerVisible;
     private bool _liveCaptionVisible;
@@ -68,55 +74,141 @@ public sealed partial class PlayerPage : Page
     [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
     private struct NativeRect { public int Left, Top, Right, Bottom; }
 
-    [System.Runtime.InteropServices.DllImport("user32.dll")] private static extern nint SetCursor(nint cursor);
-    [System.Runtime.InteropServices.DllImport("user32.dll")] private static extern nint LoadCursor(nint instance, nint cursorName);
-    [System.Runtime.InteropServices.DllImport("user32.dll")] private static extern int ShowCursor([System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.Bool)] bool bShow);
     [System.Runtime.InteropServices.DllImport("user32.dll")] [return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.Bool)] private static extern bool GetCursorPos(out NativePoint lpPoint);
+    [System.Runtime.InteropServices.DllImport("user32.dll")] [return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.Bool)] private static extern bool ScreenToClient(nint hWnd, ref NativePoint lpPoint);
     [System.Runtime.InteropServices.DllImport("user32.dll")] [return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.Bool)] private static extern bool GetWindowRect(nint hWnd, out NativeRect lpRect);
     [System.Runtime.InteropServices.DllImport("user32.dll")] private static extern nint GetForegroundWindow();
     [System.Runtime.InteropServices.DllImport("kernel32.dll")] private static extern bool SetProcessWorkingSetSize(nint hProcess, nint dwMinimumWorkingSetSize, nint dwMaximumWorkingSetSize);
-    private static void ShowArrowCursor() => SetCursor(LoadCursor(0, 32512));
 
     private bool IsPointerOverControls => _hoveredControls.Count > 0 || _pointerOverControls;
 
-    private bool IsCursorInsidePlayerWindow()
+    private bool TryGetClientDipCursor(out Windows.Foundation.Point dipPoint)
     {
-        if (_pointerInsidePage) return true;
+        dipPoint = default;
+        if (XamlRoot is null) return false;
+        var scale = XamlRoot.RasterizationScale;
+        if (scale <= 0) return false;
         try
         {
             var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(App.Window);
-            if (hwnd == 0 || GetForegroundWindow() != hwnd) return false;
-            if (!GetCursorPos(out var pt) || !GetWindowRect(hwnd, out var rect)) return false;
-            return pt.X >= rect.Left && pt.X <= rect.Right && pt.Y >= rect.Top && pt.Y <= rect.Bottom;
+            if (hwnd == 0 || !GetCursorPos(out var pt)) return false;
+            if (!ScreenToClient(hwnd, ref pt)) return false;
+            dipPoint = new Windows.Foundation.Point(pt.X / scale, pt.Y / scale);
+            return true;
         }
         catch { return false; }
     }
 
-    private void HideCursorIfInside()
+    private static bool IsPointInsideElement(FrameworkElement? element, Windows.Foundation.Point clientDip)
     {
-        if (_cursorHidden || !IsCursorInsidePlayerWindow()) return;
-        _cursorHidden = true;
-        for (var i = 0; i < 4; i++)
+        if (element is null || element.Visibility != Visibility.Visible || !element.IsHitTestVisible) return false;
+        if (element.ActualWidth <= 0 || element.ActualHeight <= 0) return false;
+        try
         {
-            var count = ShowCursor(false);
-            _cursorHideDepth++;
-            if (count < 0) break;
+            var bounds = element.TransformToVisual(null)
+                .TransformBounds(new Windows.Foundation.Rect(0, 0, element.ActualWidth, element.ActualHeight));
+            return clientDip.X >= bounds.X && clientDip.X <= bounds.X + bounds.Width
+                && clientDip.Y >= bounds.Y && clientDip.Y <= bounds.Y + bounds.Height;
         }
-        SetCursor(0);
+        catch { return false; }
+    }
+
+    /// <summary>
+    /// Authoritative geometric check of whether the physical pointer is currently resting on any
+    /// visible interactive player chrome island. Reconciles stale PointerEntered/Exited state after
+    /// fullscreen transitions, window resizes, or flyout dismissals.
+    /// </summary>
+    private bool SyncAndCheckPointerOverControls()
+    {
+        if (!TryGetClientDipCursor(out var dip))
+            return IsPointerOverControls;
+
+        var overChrome = _controlsVisible && ControlsLayer.Visibility == Visibility.Visible && ControlsLayer.IsHitTestVisible
+            && (IsPointInsideElement(TopGlassSurface, dip)
+                || IsPointInsideElement(TopActionsGlassSurface, dip)
+                || IsPointInsideElement(BottomGlassSurface, dip));
+        var overFloating = IsPointInsideElement(AiSubtitleBanner, dip)
+            || IsPointInsideElement(CenterPlayHost, dip);
+
+        var actuallyOver = overChrome || overFloating;
+        if (!actuallyOver && (_hoveredControls.Count > 0 || _pointerOverControls))
+        {
+            _hoveredControls.Clear();
+            _pointerOverControls = false;
+        }
+        else if (actuallyOver)
+        {
+            _pointerOverControls = true;
+        }
+        return actuallyOver;
+    }
+
+    private bool IsCursorInsidePlayerPage()
+    {
+        if (!TryGetClientDipCursor(out var dip)) return _pointerInsidePage;
+        return IsPointInsideElement(this, dip);
+    }
+
+    private UIElement? ResolveVideoSwapChainPanel()
+    {
+        if (_videoSwapChainPanel is not null) return _videoSwapChainPanel;
+        static UIElement? FindSwapChain(DependencyObject root)
+        {
+            var count = VisualTreeHelper.GetChildrenCount(root);
+            for (var i = 0; i < count; i++)
+            {
+                var child = VisualTreeHelper.GetChild(root, i);
+                if (child is SwapChainPanel panel) return panel;
+                if (FindSwapChain(child) is { } found) return found;
+            }
+            return null;
+        }
+        _videoSwapChainPanel = FindSwapChain(VideoView);
+        return _videoSwapChainPanel;
+    }
+
+    private void ApplyCursorToVideoTree(InputCursor? cursor)
+    {
+        ProtectedCursor = cursor;
+        InputCursorHelper.SetElementCursor(RootGrid, cursor);
+        InputCursorHelper.SetElementCursor(VideoStageHost, cursor);
+        InputCursorHelper.SetElementCursor(VideoView, cursor);
+        InputCursorHelper.SetElementCursor(ResolveVideoSwapChainPanel(), cursor);
+    }
+
+    private void HideCursor()
+    {
+        if (_cursorHidden) return;
+        _cursorHidden = true;
+        if (InputCursorHelper.GetBlankCursor() is { } blank)
+            ApplyCursorToVideoTree(blank);
+        if (IsCursorInsidePlayerPage())
+        {
+            try
+            {
+                var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(App.Window);
+                if (hwnd != 0 && GetForegroundWindow() == hwnd)
+                    InputCursorHelper.RefreshStationaryCursor(hide: true);
+            }
+            catch { }
+        }
     }
 
     private void RestoreCursor()
     {
-        if (_cursorHidden || _cursorHideDepth > 0)
+        if (!_cursorHidden && ProtectedCursor is null) return;
+        _cursorHidden = false;
+        ApplyCursorToVideoTree(null);
+        if (IsCursorInsidePlayerPage())
         {
-            _cursorHidden = false;
-            while (_cursorHideDepth > 0)
+            try
             {
-                ShowCursor(true);
-                _cursorHideDepth--;
+                var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(App.Window);
+                if (hwnd != 0 && GetForegroundWindow() == hwnd)
+                    InputCursorHelper.RefreshStationaryCursor(hide: false);
             }
+            catch { }
         }
-        ShowArrowCursor();
     }
 
     private static void TrimWorkingSet()
@@ -151,6 +243,7 @@ public sealed partial class PlayerPage : Page
         MotionService.AttachTactile(FullScreenButton, 1.05f, 0.93f, 0f);
         _seekPressedHandler = OnSeekPressed;
         _seekReleasedHandler = OnSeekReleased;
+        _pointerMovedHandler = OnPointerMoved;
         _hideTimer = DispatcherQueue.CreateTimer();
         _hideTimer.Interval = TimeSpan.FromSeconds(3);
         _hideTimer.IsRepeating = false;
@@ -191,6 +284,11 @@ public sealed partial class PlayerPage : Page
             SeekSlider.AddHandler(UIElement.PointerCaptureLostEvent, _seekReleasedHandler, handledEventsToo: true);
             _seekHandlersWired = true;
         }
+        if (!_pointerHandlersWired)
+        {
+            AddHandler(UIElement.PointerMovedEvent, _pointerMovedHandler, handledEventsToo: true);
+            _pointerHandlersWired = true;
+        }
         if (!_glassShadowsWired)
         {
             _glassShadowsWired = true;
@@ -207,6 +305,11 @@ public sealed partial class PlayerPage : Page
         App.Window.Activated += OnWindowActivated;
         _hoveredControls.Clear();
         _pointerOverControls = false;
+        _hasHiddenCursorPos = false;
+        _hasLastScreenCursorPos = false;
+        _videoSwapChainPanel = null;
+        _lastPointerPos = new(double.NaN, double.NaN);
+        _ = InputCursorHelper.GetBlankCursor();
         SyncAnimatedOverlays();
 
         Diagnostics.Log($"Player page loaded, output ready={ViewModel.Service.IsVideoOutputReady}");
@@ -292,6 +395,11 @@ public sealed partial class PlayerPage : Page
             SeekSlider.RemoveHandler(UIElement.PointerCaptureLostEvent, _seekReleasedHandler);
             _seekHandlersWired = false;
         }
+        if (_pointerHandlersWired)
+        {
+            RemoveHandler(UIElement.PointerMovedEvent, _pointerMovedHandler);
+            _pointerHandlersWired = false;
+        }
         _seekDragging = false;
         _sourceDialog?.Hide();
         _sourceDialog = null;
@@ -303,7 +411,10 @@ public sealed partial class PlayerPage : Page
         _hoveredControls.Clear();
         _pointerOverControls = false;
         _pointerInsidePage = false;
+        _hasHiddenCursorPos = false;
+        _hasLastScreenCursorPos = false;
         RestoreCursor();
+        _videoSwapChainPanel = null;
         VideoView.Initialized -= OnVideoViewInitialized;
         VideoView.MediaPlayer = null;
     }
@@ -328,6 +439,11 @@ public sealed partial class PlayerPage : Page
             _pointerOverControls = false;
             _pointerInsidePage = false;
             RestoreCursor();
+        }
+        else if (IsLoaded && _controlsVisible)
+        {
+            SyncAndCheckPointerOverControls();
+            RestartHideTimerIfEligible();
         }
     }
 
@@ -1616,17 +1732,55 @@ public sealed partial class PlayerPage : Page
         RestartHideTimerIfEligible();
     }
 
+    private void OnPageSizeChanged(object sender, SizeChangedEventArgs e)
+    {
+        if (!IsLoaded) return;
+        // 进入/退出全屏或缩放窗口后控件位置变化，重新校准指针是否在控件上，防止悬浮态卡死阻止自动隐藏
+        DispatcherQueue.TryEnqueue(DispatcherQueuePriority.Low, () =>
+        {
+            if (!IsLoaded) return;
+            SyncAndCheckPointerOverControls();
+            if (_controlsVisible) RestartHideTimerIfEligible();
+        });
+    }
+
     private void OnPointerMoved(object sender, PointerRoutedEventArgs e)
     {
         _pointerInsidePage = true;
         var pos = e.GetCurrentPoint(this).Position;
-        var moved = double.IsNaN(_lastPointerPos.X)
-            || Math.Abs(pos.X - _lastPointerPos.X) >= 1.5
-            || Math.Abs(pos.Y - _lastPointerPos.Y) >= 1.5;
-        if (!_controlsVisible && !moved) return;
+        var gotScreen = GetCursorPos(out var curPt);
+        if (!_controlsVisible)
+        {
+            // 使用屏幕物理坐标防抖：ControlsLayer 切换 IsHitTestVisible/Visibility 或静止刷光标时 WinUI 3 会派发合成 PointerMoved，
+            // 若物理光标未真正移动 (>=3px)，严禁误唤醒控制条和鼠标。
+            if (_hasHiddenCursorPos && gotScreen)
+            {
+                if (Math.Abs(curPt.X - _hiddenCursorScreenPos.X) < 3 && Math.Abs(curPt.Y - _hiddenCursorScreenPos.Y) < 3)
+                    return;
+            }
+            else
+            {
+                var moved = !double.IsNaN(_lastPointerPos.X)
+                    && (Math.Abs(pos.X - _lastPointerPos.X) >= 2.0 || Math.Abs(pos.Y - _lastPointerPos.Y) >= 2.0);
+                if (!moved) return;
+            }
+        }
+        else if (gotScreen && _hasLastScreenCursorPos
+            && Math.Abs(curPt.X - _lastScreenCursorPos.X) < 2
+            && Math.Abs(curPt.Y - _lastScreenCursorPos.Y) < 2)
+        {
+            // 避免静止 0px 合成 PointerMoved 不断重置 3 秒自动隐藏计时器
+            return;
+        }
+        if (gotScreen)
+        {
+            _lastScreenCursorPos = curPt;
+            _hasLastScreenCursorPos = true;
+        }
         _lastPointerPos = pos;
 
-        _pointerOverControls = e.OriginalSource is FrameworkElement element && IsInsideControls(element);
+        _pointerOverControls = (e.OriginalSource is FrameworkElement element && IsInsideControls(element))
+            || SyncAndCheckPointerOverControls();
         if (!_pointerOverControls && _hoveredControls.Count > 0)
             _hoveredControls.Clear();
 
@@ -1724,6 +1878,7 @@ public sealed partial class PlayerPage : Page
         _hideTimer.Stop();
         _hoveredControls.Clear();
         _pointerOverControls = false;
+        _hasHiddenCursorPos = GetCursorPos(out _hiddenCursorScreenPos);
         _controlsVisible = false;
         SetChromeVisible(false);
         UpdateCenterPlayVisibility();
@@ -1731,9 +1886,17 @@ public sealed partial class PlayerPage : Page
 
     private void SetChromeVisible(bool visible)
     {
-        if (visible) RestoreCursor();
-        else HideCursorIfInside();
-        MotionService.SetPlayerChromeVisible(ControlsLayer, TopChromeBar, BottomChromeBar, visible);
+        if (visible)
+        {
+            _hasHiddenCursorPos = false;
+            RestoreCursor();
+            MotionService.SetPlayerChromeVisible(ControlsLayer, TopChromeBar, BottomChromeBar, true);
+        }
+        else
+        {
+            MotionService.SetPlayerChromeVisible(ControlsLayer, TopChromeBar, BottomChromeBar, false);
+            HideCursor();
+        }
     }
 
     private void UpdateCenterPlayVisibility()
@@ -1760,9 +1923,9 @@ public sealed partial class PlayerPage : Page
 
     private void OnHideTimer(DispatcherQueueTimer sender, object args)
     {
-        if (!ViewModel.IsPlaying || AnyFlyoutOpen() || _seekDragging || IsPointerOverControls) return;
-        Diagnostics.Log("Player chrome auto-hidden after 3s idle");
+        if (!ViewModel.IsPlaying || AnyFlyoutOpen() || _seekDragging || SyncAndCheckPointerOverControls()) return;
         HideControlsNow();
+        Diagnostics.Log($"Player chrome & cursor auto-hidden after 3s idle (blankCursor={ProtectedCursor is not null}, swapChain={_videoSwapChainPanel is not null})");
     }
 
     private void OnMenuFlyoutOpening(object? sender, object e) => _hideTimer.Stop();

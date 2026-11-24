@@ -8,6 +8,7 @@ namespace TV.Views;
 
 public sealed partial class LivePage : Page
 {
+    private readonly Controls.NavigationRailController _groupNav;
     private bool _narrow;
     private bool _ready;
     private int _stage;
@@ -15,6 +16,7 @@ public sealed partial class LivePage : Page
     public LivePage()
     {
         InitializeComponent();
+        _groupNav = Controls.NavigationMotion.AttachVerticalList(GroupList, GroupRailHost, GroupGlideIndicator);
         MotionService.AttachTactile(LiveReloadButton, 1.04f, 0.94f, -1f);
         MotionService.AttachTactile(LiveStreamButton, 1.04f, 0.94f, -1f);
         MotionService.AttachTactile(PlayChannelButton, 1.02f, 0.96f, -1f);
@@ -42,6 +44,7 @@ public sealed partial class LivePage : Page
         _ready = true;
         UpdateGroupSection();
         ApplyLayout(ActualWidth);
+        _groupNav.Sync(animate: false);
     }
 
     private void OnUnloaded(object sender, RoutedEventArgs e)
@@ -132,8 +135,9 @@ public sealed partial class LivePage : Page
 
     private void OnGroupSelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        if (!_ready || !_narrow || _stage != 0 || e.AddedItems.Count == 0) return;
-        ShowStage(1);
+        if (!_ready || e.AddedItems.Count == 0) return;
+        if (_narrow && _stage == 0) ShowStage(1);
+        else if (!_narrow) MotionService.EnterSection(ChannelList, offsetY: 8);
     }
 
     private void OnChannelSelectionChanged(object sender, SelectionChangedEventArgs e)

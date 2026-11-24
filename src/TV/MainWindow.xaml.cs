@@ -22,7 +22,7 @@ public sealed partial class MainWindow : Window
 {
     private string _currentTag = string.Empty;
     private PageTransitionKind _pendingTransition = PageTransitionKind.TopLevel;
-    private bool _hasAnimatedNavIndicator;
+    private readonly NavigationRailController? _navRail;
     private bool _fullScreen;
     private bool _compact;
     private bool _leavingPlayer;
@@ -71,6 +71,7 @@ public sealed partial class MainWindow : Window
         MotionService.AttachTactile(BackButton, 1.04f, 0.94f, 0f);
         if (!App.PlayerOnly)
         {
+            _navRail = NavigationMotion.AttachVerticalCustom(NavPaneContent, FloatingNavIndicator, ResolveActiveNavTarget);
             MotionService.AttachTactile(NavSearchButton, 1.015f, 0.975f, 0f);
             App.Services.Sniffer.Attach(ShellRoot);
         }
@@ -289,13 +290,15 @@ public sealed partial class MainWindow : Window
     private void SyncNavSelection(string tag)
     {
         if (App.PlayerOnly) return;
-        MotionService.FadeOpacity(SettingsSelectionPlate, tag == "settings" ? 1f : 0f, 160);
-        if (tag == "settings")
+        var isSettings = tag == "settings";
+        MotionService.FadeOpacity(SettingsSelectionPlate, isSettings ? 1f : 0f, 160);
+        UpdateSettingsButtonForeground(isSettings);
+        if (isSettings)
         {
             _syncingNav = true;
             try { NavList.SelectedItem = null; }
             finally { _syncingNav = false; }
-            UpdateNavVisuals(tag);
+            _navRail?.Sync(animate: true);
             return;
         }
         if (!PrimaryTags.Contains(tag)) return;
@@ -305,38 +308,48 @@ public sealed partial class MainWindow : Window
             NavList.SelectedItem = NavList.Items.OfType<ListViewItem>().FirstOrDefault(item => item.Tag as string == tag);
         }
         finally { _syncingNav = false; }
-        UpdateNavVisuals(tag);
+        _navRail?.Sync(animate: true);
     }
 
-    // 将全局弹簧指示条平滑滑行到当前激活项（含设置按钮）。
+    private void UpdateSettingsButtonForeground(bool active)
+    {
+        var key = active ? "NavItemSelectedForegroundBrush" : "NavItemForegroundBrush";
+        if (ResolveThemeBrush(key) is { } brush)
+            SettingsButton.Foreground = brush;
+        else
+            SettingsButton.ClearValue(Control.ForegroundProperty);
+    }
+
+    private Brush? ResolveThemeBrush(string key)
+    {
+        var themeKey = Accessibility.HighContrast
+            ? "HighContrast"
+            : ShellRoot.ActualTheme == ElementTheme.Light ? "Light" : "Default";
+        foreach (var dict in Application.Current.Resources.MergedDictionaries)
+        {
+            if (dict.ThemeDictionaries.TryGetValue(themeKey, out var themed) &&
+                themed is ResourceDictionary rd &&
+                rd.TryGetValue(key, out var raw) &&
+                raw is Brush brush)
+                return brush;
+        }
+        return Application.Current.Resources.TryGetValue(key, out var fallback) ? fallback as Brush : null;
+    }
+
+    private FrameworkElement? ResolveActiveNavTarget()
+    {
+        if (_closing || App.PlayerOnly) return null;
+        return _currentTag == "settings"
+            ? SettingsButton
+            : NavList.Items.OfType<ListViewItem>().FirstOrDefault(item => item.Tag as string == _currentTag)
+                ?? NavList.SelectedItem as FrameworkElement;
+    }
+
+    // 供主题切换与窗口布局变化重锚定主侧栏指示条。
     private void UpdateNavVisuals(string tag)
     {
-        FrameworkElement? activeTarget = tag == "settings"
-            ? SettingsButton
-            : NavList.Items.OfType<ListViewItem>().FirstOrDefault(item => item.Tag as string == tag)
-                ?? NavList.SelectedItem as FrameworkElement;
-        ScheduleIndicatorGlide(activeTarget);
-    }
-
-    private void ScheduleIndicatorGlide(FrameworkElement? target)
-    {
-        if (App.PlayerOnly || target is null) return;
-        DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Normal, () =>
-        {
-            if (_closing || target.XamlRoot is null || NavPaneContent.XamlRoot is null) return;
-            try
-            {
-                var pt = target.TransformToVisual(NavPaneContent).TransformPoint(new Windows.Foundation.Point(0, 0));
-                var centerY = pt.Y + (target.ActualHeight - FloatingNavIndicator.Height) * 0.5;
-                if (centerY > 0)
-                {
-                    FloatingNavIndicator.Opacity = 1;
-                    MotionService.GlideVerticalIndicator(FloatingNavIndicator, centerY, animate: _hasAnimatedNavIndicator);
-                    _hasAnimatedNavIndicator = true;
-                }
-            }
-            catch { }
-        });
+        UpdateSettingsButtonForeground(tag == "settings");
+        _navRail?.Sync(animate: false);
     }
 
     private void OnNavSelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -406,11 +419,7 @@ public sealed partial class MainWindow : Window
         SettingsButton.Padding = narrow ? new Thickness(0) : new Thickness(17, 0, 14, 0);
         BrandBlock.Margin = narrow ? new Thickness(0, 4, 0, 0) : new Thickness(20, 4, 12, 0);
         BrandBlock.HorizontalAlignment = narrow ? HorizontalAlignment.Center : HorizontalAlignment.Left;
-        var currentNav = _currentTag == "settings"
-            ? (FrameworkElement?)SettingsButton
-            : NavList.Items.OfType<ListViewItem>().FirstOrDefault(i => i.Tag as string == _currentTag)
-                ?? NavList.SelectedItem as FrameworkElement;
-        ScheduleIndicatorGlide(currentNav);
+        _navRail?.Sync(animate: false);
     }
 
     private void OnBackClick(object sender, RoutedEventArgs e) => GoBack();
@@ -486,8 +495,8 @@ public sealed partial class MainWindow : Window
             // 与 Styles/Tokens.xaml 的 PrimaryTextBrush / SecondaryTextBrush 保持一致。
             if (ShellRoot.ActualTheme == ElementTheme.Light)
             {
-                foreground = Windows.UI.Color.FromArgb(255, 0x14, 0x14, 0x16);
-                inactiveForeground = Windows.UI.Color.FromArgb(255, 0x59, 0x59, 0x62);
+                foreground = Windows.UI.Color.FromArgb(255, 0x1F, 0x20, 0x24);
+                inactiveForeground = Windows.UI.Color.FromArgb(255, 0x53, 0x55, 0x5E);
             }
             else
             {

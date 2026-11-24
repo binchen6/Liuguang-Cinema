@@ -11,6 +11,8 @@ public sealed partial class CloudDrivePage : Page
 {
     private ContentDialog? _loginDialog;
     private CloudDriveViewModel? _observed;
+    private readonly NavigationRailController _accountNav;
+    private int _lastAccountIndex = -1;
     private bool _hasStaggered;
     private double _pendingOffsetX;
     private double _pendingOffsetY;
@@ -19,6 +21,12 @@ public sealed partial class CloudDrivePage : Page
     public CloudDrivePage()
     {
         InitializeComponent();
+        _accountNav = NavigationMotion.AttachHorizontalList(
+            AccountStrip,
+            AccountTrackHost,
+            AccountGlideBar,
+            HorizontalIndicatorMode.BottomAccentBar,
+            AccountScroller);
         MotionService.AttachTactile(CloudRefreshButton, 1.04f, 0.94f, -1f);
         MotionService.AttachTactile(GoUpButton, 1.02f, 0.96f, -1f);
         MotionService.AttachTactile(CloudSearchButton, 1.02f, 0.96f, -1f);
@@ -31,13 +39,18 @@ public sealed partial class CloudDrivePage : Page
         if (!_hasStaggered)
         {
             _hasStaggered = true;
-            MotionService.StaggerEntrance(offsetY: 12, stepMs: 35, CloudHeader, AccountStrip, PathBar, EntriesHost);
+            MotionService.StaggerEntrance(offsetY: 12, stepMs: 35, CloudHeader, AccountScroller, PathBar, EntriesHost);
         }
         if (_observed is not null) _observed.PropertyChanged -= OnViewModelPropertyChanged;
         _observed = ViewModel;
         _observed.PropertyChanged += OnViewModelPropertyChanged;
         try { await ViewModel.InitializeAsync(); }
         catch (Exception ex) { ViewModel.StatusMessage = ex.Message; }
+        if (IsLoaded)
+        {
+            _lastAccountIndex = _observed.SelectedAccount is { } acc ? _observed.Accounts.IndexOf(acc) : -1;
+            _accountNav.Sync(animate: false);
+        }
     }
 
     private void OnUnloaded(object sender, RoutedEventArgs e)
@@ -58,11 +71,22 @@ public sealed partial class CloudDrivePage : Page
 
     private void OnViewModelPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
     {
-        if (e.PropertyName == nameof(CloudDriveViewModel.SelectedAccount))
+        if (e.PropertyName == nameof(CloudDriveViewModel.SelectedAccount) && _observed is not null)
         {
-            _pendingOffsetX = 0;
-            _pendingOffsetY = 10;
+            var nextIndex = _observed.SelectedAccount is { } acc ? _observed.Accounts.IndexOf(acc) : -1;
+            if (_lastAccountIndex >= 0 && nextIndex >= 0 && nextIndex != _lastAccountIndex)
+            {
+                _pendingOffsetX = nextIndex > _lastAccountIndex ? 16 : -16;
+                _pendingOffsetY = 0;
+            }
+            else
+            {
+                _pendingOffsetX = 0;
+                _pendingOffsetY = 10;
+            }
+            _lastAccountIndex = nextIndex;
             _hasPendingTransition = true;
+            _accountNav.Sync(animate: true, bringIntoView: true);
         }
         else if (e.PropertyName == nameof(CloudDriveViewModel.IsLoading) && _observed is { IsLoading: false } && _hasPendingTransition)
         {

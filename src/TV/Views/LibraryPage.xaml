@@ -15,57 +15,6 @@
             <GradientStop Color="#EB0B0B0D" Offset="1" />
         </LinearGradientBrush>
 
-        <!-- 分段滑轨项：文字干净居中，激活胶囊由 SegmentGlidePill 物理弹簧驱动 -->
-        <Style x:Key="SegmentItemStyle" TargetType="ListViewItem">
-            <Setter Property="Height" Value="38" />
-            <Setter Property="MinHeight" Value="38" />
-            <Setter Property="Padding" Value="18,0" />
-            <Setter Property="Margin" Value="0,0,4,0" />
-            <Setter Property="FontSize" Value="{StaticResource FontSizeSecondary}" />
-            <Setter Property="HorizontalContentAlignment" Value="Center" />
-            <Setter Property="VerticalContentAlignment" Value="Center" />
-            <Setter Property="CornerRadius" Value="19" />
-            <Setter Property="UseSystemFocusVisuals" Value="True" />
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="ListViewItem">
-                        <Grid x:Name="Root" Background="Transparent" CornerRadius="19">
-                            <Border x:Name="HoverPlate" Background="Transparent" CornerRadius="19" />
-                            <ContentPresenter x:Name="Presenter"
-                                              Content="{TemplateBinding Content}"
-                                              ContentTemplate="{TemplateBinding ContentTemplate}"
-                                              Padding="{TemplateBinding Padding}"
-                                              HorizontalContentAlignment="{TemplateBinding HorizontalContentAlignment}"
-                                              VerticalContentAlignment="{TemplateBinding VerticalContentAlignment}" />
-                            <VisualStateManager.VisualStateGroups>
-                                <VisualStateGroup x:Name="CommonStates">
-                                    <VisualState x:Name="Normal" />
-                                    <VisualState x:Name="PointerOver">
-                                        <VisualState.Setters>
-                                            <Setter Target="HoverPlate.Background" Value="{ThemeResource NavHoverBrush}" />
-                                        </VisualState.Setters>
-                                    </VisualState>
-                                    <VisualState x:Name="Pressed">
-                                        <VisualState.Setters>
-                                            <Setter Target="HoverPlate.Background" Value="{ThemeResource SurfaceHoverBrush}" />
-                                        </VisualState.Setters>
-                                    </VisualState>
-                                    <VisualState x:Name="Selected" />
-                                    <VisualState x:Name="PointerOverSelected" />
-                                    <VisualState x:Name="PressedSelected" />
-                                    <VisualState x:Name="Disabled" />
-                                </VisualStateGroup>
-                                <VisualStateGroup x:Name="MultiSelectStates">
-                                    <VisualState x:Name="MultiSelectDisabled" />
-                                    <VisualState x:Name="MultiSelectEnabled" />
-                                </VisualStateGroup>
-                            </VisualStateManager.VisualStateGroups>
-                        </Grid>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
-        </Style>
-
         <Style x:Key="LibraryRowItemStyle" TargetType="ListViewItem">
             <Setter Property="Padding" Value="0" />
             <Setter Property="Margin" Value="0,0,0,2" />
@@ -77,109 +26,119 @@
         </Style>
     </Page.Resources>
 
-    <Grid x:Name="RootLayout" Padding="{StaticResource PagePaddingWide}" RowSpacing="20">
+    <Grid x:Name="RootLayout" Padding="{StaticResource PagePaddingWide}" RowSpacing="18">
         <Grid.RowDefinitions>
-            <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
 
-        <!-- 画册个人典藏报头 -->
-        <Grid x:Name="HeaderGrid" ColumnSpacing="{StaticResource SpaceMedium}">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="*" />
-                <ColumnDefinition Width="Auto" />
-                <ColumnDefinition Width="Auto" />
-                <ColumnDefinition Width="Auto" />
-            </Grid.ColumnDefinitions>
-            <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
-            <StackPanel x:Name="HeaderTitle" Spacing="2" VerticalAlignment="Center">
-                <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                    <Ellipse Width="5" Height="5" Fill="{ThemeResource VermilionBrush}" VerticalAlignment="Center" />
-                    <TextBlock Text="03 · COLLECTION" Style="{StaticResource EyebrowText}" />
+        <!-- 画册个人典藏报头 + 按需反馈条（避免未展开时产生双倍行距空带） -->
+        <StackPanel Spacing="12">
+            <Grid x:Name="HeaderGrid" ColumnSpacing="{StaticResource SpaceMedium}">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+                <StackPanel x:Name="HeaderTitle" Spacing="2" VerticalAlignment="Center">
+                    <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                        <Ellipse Width="5" Height="5" Fill="{ThemeResource VermilionBrush}" VerticalAlignment="Center" />
+                        <TextBlock Text="03 · COLLECTION" Style="{StaticResource EyebrowText}" />
+                    </StackPanel>
+                    <TextBlock Text="媒体库" Style="{StaticResource PageTitleText}" />
+                    <TextBlock x:Name="HeaderSubtitle" Text="继续观看、收藏、离线下载与本地影片的个人片库" Style="{StaticResource SecondaryText}" />
                 </StackPanel>
-                <TextBlock Text="媒体库" Style="{StaticResource PageTitleText}" />
-                <TextBlock x:Name="HeaderSubtitle" Text="继续观看、收藏、离线下载与本地影片的个人片库" Style="{StaticResource SecondaryText}" />
-            </StackPanel>
-            <TextBox x:Name="SearchBox" Grid.Column="1" Width="240" VerticalAlignment="Center"
-                     PlaceholderText="搜索媒体库" AutomationProperties.Name="搜索媒体库"
-                     Text="{Binding SearchQuery, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
-            <DropDownButton x:Name="LocalMediaButton" Grid.Column="2" Content="本地媒体" Style="{StaticResource SecondaryButtonStyle}" VerticalAlignment="Center"
-                            AutomationProperties.Name="本地媒体">
-                <DropDownButton.Flyout>
-                    <MenuFlyout>
-                        <MenuFlyoutItem Text="导入视频文件（可多选）" Command="{Binding ImportFilesCommand}" />
-                        <MenuFlyoutItem Text="导入文件夹并自动更新" Command="{Binding ImportFolderCommand}" />
-                        <MenuFlyoutSeparator />
-                        <MenuFlyoutItem Text="直接打开文件" Command="{Binding OpenFileCommand}" />
-                    </MenuFlyout>
-                </DropDownButton.Flyout>
-            </DropDownButton>
-            <Button x:Name="LibraryRefreshButton" Grid.Column="3" Style="{StaticResource IconButtonStyle}" VerticalAlignment="Center"
-                    Click="OnRefreshClick" ToolTipService.ToolTip="刷新"
-                    AutomationProperties.Name="刷新">
-                <controls:LineIcon PathData="{StaticResource IconRefresh}" IconSize="17" />
-            </Button>
-        </Grid>
-
-        <InfoBar Grid.Row="1" IsOpen="{Binding HasError}" Message="{Binding StatusMessage}"
-                 Severity="Warning" IsClosable="False" />
-        <InfoBar Grid.Row="1" IsOpen="{Binding HasSuccess}" Message="{Binding StatusMessage}"
-                 Severity="Success" IsClosable="False" />
-
-        <!-- 五层光学磨砂分段滑轨：弹性晶体胶囊随切换水平滑行变形 -->
-        <controls:GlassSurface x:Name="SegmentTrack" Grid.Row="2" HorizontalAlignment="Left"
-                               CornerRadius="23" Padding="4">
-            <Grid x:Name="SegmentTrackHost">
-                <!-- 弹簧滑行的晶体高亮胶囊 + 顶部微高光丝 + 底部极细朱砂光点 -->
-                <Border x:Name="SegmentGlidePill"
-                        Height="38" Width="96" CornerRadius="19"
-                        Background="{ThemeResource GlassActivePlateBrush}"
-                        BorderBrush="{ThemeResource GlassEdgeBrush}" BorderThickness="1"
-                        HorizontalAlignment="Left" VerticalAlignment="Center"
-                        Opacity="0" IsHitTestVisible="False">
-                    <Grid>
-                        <Border Height="1" VerticalAlignment="Top" Margin="12,0"
-                                Background="{ThemeResource GlassCausticBrush}" IsHitTestVisible="False" />
-                        <Border Width="16" Height="2" CornerRadius="1"
-                                Background="{ThemeResource VermilionBrush}"
-                                HorizontalAlignment="Center" VerticalAlignment="Bottom" Margin="0,0,0,3" />
-                    </Grid>
-                </Border>
-                <ListView x:Name="SegmentList" SelectionMode="Single"
-                          IsItemClickEnabled="False" HorizontalAlignment="Left" Padding="0"
-                          Background="Transparent" BorderThickness="0"
-                          ItemContainerStyle="{StaticResource SegmentItemStyle}"
-                          SelectionChanged="OnSegmentSelectionChanged"
-                          SizeChanged="OnSegmentListSizeChanged"
-                          ScrollViewer.HorizontalScrollMode="Enabled"
-                          ScrollViewer.HorizontalScrollBarVisibility="Hidden"
-                          ScrollViewer.VerticalScrollMode="Disabled"
-                          ScrollViewer.VerticalScrollBarVisibility="Disabled">
-                    <ListView.ItemsPanel>
-                        <ItemsPanelTemplate>
-                            <StackPanel Orientation="Horizontal" />
-                        </ItemsPanelTemplate>
-                    </ListView.ItemsPanel>
-                    <ListViewItem AutomationProperties.Name="继续观看" ToolTipService.ToolTip="继续观看">
-                        <TextBlock Text="继续观看" Style="{StaticResource SecondaryText}" FontWeight="SemiBold" Foreground="{ThemeResource PrimaryTextBrush}" />
-                    </ListViewItem>
-                    <ListViewItem AutomationProperties.Name="收藏" ToolTipService.ToolTip="收藏">
-                        <TextBlock Text="收藏" Style="{StaticResource SecondaryText}" FontWeight="SemiBold" Foreground="{ThemeResource PrimaryTextBrush}" />
-                    </ListViewItem>
-                    <ListViewItem AutomationProperties.Name="下载" ToolTipService.ToolTip="下载">
-                        <TextBlock Text="下载" Style="{StaticResource SecondaryText}" FontWeight="SemiBold" Foreground="{ThemeResource PrimaryTextBrush}" />
-                    </ListViewItem>
-                    <ListViewItem AutomationProperties.Name="本地视频" ToolTipService.ToolTip="本地视频">
-                        <TextBlock Text="本地视频" Style="{StaticResource SecondaryText}" FontWeight="SemiBold" Foreground="{ThemeResource PrimaryTextBrush}" />
-                    </ListViewItem>
-                </ListView>
+                <TextBox x:Name="SearchBox" Grid.Column="1" Width="240" VerticalAlignment="Center"
+                         PlaceholderText="搜索媒体库" AutomationProperties.Name="搜索媒体库"
+                         Text="{Binding SearchQuery, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                <DropDownButton x:Name="LocalMediaButton" Grid.Column="2" Content="本地媒体" Style="{StaticResource SecondaryButtonStyle}" VerticalAlignment="Center"
+                                AutomationProperties.Name="本地媒体">
+                    <DropDownButton.Flyout>
+                        <MenuFlyout>
+                            <MenuFlyoutItem Text="导入视频文件（可多选）" Command="{Binding ImportFilesCommand}" />
+                            <MenuFlyoutItem Text="导入文件夹并自动更新" Command="{Binding ImportFolderCommand}" />
+                            <MenuFlyoutSeparator />
+                            <MenuFlyoutItem Text="直接打开文件" Command="{Binding OpenFileCommand}" />
+                        </MenuFlyout>
+                    </DropDownButton.Flyout>
+                </DropDownButton>
+                <Button x:Name="LibraryRefreshButton" Grid.Column="3" Style="{StaticResource IconButtonStyle}" VerticalAlignment="Center"
+                        Click="OnRefreshClick" ToolTipService.ToolTip="刷新"
+                        AutomationProperties.Name="刷新">
+                    <controls:LineIcon PathData="{StaticResource IconRefresh}" IconSize="17" />
+                </Button>
             </Grid>
+
+            <InfoBar IsOpen="{Binding HasError}" Message="{Binding StatusMessage}"
+                     Severity="Warning" IsClosable="False"
+                     Visibility="{Binding HasError, Converter={StaticResource BoolToVisibility}}" />
+            <InfoBar IsOpen="{Binding HasSuccess}" Message="{Binding StatusMessage}"
+                     Severity="Success" IsClosable="False"
+                     Visibility="{Binding HasSuccess, Converter={StaticResource BoolToVisibility}}" />
+        </StackPanel>
+
+        <!-- 统一横向分段导航（五层光学磨砂槽 + 弹性晶体滑行胶囊 + 底部朱砂光点，支持滚轮横滑） -->
+        <controls:GlassSurface x:Name="SegmentTrack" Grid.Row="1" HorizontalAlignment="Left"
+                               CornerRadius="23" Padding="4">
+            <ScrollViewer x:Name="SegmentScroller"
+                          controls:ScrollWheelBehavior.HorizontalWheelMode="Direct"
+                          HorizontalScrollMode="Enabled" HorizontalScrollBarVisibility="Hidden"
+                          VerticalScrollMode="Disabled" VerticalScrollBarVisibility="Disabled">
+                <Grid x:Name="SegmentTrackHost">
+                    <!-- 弹簧滑行的晶体高亮胶囊 + 顶部微高光丝 + 底部极细朱砂光点 -->
+                    <Border x:Name="SegmentGlidePill"
+                            Height="38" Width="96" CornerRadius="19"
+                            Background="{ThemeResource NavActivePlateBrush}"
+                            BorderBrush="{ThemeResource NavActiveBorderBrush}" BorderThickness="1"
+                            HorizontalAlignment="Left" VerticalAlignment="Center"
+                            Opacity="0" IsHitTestVisible="False">
+                        <Grid>
+                            <Border Height="1" VerticalAlignment="Top" Margin="12,0"
+                                    Background="{ThemeResource GlassCausticBrush}" IsHitTestVisible="False" />
+                            <Border Width="16" Height="2" CornerRadius="1"
+                                    Background="{ThemeResource VermilionBrush}"
+                                    HorizontalAlignment="Center" VerticalAlignment="Bottom" Margin="0,0,0,3" />
+                        </Grid>
+                    </Border>
+                    <ListView x:Name="SegmentList" SelectionMode="Single"
+                              IsItemClickEnabled="False" HorizontalAlignment="Left" Padding="0"
+                              Background="Transparent" BorderThickness="0"
+                              ItemContainerStyle="{StaticResource HorizontalNavSegmentItemStyle}"
+                              SelectionChanged="OnSegmentSelectionChanged"
+                              ScrollViewer.HorizontalScrollMode="Disabled"
+                              ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                              ScrollViewer.VerticalScrollMode="Disabled"
+                              ScrollViewer.VerticalScrollBarVisibility="Disabled">
+                        <ListView.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <StackPanel Orientation="Horizontal" />
+                            </ItemsPanelTemplate>
+                        </ListView.ItemsPanel>
+                        <ListView.ItemContainerTransitions>
+                            <TransitionCollection />
+                        </ListView.ItemContainerTransitions>
+                        <ListViewItem AutomationProperties.Name="继续观看" ToolTipService.ToolTip="继续观看">
+                            <TextBlock Text="继续观看" Style="{StaticResource NavSegmentTextStyle}" />
+                        </ListViewItem>
+                        <ListViewItem AutomationProperties.Name="收藏" ToolTipService.ToolTip="收藏">
+                            <TextBlock Text="收藏" Style="{StaticResource NavSegmentTextStyle}" />
+                        </ListViewItem>
+                        <ListViewItem AutomationProperties.Name="下载" ToolTipService.ToolTip="下载">
+                            <TextBlock Text="下载" Style="{StaticResource NavSegmentTextStyle}" />
+                        </ListViewItem>
+                        <ListViewItem AutomationProperties.Name="本地视频" ToolTipService.ToolTip="本地视频">
+                            <TextBlock Text="本地视频" Style="{StaticResource NavSegmentTextStyle}" />
+                        </ListViewItem>
+                    </ListView>
+                </Grid>
+            </ScrollViewer>
         </controls:GlassSurface>
 
         <!-- 内容区 -->
-        <Grid x:Name="ContentHost" Grid.Row="3">
+        <Grid x:Name="ContentHost" Grid.Row="2">
 
             <!-- 继续观看 -->
             <Grid Visibility="{Binding IsHistoryTab, Converter={StaticResource BoolToVisibility}}">
@@ -275,8 +234,9 @@
             <!-- 收藏 -->
             <Grid Visibility="{Binding IsFavoritesTab, Converter={StaticResource BoolToVisibility}}">
                 <ListView ItemsSource="{Binding Favorites}" SelectionMode="None" IsItemClickEnabled="True"
-                          ItemClick="OnFavoriteClick" Padding="0"
+                          ItemClick="OnFavoriteClick" Padding="0,0,12,0"
                           Background="Transparent" BorderThickness="0"
+                          ScrollViewer.HorizontalScrollMode="Disabled"
                           ItemContainerStyle="{StaticResource LibraryRowItemStyle}">
                     <ListView.ItemTemplate>
                         <DataTemplate>
@@ -340,8 +300,9 @@
             <!-- 下载 -->
             <Grid Visibility="{Binding IsDownloadsTab, Converter={StaticResource BoolToVisibility}}">
                 <ListView ItemsSource="{Binding Downloads}" SelectionMode="None" IsItemClickEnabled="True"
-                          ItemClick="OnDownloadClick" Padding="0"
+                          ItemClick="OnDownloadClick" Padding="0,0,12,0"
                           Background="Transparent" BorderThickness="0"
+                          ScrollViewer.HorizontalScrollMode="Disabled"
                           ItemContainerStyle="{StaticResource LibraryRowItemStyle}">
                     <ListView.ItemTemplate>
                         <DataTemplate>
@@ -409,18 +370,21 @@
             </Grid>
 
             <!-- 本地视频 -->
-            <Grid Visibility="{Binding IsLocalTab, Converter={StaticResource BoolToVisibility}}" RowSpacing="{StaticResource SpaceSmall}">
+            <Grid Visibility="{Binding IsLocalTab, Converter={StaticResource BoolToVisibility}}">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="*" />
                 </Grid.RowDefinitions>
-                <ScrollViewer HorizontalScrollMode="Auto" HorizontalScrollBarVisibility="Auto" VerticalScrollMode="Disabled"
+                <ScrollViewer x:Name="LocalFoldersScroller"
+                              controls:ScrollWheelBehavior.HorizontalWheelMode="Direct"
+                              HorizontalScrollMode="Enabled" HorizontalScrollBarVisibility="Hidden"
+                              VerticalScrollMode="Disabled" VerticalScrollBarVisibility="Disabled"
                               Visibility="{Binding IsLocalTab, Converter={StaticResource BoolToVisibility}}">
                     <ItemsControl ItemsSource="{Binding LocalFolders}">
                         <ItemsControl.ItemsPanel><ItemsPanelTemplate><StackPanel Orientation="Horizontal" /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
                         <ItemsControl.ItemTemplate>
                             <DataTemplate>
-                                <Border Margin="0,0,8,0" Padding="12,4" CornerRadius="{StaticResource RadiusControl}"
+                                <Border Margin="0,0,8,10" Padding="12,4" CornerRadius="{StaticResource RadiusControl}"
                                         Background="{ThemeResource GlassChipBrush}" BorderBrush="{ThemeResource GlassEdgeBrush}" BorderThickness="1">
                                     <StackPanel Orientation="Horizontal" Spacing="{StaticResource SpaceMini}">
                                         <controls:LineIcon PathData="{StaticResource IconFolder}" IconSize="15" VerticalAlignment="Center" />
@@ -436,7 +400,8 @@
                 </ScrollViewer>
                 <Grid Grid.Row="1">
                     <ListView ItemsSource="{Binding LocalFiles}" SelectionMode="None" IsItemClickEnabled="False"
-                              Padding="0" Background="Transparent" BorderThickness="0"
+                              Padding="0,0,12,0" Background="Transparent" BorderThickness="0"
+                              ScrollViewer.HorizontalScrollMode="Disabled"
                               ItemContainerStyle="{StaticResource LibraryRowItemStyle}" AutomationProperties.Name="本地视频列表">
                         <ListView.ItemTemplate>
                             <DataTemplate>

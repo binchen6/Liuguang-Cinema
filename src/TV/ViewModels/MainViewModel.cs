@@ -23,12 +23,29 @@ public sealed partial class MainViewModel : ObservableObject
             return;
         }
         Vod = new VodViewModel(services, Play);
-        Search = new SearchViewModel(services, card => Vod.SelectedCard = card) { SuggestionCatalog = () => Vod.Items.Select(card => card.Item.Name) };
         Vod.DetailRequested += (_, _) => Navigate("detail");
         Live = new LiveViewModel(services, Play);
         Library = new LibraryViewModel(services, Play, Vod.OpenFavorite);
+        Search = new SearchViewModel(services, card => Vod.SelectedCard = card)
+        {
+            SuggestionCatalog = CollectSuggestionCatalog
+        };
         CloudDrive = new CloudDriveViewModel(services, Play);
         Settings = new SettingsViewModel(services);
+    }
+
+    private IEnumerable<string> CollectSuggestionCatalog()
+    {
+        foreach (var card in Vod.Items)
+            if (!string.IsNullOrWhiteSpace(card.Item.Name)) yield return card.Item.Name;
+        foreach (var card in Vod.GalleryItems)
+            if (!string.IsNullOrWhiteSpace(card.Item.Name)) yield return card.Item.Name;
+        foreach (var item in Library.History)
+            if (!string.IsNullOrWhiteSpace(item.Title)) yield return item.Title;
+        foreach (var item in Library.Favorites)
+            if (!string.IsNullOrWhiteSpace(item.Title)) yield return item.Title;
+        foreach (var item in Library.LocalFiles)
+            if (!string.IsNullOrWhiteSpace(item.Title)) yield return item.Title;
     }
 
     public AppServices Services { get; }

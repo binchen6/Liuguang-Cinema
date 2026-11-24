@@ -18,6 +18,7 @@
 
 ## 版本发行说明
 
+- [1.9.3](releases/release-1.9.3.md)：彻底根治点播及全站导航多选残留、统一全站横向/竖向导航样式与物理动效（`Styles/Navigation.xaml` + `Controls/NavigationMotion.cs`）、重塑浅色护眼主题与浅色五层光学玻璃、以 WinUI 3 官方 `IInputCursorStaticsInterop` 原生透明光标实装播放页鼠标自动隐藏、搜索预测 0ms 本地即时上屏 + 80ms 流式并发提速、全站页面层级分块与滚轮一致性（`Controls/ScrollWheelBehavior.cs`）深度优化。
 - [1.9.2](releases/release-1.9.2.md)：内核级播放防息屏与防休眠（默认开启）、播放器 3 秒悬停感知自动隐藏与同步隐藏鼠标、自研 `GlassSurface` 五层光学磨砂玻璃重构（解决 `SwapChainPanel` 叠层黑块并全站消除 30+ 滚动期多余模糊 Pass）、全页面动效补全与 GPU Compositor 缓存优化。
 - [1.9.1](releases/release-1.9.1.md)：导航选中态复位修复、阿里云盘双盘与 ECDSA 设备签名、双向差异增量升级与图标即时刷新、国内多镜测速分片加速更新、跨源弹幕规范化匹配引擎、点播页 120Hz GPU 可打断吸顶收起动画。
 - [1.9.0](releases/release-1.9.0.md)：「白 · 隙 · 镜」原研哉美学品牌重塑、建筑磨砂玻璃分层、「光隙」图标与 24×24 几何图标库、全站界面重构与 Compositor 物理动效升级。

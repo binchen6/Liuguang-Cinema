@@ -19,16 +19,8 @@
                 BorderThickness="0,0,1,0">
             <Grid>
                 <Border Background="{ThemeResource GlassVolumeBrush}" Opacity="0.72" IsHitTestVisible="False" />
-                <Border Width="1" HorizontalAlignment="Right" Margin="0,24,0,24" IsHitTestVisible="False">
-                    <Border.Background>
-                        <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
-                            <GradientStop Color="#00FFFFFF" Offset="0" />
-                            <GradientStop Color="#2CFFFFFF" Offset="0.22" />
-                            <GradientStop Color="#12FFFFFF" Offset="0.75" />
-                            <GradientStop Color="#00FFFFFF" Offset="1" />
-                        </LinearGradientBrush>
-                    </Border.Background>
-                </Border>
+                <Border Width="1" HorizontalAlignment="Right" Margin="0,24,0,24"
+                        Background="{ThemeResource GlassRailSeamHighlightBrush}" IsHitTestVisible="False" />
                 <Grid x:Name="NavPaneContent">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="64" />
@@ -97,7 +89,7 @@
                                 <ColumnDefinition Width="Auto" />
                             </Grid.ColumnDefinitions>
                             <controls:LineIcon PathData="{StaticResource IconVod}" IconSize="19" Width="22" />
-                            <TextBlock x:Name="NavLabelVod" Grid.Column="1" Text="点播" Style="{StaticResource BodyText}" VerticalAlignment="Center" />
+                            <TextBlock x:Name="NavLabelVod" Grid.Column="1" Text="点播" Style="{StaticResource NavItemTextStyle}" VerticalAlignment="Center" />
                             <TextBlock x:Name="NavIdxVod" Grid.Column="2" Text="01" Style="{StaticResource MonoMetaText}" Opacity="0.45" VerticalAlignment="Center" />
                         </Grid>
                     </ListViewItem>
@@ -109,7 +101,7 @@
                                 <ColumnDefinition Width="Auto" />
                             </Grid.ColumnDefinitions>
                             <controls:LineIcon PathData="{StaticResource IconLive}" IconSize="19" Width="22" />
-                            <TextBlock x:Name="NavLabelLive" Grid.Column="1" Text="直播" Style="{StaticResource BodyText}" VerticalAlignment="Center" />
+                            <TextBlock x:Name="NavLabelLive" Grid.Column="1" Text="直播" Style="{StaticResource NavItemTextStyle}" VerticalAlignment="Center" />
                             <TextBlock x:Name="NavIdxLive" Grid.Column="2" Text="02" Style="{StaticResource MonoMetaText}" Opacity="0.45" VerticalAlignment="Center" />
                         </Grid>
                     </ListViewItem>
@@ -121,7 +113,7 @@
                                 <ColumnDefinition Width="Auto" />
                             </Grid.ColumnDefinitions>
                             <controls:LineIcon PathData="{StaticResource IconLibrary}" IconSize="19" Width="22" />
-                            <TextBlock x:Name="NavLabelLibrary" Grid.Column="1" Text="媒体库" Style="{StaticResource BodyText}" VerticalAlignment="Center" />
+                            <TextBlock x:Name="NavLabelLibrary" Grid.Column="1" Text="媒体库" Style="{StaticResource NavItemTextStyle}" VerticalAlignment="Center" />
                             <TextBlock x:Name="NavIdxLibrary" Grid.Column="2" Text="03" Style="{StaticResource MonoMetaText}" Opacity="0.45" VerticalAlignment="Center" />
                         </Grid>
                     </ListViewItem>
@@ -133,7 +125,7 @@
                                 <ColumnDefinition Width="Auto" />
                             </Grid.ColumnDefinitions>
                             <controls:LineIcon PathData="{StaticResource IconCloud}" IconSize="19" Width="22" />
-                            <TextBlock x:Name="NavLabelCloud" Grid.Column="1" Text="云盘" Style="{StaticResource BodyText}" VerticalAlignment="Center" />
+                            <TextBlock x:Name="NavLabelCloud" Grid.Column="1" Text="云盘" Style="{StaticResource NavItemTextStyle}" VerticalAlignment="Center" />
                             <TextBlock x:Name="NavIdxCloud" Grid.Column="2" Text="04" Style="{StaticResource MonoMetaText}" Opacity="0.45" VerticalAlignment="Center" />
                         </Grid>
                     </ListViewItem>
@@ -145,7 +137,7 @@
                                 <ColumnDefinition Width="Auto" />
                             </Grid.ColumnDefinitions>
                             <controls:LineIcon PathData="{StaticResource IconCast}" IconSize="19" Width="22" />
-                            <TextBlock x:Name="NavLabelCast" Grid.Column="1" Text="投屏" Style="{StaticResource BodyText}" VerticalAlignment="Center" />
+                            <TextBlock x:Name="NavLabelCast" Grid.Column="1" Text="投屏" Style="{StaticResource NavItemTextStyle}" VerticalAlignment="Center" />
                             <TextBlock x:Name="NavIdxCast" Grid.Column="2" Text="05" Style="{StaticResource MonoMetaText}" Opacity="0.45" VerticalAlignment="Center" />
                         </Grid>
                     </ListViewItem>
@@ -155,12 +147,13 @@
                     <Border Height="1" Background="{ThemeResource DividerBrush}" Margin="16,4,16,10" />
                     <Grid Margin="10,0,10,0">
                         <Border x:Name="SettingsSelectionPlate"
-                                Background="{ThemeResource GlassActivePlateBrush}"
-                                BorderBrush="{ThemeResource SubtleBorderBrush}"
+                                Background="{ThemeResource NavActivePlateBrush}"
+                                BorderBrush="{ThemeResource NavActiveBorderBrush}"
                                 BorderThickness="1" CornerRadius="8"
                                 Opacity="0" IsHitTestVisible="False" />
                         <Button x:Name="SettingsButton" Style="{StaticResource GhostButtonStyle}"
                                 Height="{StaticResource NavItemHeight}" Padding="17,0,14,0"
+                                Foreground="{ThemeResource NavItemForegroundBrush}"
                                 HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
                                 Click="OnSettingsClick" AutomationProperties.Name="设置" ToolTipService.ToolTip="设置">
                             <Grid x:Name="NavContentSettings" ColumnSpacing="12">
@@ -170,7 +163,7 @@
                                     <ColumnDefinition Width="Auto" />
                                 </Grid.ColumnDefinitions>
                                 <controls:LineIcon PathData="{StaticResource IconSettings}" IconSize="19" Width="22" />
-                                <TextBlock x:Name="NavLabelSettings" Grid.Column="1" Text="设置" Style="{StaticResource BodyText}" VerticalAlignment="Center" />
+                                <TextBlock x:Name="NavLabelSettings" Grid.Column="1" Text="设置" Style="{StaticResource NavItemTextStyle}" VerticalAlignment="Center" />
                                 <TextBlock x:Name="NavIdxSettings" Grid.Column="2" Text="06" Style="{StaticResource MonoMetaText}" Opacity="0.45" VerticalAlignment="Center" />
                             </Grid>
                         </Button>

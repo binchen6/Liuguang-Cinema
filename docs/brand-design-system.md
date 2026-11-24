@@ -99,20 +99,34 @@
 | 朱砂落款强调 | `VermilionBrush` / `VermilionSoftBrush` | `#E8503E` / `#22E8503E` | 品牌光点、滑轨指示条、进度光束、LIVE 呼吸灯 |
 | 语义成功 / 警示 | `SuccessBrush` / `DangerBrush` | `#4CC38A` / `#F26B5E` | 连通状态、高风险清理警示 |
 
-### 4.3 素白画廊（Light — 原研哉白）
+### 4.3 素白画廊 · 温润护眼版（Light — 原研哉白）
+
+针对长时间桌面观影与翻阅片单的视觉舒适度，1.9.3 全面重调浅色主题：告别刺眼的 `#FFFFFF / #F6F5F0` 过曝洗白，以**温润亚麻画廊宣纸画布（约 90% 亮度）**承托**月白晶玉五层光学玻璃**，并配主题感知的日光珍珠/微青/浅陶环境光场（`LiquidBackdrop`），让浅色 `AcrylicBrush` 呈现真实通透折射与清晰立体边界。
 
 | 语义角色 | 资源键 | 色值 / 材质 | 典型用途 |
 | --- | --- | --- | --- |
-| 宣纸画布 | `AppBackgroundBrush` | `#F6F5F0` | 温润美术馆宣纸底 |
-| 磨砂导轨 / 面板 / 浮层 | `GlassRailBrush` / `GlassPanelBrush` / `GlassOverlayBrush` | `#FAF9F5` (`0.64/0.78`) / `#FFFFFF` (`0.58/0.74`) / `#FFFFFF` (`0.78/0.86`) | 和纸透光侧栏、展板与浮层 |
-| 菲涅尔定向描边 | `GlassEdgeBrush` | 定向渐变 (`#E0FFFFFF → #14000000 → #22000000`) | 上缘纯白纸光倒角 + 下缘微墨影界线，素白主题立体通透 |
-| 顶部内高光晕 | `GlassTopSheenBrush` | 垂直柔光 (`#72FFFFFF → #1CFFFFFF → #00FFFFFF`) | 和纸玻璃上缘明亮折光 |
-| 实色 / 抬升 / 悬停表面 | `SurfaceBrush` / `SurfaceAltBrush` / `SurfaceHoverBrush` | `#FFFFFF` / `#EFECE4` / `#E6E3DA` | 洁净纸面与浅暖石次级底 |
-| 主 / 次 / 辅文字 | `PrimaryTextBrush` / `SecondaryTextBrush` / `TertiaryTextBrush` | `#141416` / `#595962` / `#84848F` | 松烟墨、青灰墨、淡墨 |
-| 墨白主操作 | `AccentFillBrush` / `AccentInkBrush` | `#141416` / `#FAF9F5` | 主 CTA（松烟墨底 + 宣纸白字） |
-| 印泥朱砂强调 | `VermilionBrush` / `VermilionSoftBrush` | `#CE3A2B` / `#1ACE3A2B` | 传统印泥朱红，素白纸面高对比辨识 |
+| 温润宣纸画布 | `AppBackgroundBrush` | 三段微渐变 `#F0EDE6 → #EAE6DD → #E4DFD4`（基底 `#ECE9E1`） | 护眼低眩光美术馆亚麻纸画布 |
+| 磨砂导轨 / 面板 / 浮层 | `GlassRailBrush` / `GlassPanelBrush` / `GlassOverlayBrush` | `#F5F3EC` (`0.58/0.68`) / `#FAF8F3` (`0.52/0.62`) / `#FCFBF7` (`0.78/0.84`) | 透光月白晶玉侧栏、吸顶筛选坞与浮层（色彩海报透射柔和自然） |
+| 菲涅尔外框 / 内倒角 / 焦散 | `GlassEdgeBrush` / `GlassInnerBevelBrush` / `GlassCausticBrush` | 暖矿石四面立体外框 `#26322D25 → #302E2921` + `1px` 晶白内倒角 `#F2FFFFFF → #74FFFFFF` + 顶缘日光焦散丝 | 清晰勾勒浅色光学玻璃实体厚度与清澈通透感 |
+| 实色 / 卡片 / 次级表面 | `SurfaceBrush` / `SettingsCardBackgroundBrush` / `SurfaceAltBrush` | `#F7F5F0` / `#EEF8F6F1` / `#E3DFD5` | 素绢暖白卡片、零额外模糊设置分组卡与浅亚麻石次级底 |
+| 护眼墨色字阶 | `PrimaryTextBrush` / `SecondaryTextBrush` / `TertiaryTextBrush` | `#1F2024` / `#53555E` / `#72747F` | 柔墨主字（无锐刺纯黑）、烟灰副字、石青索引（全部满足 WCAG AA） |
+| 墨白主操作 | `AccentFillBrush` / `AccentInkBrush` | `#23252B` / `#FAF8F4` | 主 CTA 与选中分类胶囊（温润墨灰底 + 素绢白字） |
+| 印泥朱砂强调 | `VermilionBrush` / `VermilionSoftBrush` | `#C93A2B` / `#18C93A2B` | 传统印泥朱红，暖宣纸面克制醒目 |
 
-### 4.4 高对比度（HighContrast）
+### 4.4 统一导航令牌与样式族（`Styles/Navigation.xaml`）
+
+全站所有横向与竖向导航统一收敛至 `Styles/Navigation.xaml` 与 `Controls/NavigationMotion.cs`，所有 `ListViewItem` 模板均完整覆盖 WinUI 3 `CommonStates`（`Normal / PointerOver / Pressed / Disabled / Selected / SelectedUnfocused / PointerOverSelected / PressedSelected / SelectedDisabled`），并采用 `NavItemForegroundBrush → NavItemSelectedForegroundBrush` 前景继承字阶：
+
+| 样式族 | 样式键 | 指示器与动效 | 适用页面 |
+| --- | --- | --- | --- |
+| **竖向主导轨** | `MainNavRailItemStyle` / `SettingsNavSectionStyle` | 左侧 `3px` 弹性拉伸朱砂竖轨（`GlideVerticalIndicator`）+ 透明晶体选中底板 | 主应用侧栏、设置 8 分区导航（保留 `Expander` 满足 UIA） |
+| **竖向列表导轨** | `SearchScopeNavItemStyle` / `LiveGroupNavItemStyle` | 左侧 `3px` 随滚动跟踪的朱砂竖轨（移出视口自动淡隐） | 搜索站点遥测轨、直播源分组列表 |
+| **竖向高频列表** | `VerticalNavInlineItemStyle` | 行内固定左侧指示条（克制不做跨百行长跳动效） | 直播频道长列表 |
+| **横向高反差胶囊** | `HorizontalNavChipItemStyle` | 外层共享 `ScrollViewer` + 单实例高反差墨白滑行胶囊（`PillMatchWidth`，物理根除多选残留） | 点播页分类栏 |
+| **横向分段槽** | `HorizontalNavSegmentItemStyle` | 磨砂槽内晶体胶囊滑行 + 底部朱砂微光点 + 内容区水平方向性切换 | 媒体库 4 分段导航 |
+| **横向状态卡** | `HorizontalNavCardItemStyle` | 零模糊四网盘状态卡 + 底缘居中弹性朱砂光轨（`BottomAccentBar`） | 我的云盘 4 网盘切换 |
+
+### 4.5 高对比度（HighContrast）
 
 全部画刷与磨砂资源均映射至 `SystemColorWindowColor`、`SystemColorWindowTextColor`、`SystemColorHighlightColor` 等系统语义色，自动退化为纯色高对比表现并隐藏装饰性背景光晕与焦散反光。
 

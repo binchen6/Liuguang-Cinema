@@ -18,6 +18,7 @@ public sealed class SearchTextBox : TextBox
             IsComposing = false;
             TextInputReceived?.Invoke(this, EventArgs.Empty);
         };
+        Paste += (_, _) => TextInputReceived?.Invoke(this, EventArgs.Empty);
     }
 
     protected override void OnCharacterReceived(CharacterReceivedRoutedEventArgs e)

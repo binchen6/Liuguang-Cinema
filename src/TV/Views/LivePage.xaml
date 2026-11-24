@@ -12,7 +12,7 @@
         <local:BoolToVisibilityConverter x:Key="BoolToVisibility" />
         <local:StringToVisibilityConverter x:Key="StringToVisibility" />
         <local:BoolToFavoriteConverter x:Key="FavoriteText" />
-        <Style x:Key="ChannelRowStyle" TargetType="ListViewItem" BasedOn="{StaticResource NavRailItemStyle}">
+        <Style x:Key="ChannelRowStyle" TargetType="ListViewItem" BasedOn="{StaticResource VerticalNavInlineItemStyle}">
             <Setter Property="Padding" Value="10,0,12,0" />
             <Setter Property="Margin" Value="0,0,0,4" />
             <Setter Property="MinHeight" Value="58" />
@@ -102,7 +102,7 @@
                 <ColumnDefinition x:Name="DetailColumn" Width="360" />
             </Grid.ColumnDefinitions>
 
-            <controls:GlassSurface x:Name="LeftPanel" Style="{StaticResource AppPanelGlassStyle}" Padding="16">
+            <controls:GlassSurface x:Name="LeftPanel" Style="{StaticResource AppPanelGlassStyle}" Padding="16,18">
                 <Grid RowSpacing="{StaticResource SpaceMedium}">
                     <Grid.RowDefinitions>
                         <RowDefinition x:Name="SourceRow" Height="Auto" />
@@ -136,12 +136,22 @@
                             <RowDefinition Height="*" />
                         </Grid.RowDefinitions>
                         <TextBlock Text="GROUPS · 分组" Style="{StaticResource EyebrowText}" Margin="0,0,0,8" />
-                        <ListView Grid.Row="1" ItemsSource="{Binding Groups}"
-                                  SelectedItem="{Binding SelectedGroup, Mode=TwoWay}"
-                                  SelectionMode="Single" Background="Transparent" BorderThickness="0" Padding="0,0,8,0"
-                                  ItemContainerStyle="{StaticResource RailListStyle}"
-                                  SelectionChanged="OnGroupSelectionChanged"
-                                  ScrollViewer.HorizontalScrollMode="Disabled" />
+                        <Grid x:Name="GroupRailHost" Grid.Row="1">
+                            <ListView x:Name="GroupList" ItemsSource="{Binding Groups}"
+                                      SelectedItem="{Binding SelectedGroup, Mode=TwoWay}"
+                                      SelectionMode="Single" Background="Transparent" BorderThickness="0" Padding="0,0,8,0"
+                                      ItemContainerStyle="{StaticResource LiveGroupNavItemStyle}"
+                                      SelectionChanged="OnGroupSelectionChanged"
+                                      ScrollViewer.HorizontalScrollMode="Disabled">
+                                <ListView.ItemContainerTransitions>
+                                    <TransitionCollection />
+                                </ListView.ItemContainerTransitions>
+                            </ListView>
+                            <Border x:Name="GroupGlideIndicator" Width="3" Height="18" CornerRadius="1.5"
+                                    Background="{ThemeResource SelectionIndicatorBrush}"
+                                    HorizontalAlignment="Left" VerticalAlignment="Top"
+                                    Margin="0,0,0,0" Opacity="0" IsHitTestVisible="False" />
+                        </Grid>
                     </Grid>
                 </Grid>
             </controls:GlassSurface>
@@ -168,10 +178,11 @@
                     <ListView x:Name="ChannelList" ItemsSource="{Binding Channels}"
                               ItemContainerStyle="{StaticResource ChannelRowStyle}"
                               SelectedItem="{Binding SelectedItem, Mode=TwoWay}"
-                              SelectionMode="Single" Background="Transparent" BorderThickness="0" Padding="0,0,8,0"
+                              SelectionMode="Single" Background="Transparent" BorderThickness="0" Padding="0,0,12,0"
                               DoubleTapped="OnChannelDoubleTapped"
                               SelectionChanged="OnChannelSelectionChanged"
                               ScrollViewer.HorizontalScrollMode="Disabled"
+                              ScrollViewer.IsVerticalScrollChainingEnabled="False"
                               Visibility="{Binding HasChannels, Converter={StaticResource BoolToVisibility}}">
                         <ListView.ItemTemplate>
                             <DataTemplate>
@@ -293,9 +304,10 @@
                             </StackPanel>
                             <ListView Grid.Row="1" ItemsSource="{Binding SelectedItem.Lines}"
                                       SelectionMode="None" IsItemClickEnabled="True" ItemClick="OnLineClick"
-                                      Background="Transparent" BorderThickness="0" Padding="0,0,8,0"
+                                      Background="Transparent" BorderThickness="0" Padding="0,0,10,0"
                                       ScrollViewer.HorizontalScrollMode="Disabled"
-                                      ScrollViewer.VerticalScrollBarVisibility="Auto">
+                                      ScrollViewer.VerticalScrollBarVisibility="Auto"
+                                      ScrollViewer.IsVerticalScrollChainingEnabled="False">
                                 <ListView.ItemTemplate>
                                     <DataTemplate>
                                         <Border BorderBrush="{ThemeResource DividerBrush}" BorderThickness="0,0,0,1" Padding="4,6">

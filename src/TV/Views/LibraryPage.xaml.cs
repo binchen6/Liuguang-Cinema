@@ -2,6 +2,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
+using TV.Controls;
 using TV.Models;
 using TV.ViewModels;
 
@@ -9,15 +10,20 @@ namespace TV.Views;
 
 public sealed partial class LibraryPage : Page
 {
-    private bool _hasAnimatedPill;
+    private readonly NavigationRailController _segmentNav;
     private readonly System.Runtime.CompilerServices.ConditionalWeakTable<FrameworkElement, FrameworkElement?> _watchArts = new();
 
     public LibraryPage()
     {
         InitializeComponent();
+        _segmentNav = NavigationMotion.AttachHorizontalList(
+            SegmentList,
+            SegmentTrackHost,
+            SegmentGlidePill,
+            HorizontalIndicatorMode.PillMatchWidth,
+            SegmentScroller);
         MotionService.AttachTactile(LocalMediaButton, 1.02f, 0.96f, -1f);
         MotionService.AttachTactile(LibraryRefreshButton, 1.04f, 0.94f, -1f);
-        SegmentList.Loaded += (_, _) => ScheduleSegmentPillGlide(animate: false);
     }
 
     private LibraryViewModel ViewModel => (LibraryViewModel)DataContext;
@@ -27,7 +33,7 @@ public sealed partial class LibraryPage : Page
         MotionService.StaggerEntrance(offsetY: 12, stepMs: 35, HeaderGrid, SegmentTrack, ContentHost);
         if (SegmentList.SelectedIndex != ViewModel.SelectedTab)
             SegmentList.SelectedIndex = Math.Clamp(ViewModel.SelectedTab, 0, 3);
-        ScheduleSegmentPillGlide(animate: false);
+        _segmentNav.Sync(animate: false);
         await ViewModel.LoadCommand.ExecuteAsync(null);
     }
 
@@ -40,35 +46,6 @@ public sealed partial class LibraryPage : Page
             var dir = SegmentList.SelectedIndex > previous ? 18 : -18;
             MotionService.EnterSection(ContentHost, offsetY: 0, offsetX: dir);
         }
-        ScheduleSegmentPillGlide(animate: _hasAnimatedPill);
-        _hasAnimatedPill = true;
-    }
-
-    private void OnSegmentListSizeChanged(object sender, SizeChangedEventArgs e) =>
-        ScheduleSegmentPillGlide(animate: false);
-
-    private void ScheduleSegmentPillGlide(bool animate, int retry = 0)
-    {
-        var priority = retry == 0 ? Microsoft.UI.Dispatching.DispatcherQueuePriority.Normal : Microsoft.UI.Dispatching.DispatcherQueuePriority.Low;
-        DispatcherQueue.TryEnqueue(priority, () =>
-        {
-            if (!IsLoaded) return;
-            var selected = SegmentList.SelectedItem as FrameworkElement;
-            if (selected is null && SegmentList.SelectedIndex >= 0)
-                selected = SegmentList.ContainerFromIndex(SegmentList.SelectedIndex) as FrameworkElement;
-            if (selected is null || selected.ActualWidth <= 0)
-            {
-                if (retry < 3) ScheduleSegmentPillGlide(animate, retry + 1);
-                return;
-            }
-            try
-            {
-                var pt = selected.TransformToVisual(SegmentTrackHost).TransformPoint(new Windows.Foundation.Point(0, 0));
-                SegmentGlidePill.Opacity = 1;
-                MotionService.GlideHorizontalPill(SegmentGlidePill, pt.X, selected.ActualWidth, animate);
-            }
-            catch { }
-        });
     }
 
     private FrameworkElement? GetWatchArt(FrameworkElement card)

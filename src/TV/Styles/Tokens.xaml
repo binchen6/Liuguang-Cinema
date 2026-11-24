@@ -1,8 +1,8 @@
 <!--
-    流光影院 · 设计令牌（SHIRO · MA · GLASS）
-    品牌方向：原研哉「白与余白」哲学 × 国际现代平面排版 × 建筑级磨砂玻璃。
+    流光影院 · 设计令牌（SHIRO · MA · OPTICAL GLASS）
+    品牌方向：原研哉「白与余白」哲学 × 国际现代平面排版 × 五层光学磨砂玻璃。
     - 暗室素墨（Default）：#0B0B0D 素墨底 + 烟熏磨砂玻璃 + 宣纸白高反差主操作 + 朱砂红落款
-    - 素白画廊（Light）：#F6F5F0 宣纸白底 + 和纸透光磨砂 + 松烟墨高反差主操作 + 印泥朱砂落款
+    - 素白画廊（Light）：#ECE9E1 温润宣纸底（低眩光护眼） + 月白晶玉磨砂玻璃 + 深松烟墨主操作 + 印泥朱砂落款
     - 高对比（HighContrast）：完整系统语义色无障碍映射
 -->
 <ResourceDictionary
@@ -10,7 +10,7 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
 
     <!-- ============================================================
-         1. 语义颜色与磨砂玻璃材质
+         1. 语义颜色、光学磨砂玻璃材质与统一导航语义令牌
          ============================================================ -->
     <ResourceDictionary.ThemeDictionaries>
         <ResourceDictionary x:Key="Default">
@@ -21,6 +21,18 @@
                 <GradientStop Color="#0A0A0C" Offset="0.55" />
                 <GradientStop Color="#0D0C0E" Offset="1" />
             </LinearGradientBrush>
+            <RadialGradientBrush x:Key="BackdropGlowPrimaryBrush">
+                <GradientStop Color="#16FFFFFF" Offset="0" />
+                <GradientStop Color="#00FFFFFF" Offset="1" />
+            </RadialGradientBrush>
+            <RadialGradientBrush x:Key="BackdropGlowSecondaryBrush">
+                <GradientStop Color="#0E6E92D8" Offset="0" />
+                <GradientStop Color="#006E92D8" Offset="1" />
+            </RadialGradientBrush>
+            <RadialGradientBrush x:Key="BackdropGlowAccentBrush">
+                <GradientStop Color="#0EE8503E" Offset="0" />
+                <GradientStop Color="#00E8503E" Offset="1" />
+            </RadialGradientBrush>
 
             <!-- 宏观建筑磨砂玻璃层级（低 Luminosity 校准释放柔和透光，低配/RDP 自动平滑降级至 FallbackColor） -->
             <AcrylicBrush x:Key="GlassRailBrush" TintColor="#12141B" TintOpacity="0.60" TintLuminosityOpacity="0.74" FallbackColor="#EB12141B" />
@@ -38,8 +50,8 @@
             <SolidColorBrush x:Key="GlassDarkBadgeInkBrush" Color="#F4F3EE" />
             <SolidColorBrush x:Key="GlassDarkBadgeAccentBrush" Color="#F06B5B" />
             <LinearGradientBrush x:Key="GlassActivePlateBrush" StartPoint="0,0" EndPoint="0,1">
-                <GradientStop Color="#1EFFFFFF" Offset="0" />
-                <GradientStop Color="#10FFFFFF" Offset="1" />
+                <GradientStop Color="#22FFFFFF" Offset="0" />
+                <GradientStop Color="#11FFFFFF" Offset="1" />
             </LinearGradientBrush>
 
             <!-- 光学玻璃体积光影、内倒角厚度边与顶部焦散高光丝 -->
@@ -65,12 +77,43 @@
                 <GradientStop Color="#1AFFFFFF" Offset="0.5" />
                 <GradientStop Color="#00FFFFFF" Offset="1" />
             </LinearGradientBrush>
+            <LinearGradientBrush x:Key="GlassRailSeamHighlightBrush" StartPoint="0,0" EndPoint="0,1">
+                <GradientStop Color="#00FFFFFF" Offset="0" />
+                <GradientStop Color="#2CFFFFFF" Offset="0.22" />
+                <GradientStop Color="#12FFFFFF" Offset="0.75" />
+                <GradientStop Color="#00FFFFFF" Offset="1" />
+            </LinearGradientBrush>
+
+            <!-- 统一导航栏语义令牌（横竖共用） -->
+            <SolidColorBrush x:Key="NavItemForegroundBrush" Color="#A6A7B2" />
+            <SolidColorBrush x:Key="NavItemHoverForegroundBrush" Color="#F4F3EE" />
+            <SolidColorBrush x:Key="NavItemSelectedForegroundBrush" Color="#FAF9F5" />
+            <LinearGradientBrush x:Key="NavActivePlateBrush" StartPoint="0,0" EndPoint="0,1">
+                <GradientStop Color="#22FFFFFF" Offset="0" />
+                <GradientStop Color="#11FFFFFF" Offset="1" />
+            </LinearGradientBrush>
+            <LinearGradientBrush x:Key="NavActiveBorderBrush" StartPoint="0.1,0" EndPoint="0.9,1">
+                <GradientStop Color="#44FFFFFF" Offset="0" />
+                <GradientStop Color="#1CFFFFFF" Offset="0.38" />
+                <GradientStop Color="#26FFFFFF" Offset="1" />
+            </LinearGradientBrush>
+            <SolidColorBrush x:Key="NavChipBackgroundBrush" Color="#0EFFFFFF" />
+            <SolidColorBrush x:Key="NavChipHoverBackgroundBrush" Color="#1AFFFFFF" />
+            <SolidColorBrush x:Key="NavChipBorderBrush" Color="#1EFFFFFF" />
+            <SolidColorBrush x:Key="NavChipSelectedBackgroundBrush" Color="#F4F3EE" />
+            <SolidColorBrush x:Key="NavChipSelectedForegroundBrush" Color="#0D0D10" />
+            <LinearGradientBrush x:Key="NavCardBackgroundBrush" StartPoint="0,0" EndPoint="0,1">
+                <GradientStop Color="#14FFFFFF" Offset="0" />
+                <GradientStop Color="#0AFFFFFF" Offset="1" />
+            </LinearGradientBrush>
+            <SolidColorBrush x:Key="NavCardBorderBrush" Color="#20FFFFFF" />
 
             <!-- 实色表面与层级 -->
             <SolidColorBrush x:Key="SurfaceBrush" Color="#13141A" />
             <SolidColorBrush x:Key="SurfaceAltBrush" Color="#1A1C24" />
             <SolidColorBrush x:Key="SurfaceHoverBrush" Color="#232631" />
             <SolidColorBrush x:Key="SurfaceElevatedBrush" Color="#1C1E27" />
+            <SolidColorBrush x:Key="SettingsCardBackgroundBrush" Color="#CC15171F" />
             <SolidColorBrush x:Key="PosterPlaceholderBrush" Color="#15161C" />
             <SolidColorBrush x:Key="ScrimBrush" Color="#D608080A" />
             <SolidColorBrush x:Key="DividerBrush" Color="#16FFFFFF" />
@@ -128,119 +171,167 @@
         </ResourceDictionary>
 
         <ResourceDictionary x:Key="Light">
-            <!-- 原研哉「白」宣纸画廊底 -->
-            <SolidColorBrush x:Key="AppBackgroundBrush" Color="#F6F5F0" />
+            <!-- 素白画廊 · 温润护眼宣纸画布（明度 ~90%，消除高亮度纯白眩光，久看不累） -->
+            <SolidColorBrush x:Key="AppBackgroundBrush" Color="#ECE9E1" />
             <LinearGradientBrush x:Key="AppCanvasGradientBrush" StartPoint="0,0" EndPoint="1,1">
-                <GradientStop Color="#F9F8F4" Offset="0" />
-                <GradientStop Color="#F5F4EE" Offset="0.55" />
-                <GradientStop Color="#F2F0E8" Offset="1" />
+                <GradientStop Color="#F0EDE6" Offset="0" />
+                <GradientStop Color="#EAE6DD" Offset="0.54" />
+                <GradientStop Color="#E4DFD4" Offset="1" />
             </LinearGradientBrush>
+            <!-- 浅色环境柔光场：晨光暖白 + 淡青瓷雾 + 柔杏陶土，为浅色玻璃提供真实透光介质 -->
+            <RadialGradientBrush x:Key="BackdropGlowPrimaryBrush">
+                <GradientStop Color="#66FFFDF7" Offset="0" />
+                <GradientStop Color="#00FFFDF7" Offset="1" />
+            </RadialGradientBrush>
+            <RadialGradientBrush x:Key="BackdropGlowSecondaryBrush">
+                <GradientStop Color="#1F7E9EBC" Offset="0" />
+                <GradientStop Color="#007E9EBC" Offset="1" />
+            </RadialGradientBrush>
+            <RadialGradientBrush x:Key="BackdropGlowAccentBrush">
+                <GradientStop Color="#1AD2907A" Offset="0" />
+                <GradientStop Color="#00D2907A" Offset="1" />
+            </RadialGradientBrush>
 
-            <!-- 和纸透光磨砂玻璃层级 -->
-            <AcrylicBrush x:Key="GlassRailBrush" TintColor="#FAF9F5" TintOpacity="0.64" TintLuminosityOpacity="0.78" FallbackColor="#F0FAF9F5" />
-            <AcrylicBrush x:Key="GlassPanelBrush" TintColor="#FFFFFF" TintOpacity="0.56" TintLuminosityOpacity="0.72" FallbackColor="#EBFFFFFF" />
-            <AcrylicBrush x:Key="GlassOverlayBrush" TintColor="#FFFFFF" TintOpacity="0.78" TintLuminosityOpacity="0.86" FallbackColor="#F6FFFFFF" />
-            <!-- 零模糊晶体微件 -->
+            <!-- 月白晶玉磨砂玻璃层级：略亮于暖绢底布，清澈通透且具明显悬浮层次 -->
+            <AcrylicBrush x:Key="GlassRailBrush" TintColor="#F5F3EC" TintOpacity="0.58" TintLuminosityOpacity="0.68" FallbackColor="#ECF3F0E9" />
+            <AcrylicBrush x:Key="GlassPanelBrush" TintColor="#FAF8F3" TintOpacity="0.52" TintLuminosityOpacity="0.62" FallbackColor="#EBF8F6F0" />
+            <AcrylicBrush x:Key="GlassOverlayBrush" TintColor="#FCFBF7" TintOpacity="0.76" TintLuminosityOpacity="0.80" FallbackColor="#F6FAF8F3" />
+            <!-- 零模糊清透玉石微件 -->
             <LinearGradientBrush x:Key="GlassChipBrush" StartPoint="0,0" EndPoint="0,1">
-                <GradientStop Color="#CCFFFFFF" Offset="0" />
-                <GradientStop Color="#99F4F2EC" Offset="1" />
+                <GradientStop Color="#DCFAF8F3" Offset="0" />
+                <GradientStop Color="#B8EFEBE1" Offset="1" />
             </LinearGradientBrush>
             <LinearGradientBrush x:Key="GlassDarkBadgeBrush" StartPoint="0,0" EndPoint="0,1">
-                <GradientStop Color="#BC14161D" Offset="0" />
-                <GradientStop Color="#D40B0D13" Offset="1" />
+                <GradientStop Color="#BE181A22" Offset="0" />
+                <GradientStop Color="#D6101218" Offset="1" />
             </LinearGradientBrush>
-            <SolidColorBrush x:Key="GlassDarkBadgeInkBrush" Color="#F4F3EE" />
+            <SolidColorBrush x:Key="GlassDarkBadgeInkBrush" Color="#F6F5F0" />
             <SolidColorBrush x:Key="GlassDarkBadgeAccentBrush" Color="#F06B5B" />
             <LinearGradientBrush x:Key="GlassActivePlateBrush" StartPoint="0,0" EndPoint="0,1">
-                <GradientStop Color="#E6FFFFFF" Offset="0" />
-                <GradientStop Color="#B8EFECE4" Offset="1" />
+                <GradientStop Color="#FAF8F3" Offset="0" />
+                <GradientStop Color="#EFEBE2" Offset="1" />
             </LinearGradientBrush>
 
-            <!-- 素白和纸光学体积、内倒角与顶部焦散 -->
-            <LinearGradientBrush x:Key="GlassVolumeBrush" StartPoint="0.1,0" EndPoint="0.9,1">
-                <GradientStop Color="#6EFFFFFF" Offset="0" />
-                <GradientStop Color="#20FFFFFF" Offset="0.30" />
-                <GradientStop Color="#00FFFFFF" Offset="0.62" />
-                <GradientStop Color="#0A000000" Offset="1" />
+            <!-- 月白晶玉五层光学：顶左晨光漫射 + 内 1px 亮白倒角 + 顶部日光焦散 + 底部暖石厚度影 -->
+            <LinearGradientBrush x:Key="GlassVolumeBrush" StartPoint="0.08,0" EndPoint="0.92,1">
+                <GradientStop Color="#A8FFFFFF" Offset="0" />
+                <GradientStop Color="#3EFFFFFF" Offset="0.28" />
+                <GradientStop Color="#00FFFFFF" Offset="0.58" />
+                <GradientStop Color="#16686053" Offset="1" />
             </LinearGradientBrush>
             <LinearGradientBrush x:Key="GlassInnerBevelBrush" StartPoint="0,0" EndPoint="0,1">
-                <GradientStop Color="#99FFFFFF" Offset="0" />
-                <GradientStop Color="#24FFFFFF" Offset="0.40" />
-                <GradientStop Color="#0D000000" Offset="1" />
+                <GradientStop Color="#F2FFFFFF" Offset="0" />
+                <GradientStop Color="#74FFFFFF" Offset="0.34" />
+                <GradientStop Color="#14FFFFFF" Offset="0.72" />
+                <GradientStop Color="#1A5C5448" Offset="1" />
             </LinearGradientBrush>
             <LinearGradientBrush x:Key="GlassCausticBrush" StartPoint="0,0" EndPoint="1,0">
                 <GradientStop Color="#00FFFFFF" Offset="0" />
-                <GradientStop Color="#EEFFFFFF" Offset="0.32" />
-                <GradientStop Color="#99FFFFFF" Offset="0.68" />
+                <GradientStop Color="#FFFFFFFF" Offset="0.28" />
+                <GradientStop Color="#E0FFFFFF" Offset="0.62" />
                 <GradientStop Color="#00FFFFFF" Offset="1" />
             </LinearGradientBrush>
             <LinearGradientBrush x:Key="GlassBottomBevelBrush" StartPoint="0,0" EndPoint="1,0">
-                <GradientStop Color="#00000000" Offset="0" />
-                <GradientStop Color="#12000000" Offset="0.5" />
-                <GradientStop Color="#00000000" Offset="1" />
+                <GradientStop Color="#00423B30" Offset="0" />
+                <GradientStop Color="#20423B30" Offset="0.5" />
+                <GradientStop Color="#00423B30" Offset="1" />
+            </LinearGradientBrush>
+            <LinearGradientBrush x:Key="GlassRailSeamHighlightBrush" StartPoint="0,0" EndPoint="0,1">
+                <GradientStop Color="#00FFFFFF" Offset="0" />
+                <GradientStop Color="#E0FFFFFF" Offset="0.22" />
+                <GradientStop Color="#90FFFFFF" Offset="0.76" />
+                <GradientStop Color="#00FFFFFF" Offset="1" />
             </LinearGradientBrush>
 
-            <!-- 实色表面 -->
-            <SolidColorBrush x:Key="SurfaceBrush" Color="#FFFFFF" />
-            <SolidColorBrush x:Key="SurfaceAltBrush" Color="#EFECE4" />
-            <SolidColorBrush x:Key="SurfaceHoverBrush" Color="#E6E3DA" />
-            <SolidColorBrush x:Key="SurfaceElevatedBrush" Color="#FFFFFF" />
-            <SolidColorBrush x:Key="PosterPlaceholderBrush" Color="#EAE7DF" />
-            <SolidColorBrush x:Key="ScrimBrush" Color="#D9F6F5F0" />
-            <SolidColorBrush x:Key="DividerBrush" Color="#14000000" />
+            <!-- 统一导航栏语义令牌（浅色高清晰温润层次） -->
+            <SolidColorBrush x:Key="NavItemForegroundBrush" Color="#52545E" />
+            <SolidColorBrush x:Key="NavItemHoverForegroundBrush" Color="#1F2024" />
+            <SolidColorBrush x:Key="NavItemSelectedForegroundBrush" Color="#18191D" />
+            <LinearGradientBrush x:Key="NavActivePlateBrush" StartPoint="0,0" EndPoint="0,1">
+                <GradientStop Color="#FCFBF7" Offset="0" />
+                <GradientStop Color="#F1EDE4" Offset="1" />
+            </LinearGradientBrush>
+            <LinearGradientBrush x:Key="NavActiveBorderBrush" StartPoint="0.1,0" EndPoint="0.9,1">
+                <GradientStop Color="#28322D25" Offset="0" />
+                <GradientStop Color="#1C322D25" Offset="0.45" />
+                <GradientStop Color="#36322D25" Offset="1" />
+            </LinearGradientBrush>
+            <SolidColorBrush x:Key="NavChipBackgroundBrush" Color="#9EF9F7F2" />
+            <SolidColorBrush x:Key="NavChipHoverBackgroundBrush" Color="#E6FCFBF7" />
+            <SolidColorBrush x:Key="NavChipBorderBrush" Color="#24302B22" />
+            <SolidColorBrush x:Key="NavChipSelectedBackgroundBrush" Color="#23252B" />
+            <SolidColorBrush x:Key="NavChipSelectedForegroundBrush" Color="#FAF8F4" />
+            <LinearGradientBrush x:Key="NavCardBackgroundBrush" StartPoint="0,0" EndPoint="0,1">
+                <GradientStop Color="#C4F9F7F2" Offset="0" />
+                <GradientStop Color="#99EDE9DF" Offset="1" />
+            </LinearGradientBrush>
+            <SolidColorBrush x:Key="NavCardBorderBrush" Color="#22302B22" />
+
+            <!-- 实色表面（告别刺眼纯白，改为素绢暖白与浅亚麻石） -->
+            <SolidColorBrush x:Key="SurfaceBrush" Color="#F7F5F0" />
+            <SolidColorBrush x:Key="SurfaceAltBrush" Color="#E3DFD5" />
+            <SolidColorBrush x:Key="SurfaceHoverBrush" Color="#DAD5C9" />
+            <SolidColorBrush x:Key="SurfaceElevatedBrush" Color="#FAF8F3" />
+            <SolidColorBrush x:Key="SettingsCardBackgroundBrush" Color="#EEF8F6F1" />
+            <SolidColorBrush x:Key="PosterPlaceholderBrush" Color="#DFDBD0" />
+            <SolidColorBrush x:Key="ScrimBrush" Color="#DCECE9E1" />
+            <SolidColorBrush x:Key="DividerBrush" Color="#1A2E2A22" />
             <LinearGradientBrush x:Key="HeroScrimBrush" StartPoint="0,0" EndPoint="1,1">
-                <GradientStop Color="#C9FFFFFF" Offset="0" />
-                <GradientStop Color="#E8FAF9F5" Offset="0.52" />
-                <GradientStop Color="#FAFAF9F5" Offset="1" />
+                <GradientStop Color="#BAFAF8F3" Offset="0" />
+                <GradientStop Color="#E2EFECE3" Offset="0.52" />
+                <GradientStop Color="#F8ECE9E1" Offset="1" />
             </LinearGradientBrush>
 
             <!-- 品牌徽标单体 -->
-            <SolidColorBrush x:Key="BrandMonolithBrush" Color="#141416" />
-            <SolidColorBrush x:Key="BrandMonolithInkBrush" Color="#FAF9F5" />
+            <SolidColorBrush x:Key="BrandMonolithBrush" Color="#23252B" />
+            <SolidColorBrush x:Key="BrandMonolithInkBrush" Color="#FAF8F4" />
 
-            <!-- 文本（松烟墨 / 青灰墨 / 淡墨） -->
-            <SolidColorBrush x:Key="PrimaryTextBrush" Color="#141416" />
-            <SolidColorBrush x:Key="SecondaryTextBrush" Color="#595962" />
-            <SolidColorBrush x:Key="TertiaryTextBrush" Color="#84848F" />
-            <SolidColorBrush x:Key="OnInverseTextBrush" Color="#FAF9F5" />
+            <!-- 护眼文本色阶（深松烟墨 / 青灰墨 / 淡烟墨，零光晕疲劳且高可读） -->
+            <SolidColorBrush x:Key="PrimaryTextBrush" Color="#1F2024" />
+            <SolidColorBrush x:Key="SecondaryTextBrush" Color="#53555E" />
+            <SolidColorBrush x:Key="TertiaryTextBrush" Color="#72747F" />
+            <SolidColorBrush x:Key="OnInverseTextBrush" Color="#FAF8F4" />
 
-            <!-- 素白菲涅尔定向高光描边（顶纯白倒角 + 底微墨影） -->
+            <!-- 浅色玻璃四边完整暖矿石细框（配合内层亮白倒角，清晰刻画玻璃立体轮廓） -->
             <LinearGradientBrush x:Key="GlassEdgeBrush" StartPoint="0.1,0" EndPoint="0.9,1">
-                <GradientStop Color="#E6FFFFFF" Offset="0" />
-                <GradientStop Color="#14000000" Offset="0.34" />
-                <GradientStop Color="#22000000" Offset="1" />
+                <GradientStop Color="#26322D25" Offset="0" />
+                <GradientStop Color="#1B322D25" Offset="0.38" />
+                <GradientStop Color="#302E2921" Offset="1" />
             </LinearGradientBrush>
-            <SolidColorBrush x:Key="SubtleBorderBrush" Color="#14000000" />
-            <SolidColorBrush x:Key="StrongBorderBrush" Color="#28000000" />
-            <SolidColorBrush x:Key="AccentBorderBrush" Color="#59CE3A2B" />
+            <SolidColorBrush x:Key="SubtleBorderBrush" Color="#1C2E2A22" />
+            <SolidColorBrush x:Key="StrongBorderBrush" Color="#342E2A22" />
+            <SolidColorBrush x:Key="AccentBorderBrush" Color="#5EC93A2B" />
 
-            <!-- 印泥朱砂落款 + 松烟墨高反差主操作 -->
-            <SolidColorBrush x:Key="VermilionBrush" Color="#CE3A2B" />
-            <SolidColorBrush x:Key="VermilionSoftBrush" Color="#1ACE3A2B" />
-            <SolidColorBrush x:Key="AccentBrush" Color="#CE3A2B" />
-            <SolidColorBrush x:Key="AccentFillBrush" Color="#141416" />
-            <SolidColorBrush x:Key="AccentFillHoverBrush" Color="#2A2A30" />
-            <SolidColorBrush x:Key="AccentFillPressedBrush" Color="#08080A" />
-            <SolidColorBrush x:Key="AccentInkBrush" Color="#FAF9F5" />
-            <SolidColorBrush x:Key="AccentSoftBrush" Color="#18CE3A2B" />
-            <SolidColorBrush x:Key="SelectionBrush" Color="#10000000" />
-            <SolidColorBrush x:Key="SelectionIndicatorBrush" Color="#CE3A2B" />
+            <!-- 印泥朱砂落款 + 深松烟墨高反差主操作 -->
+            <SolidColorBrush x:Key="VermilionBrush" Color="#C93A2B" />
+            <SolidColorBrush x:Key="VermilionSoftBrush" Color="#1AC93A2B" />
+            <SolidColorBrush x:Key="AccentBrush" Color="#C93A2B" />
+            <SolidColorBrush x:Key="AccentFillBrush" Color="#23252B" />
+            <SolidColorBrush x:Key="AccentFillHoverBrush" Color="#353842" />
+            <SolidColorBrush x:Key="AccentFillPressedBrush" Color="#16171B" />
+            <SolidColorBrush x:Key="AccentInkBrush" Color="#FAF8F4" />
+            <SolidColorBrush x:Key="AccentSoftBrush" Color="#18C93A2B" />
+            <SolidColorBrush x:Key="SelectionBrush" Color="#102C2820" />
+            <SolidColorBrush x:Key="SelectionIndicatorBrush" Color="#C93A2B" />
 
-            <SolidColorBrush x:Key="DangerBrush" Color="#B82A1E" />
-            <SolidColorBrush x:Key="DangerSoftBrush" Color="#1AB82A1E" />
-            <SolidColorBrush x:Key="SuccessBrush" Color="#1B7A50" />
-            <SolidColorBrush x:Key="RatingBrush" Color="#141416" />
-            <SolidColorBrush x:Key="NavHoverBrush" Color="#0A000000" />
+            <SolidColorBrush x:Key="DangerBrush" Color="#B62D20" />
+            <SolidColorBrush x:Key="DangerSoftBrush" Color="#1AB62D20" />
+            <SolidColorBrush x:Key="SuccessBrush" Color="#1E7B52" />
+            <SolidColorBrush x:Key="RatingBrush" Color="#1F2024" />
+            <SolidColorBrush x:Key="NavHoverBrush" Color="#0D2C2820" />
 
-            <SolidColorBrush x:Key="GlassBrush" Color="#FFFFFF" />
-            <SolidColorBrush x:Key="CardBrush" Color="#EFECE4" />
-            <SolidColorBrush x:Key="PillIdleBrush" Color="#ECE9E0" />
-            <SolidColorBrush x:Key="PillActiveInkBrush" Color="#FAF9F5" />
+            <SolidColorBrush x:Key="GlassBrush" Color="#FAF8F3" />
+            <SolidColorBrush x:Key="CardBrush" Color="#E8E4DA" />
+            <SolidColorBrush x:Key="PillIdleBrush" Color="#E6E2D8" />
+            <SolidColorBrush x:Key="PillActiveInkBrush" Color="#FAF8F4" />
         </ResourceDictionary>
 
         <ResourceDictionary x:Key="HighContrast">
             <SolidColorBrush x:Key="AppBackgroundBrush" Color="{ThemeResource SystemColorWindowColor}" />
             <SolidColorBrush x:Key="AppCanvasGradientBrush" Color="{ThemeResource SystemColorWindowColor}" />
+            <SolidColorBrush x:Key="BackdropGlowPrimaryBrush" Color="Transparent" />
+            <SolidColorBrush x:Key="BackdropGlowSecondaryBrush" Color="Transparent" />
+            <SolidColorBrush x:Key="BackdropGlowAccentBrush" Color="Transparent" />
             <SolidColorBrush x:Key="GlassRailBrush" Color="{ThemeResource SystemColorWindowColor}" />
             <SolidColorBrush x:Key="GlassPanelBrush" Color="{ThemeResource SystemColorWindowColor}" />
             <SolidColorBrush x:Key="GlassOverlayBrush" Color="{ThemeResource SystemColorWindowColor}" />
@@ -253,10 +344,24 @@
             <SolidColorBrush x:Key="GlassInnerBevelBrush" Color="Transparent" />
             <SolidColorBrush x:Key="GlassCausticBrush" Color="Transparent" />
             <SolidColorBrush x:Key="GlassBottomBevelBrush" Color="Transparent" />
+            <SolidColorBrush x:Key="GlassRailSeamHighlightBrush" Color="Transparent" />
+            <SolidColorBrush x:Key="NavItemForegroundBrush" Color="{ThemeResource SystemColorWindowTextColor}" />
+            <SolidColorBrush x:Key="NavItemHoverForegroundBrush" Color="{ThemeResource SystemColorWindowTextColor}" />
+            <SolidColorBrush x:Key="NavItemSelectedForegroundBrush" Color="{ThemeResource SystemColorHighlightTextColor}" />
+            <SolidColorBrush x:Key="NavActivePlateBrush" Color="{ThemeResource SystemColorHighlightColor}" />
+            <SolidColorBrush x:Key="NavActiveBorderBrush" Color="{ThemeResource SystemColorWindowTextColor}" />
+            <SolidColorBrush x:Key="NavChipBackgroundBrush" Color="{ThemeResource SystemColorWindowColor}" />
+            <SolidColorBrush x:Key="NavChipHoverBackgroundBrush" Color="{ThemeResource SystemColorWindowColor}" />
+            <SolidColorBrush x:Key="NavChipBorderBrush" Color="{ThemeResource SystemColorWindowTextColor}" />
+            <SolidColorBrush x:Key="NavChipSelectedBackgroundBrush" Color="{ThemeResource SystemColorHighlightColor}" />
+            <SolidColorBrush x:Key="NavChipSelectedForegroundBrush" Color="{ThemeResource SystemColorHighlightTextColor}" />
+            <SolidColorBrush x:Key="NavCardBackgroundBrush" Color="{ThemeResource SystemColorWindowColor}" />
+            <SolidColorBrush x:Key="NavCardBorderBrush" Color="{ThemeResource SystemColorWindowTextColor}" />
             <SolidColorBrush x:Key="SurfaceBrush" Color="{ThemeResource SystemColorWindowColor}" />
             <SolidColorBrush x:Key="SurfaceAltBrush" Color="{ThemeResource SystemColorWindowColor}" />
             <SolidColorBrush x:Key="SurfaceHoverBrush" Color="{ThemeResource SystemColorWindowColor}" />
             <SolidColorBrush x:Key="SurfaceElevatedBrush" Color="{ThemeResource SystemColorWindowColor}" />
+            <SolidColorBrush x:Key="SettingsCardBackgroundBrush" Color="{ThemeResource SystemColorWindowColor}" />
             <SolidColorBrush x:Key="PosterPlaceholderBrush" Color="{ThemeResource SystemColorWindowColor}" />
             <SolidColorBrush x:Key="ScrimBrush" Color="{ThemeResource SystemColorWindowColor}" />
             <SolidColorBrush x:Key="DividerBrush" Color="{ThemeResource SystemColorWindowTextColor}" />

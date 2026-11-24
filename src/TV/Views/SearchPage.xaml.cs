@@ -14,6 +14,7 @@ public sealed partial class SearchPage : Page
     private double _scrollOffset;
     private ScrollViewer? _resultScroll;
     private SearchViewModel? _observed;
+    private readonly Controls.NavigationRailController _scopeNav;
     private bool _firstVisit = true;
     private CancellationTokenSource? _suggestions;
     private bool _suggestionsFromKeyboard;
@@ -25,7 +26,8 @@ public sealed partial class SearchPage : Page
     {
         var width = QueryBox.ActualWidth;
         if (width > 0) SuggestionsOverlay.Width = Math.Max(220, width);
-        MotionService.SetOverlayVisible(SuggestionsOverlay, true);
+        if (!AreSuggestionsOpen)
+            MotionService.SetOverlayVisible(SuggestionsOverlay, true);
     }
 
     private void HideSuggestions()
@@ -39,6 +41,7 @@ public sealed partial class SearchPage : Page
     {
         InitializeComponent();
         NavigationCacheMode = Microsoft.UI.Xaml.Navigation.NavigationCacheMode.Required;
+        _scopeNav = Controls.NavigationMotion.AttachVerticalList(ScopeList, ScopeRailHost, ScopeGlideIndicator);
         MotionService.AttachTactile(SearchSubmitButton, 1.02f, 0.96f, -1f);
         MotionService.AttachTactile(FilterButton, 1.02f, 0.96f, -1f);
     }
@@ -73,6 +76,7 @@ public sealed partial class SearchPage : Page
         _suggestionsFromKeyboard = false;
         _suggestions?.Cancel();
         HideSuggestions();
+        _currentSuggestions = [];
         SuggestionList.ItemsSource = null;
     }
 
@@ -98,6 +102,43 @@ public sealed partial class SearchPage : Page
 
     private void OnSuggestionTextChanged(object sender, TextChangedEventArgs args) => ScheduleSuggestions();
 
+    private IReadOnlyList<string> _currentSuggestions = [];
+
+    private void ApplySuggestions(string expectedQuery, IReadOnlyList<string> suggestions)
+    {
+        if (!IsLoaded || QueryBox.IsComposing || QueryBox.Text.Trim() != expectedQuery) return;
+        if (QueryBox.FocusState == FocusState.Unfocused)
+        {
+            HideSuggestions();
+            return;
+        }
+        if (suggestions.Count == 0)
+        {
+            _currentSuggestions = [];
+            SuggestionList.ItemsSource = null;
+            HideSuggestions();
+            return;
+        }
+        if (!_currentSuggestions.SequenceEqual(suggestions, StringComparer.Ordinal))
+        {
+            var selectedText = SuggestionList.SelectedItem as string;
+            _currentSuggestions = suggestions;
+            SuggestionList.ItemsSource = suggestions;
+            if (!string.IsNullOrEmpty(selectedText))
+            {
+                var idx = -1;
+                for (var i = 0; i < suggestions.Count; i++)
+                    if (string.Equals(suggestions[i], selectedText, StringComparison.Ordinal)) { idx = i; break; }
+                SuggestionList.SelectedIndex = idx;
+            }
+            else
+            {
+                SuggestionList.SelectedIndex = -1;
+            }
+        }
+        ShowSuggestions();
+    }
+
     private async void ScheduleSuggestions()
     {
         if (!_suggestionsFromKeyboard || QueryBox.IsComposing) return;
@@ -108,26 +149,39 @@ public sealed partial class SearchPage : Page
         var query = QueryBox.Text.Trim();
         if (query.Length == 0)
         {
+            _currentSuggestions = [];
             SuggestionList.ItemsSource = null;
             HideSuggestions();
             return;
         }
+
+        // Phase 1 (0ms): 立即同步展示历史记录、本地片库与前缀缓存匹配，消除 260ms 首帧等待
+        var instant = ViewModel.GetInstantSuggestions(query);
+        if (instant.Count > 0)
+            ApplySuggestions(query, instant);
+
+        if (query.Length < 2 || ViewModel.HasFreshSuggestionCache(query))
+        {
+            if (instant.Count == 0) HideSuggestions();
+            return;
+        }
+
+        // Phase 2 (80ms 短防抖 + 流式增量回填): 豆瓣快速联想与健康站点并发竞速，谁先返回谁先上屏
         var cts = new CancellationTokenSource();
         _suggestions = cts;
         try
         {
-            await Task.Delay(260, cts.Token);
-            var suggestions = await ViewModel.SuggestAsync(query, cts.Token);
+            await Task.Delay(80, cts.Token);
             if (!IsLoaded || cts.IsCancellationRequested || QueryBox.IsComposing || QueryBox.Text.Trim() != query) return;
-            if (QueryBox.FocusState == FocusState.Unfocused)
+            var gotUpdate = instant.Count > 0;
+            await ViewModel.StreamRemoteSuggestionsAsync(query, updated =>
             {
-                HideSuggestions();
-                return;
-            }
-            SuggestionList.ItemsSource = suggestions;
-            SuggestionList.SelectedIndex = -1;
-            if (suggestions.Count > 0) ShowSuggestions();
-            else HideSuggestions();
+                if (cts.IsCancellationRequested) return;
+                gotUpdate = updated.Count > 0;
+                ApplySuggestions(query, updated);
+            }, cts.Token);
+            if (!IsLoaded || cts.IsCancellationRequested || QueryBox.IsComposing || QueryBox.Text.Trim() != query) return;
+            if (!gotUpdate) HideSuggestions();
         }
         catch (OperationCanceledException) when (cts.IsCancellationRequested) { }
         catch (Exception ex) { Services.Diagnostics.Log($"搜索建议失败: {ex.GetType().Name}"); }
@@ -180,6 +234,7 @@ public sealed partial class SearchPage : Page
         {
             _scrollOffset = 0;
             _resultScroll?.ChangeView(null, 0, null, true);
+            _scopeNav.Sync(animate: e.PropertyName == nameof(SearchViewModel.Scope));
             if (_observed is { ShowsHistory: false })
                 MotionService.EnterSection(ResultsList, offsetY: 10);
         }
@@ -238,9 +293,10 @@ public sealed partial class SearchPage : Page
 
     private void OnQueryKeyDown(object sender, KeyRoutedEventArgs e)
     {
-        var command = Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread(VirtualKey.Control).HasFlag(Windows.UI.Core.CoreVirtualKeyStates.Down) ||
-            Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread(VirtualKey.Menu).HasFlag(Windows.UI.Core.CoreVirtualKeyStates.Down);
-        _suggestionsFromKeyboard = !command;
+        var ctrl = Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread(VirtualKey.Control).HasFlag(Windows.UI.Core.CoreVirtualKeyStates.Down);
+        var alt = Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread(VirtualKey.Menu).HasFlag(Windows.UI.Core.CoreVirtualKeyStates.Down);
+        var isPaste = ctrl && !alt && e.Key == VirtualKey.V;
+        _suggestionsFromKeyboard = (!ctrl && !alt) || isPaste;
         if (e.Key == VirtualKey.Escape && AreSuggestionsOpen)
         {
             HideSuggestions();

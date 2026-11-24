@@ -159,9 +159,10 @@
                     </StackPanel>
                 </Grid>
 
-                <!-- 美术馆宽幅展陈画廊：磨砂铭牌 + 内嵌图景微缩放 -->
+                <!-- 美术馆宽幅展陈画廊：磨砂铭牌 + 内嵌图景微缩放（Shift+滚轮可横滑，普通滚轮穿透驱动页面纵滑） -->
                 <Grid x:Name="GalleryHost">
-                    <ScrollViewer Height="186"
+                    <ScrollViewer x:Name="GalleryScroller" Height="186"
+                                  controls:ScrollWheelBehavior.HorizontalWheelMode="ShiftOnly"
                                   Visibility="{Binding ShowGallery, Converter={StaticResource BoolToVisibility}}"
                                   HorizontalScrollMode="Enabled" HorizontalScrollBarVisibility="Hidden"
                                   VerticalScrollMode="Disabled" VerticalScrollBarVisibility="Disabled">
@@ -234,7 +235,11 @@
                         Margin="0,0,16,0" SizeChanged="OnHeaderBandSizeChanged">
                 <Grid x:Name="FilterDock" Margin="0,0,0,8">
                     <controls:GlassSurface x:Name="FilterDockGlass"
-                                           CornerRadius="14" Opacity="0" IsHitTestVisible="False" />
+                                           CornerRadius="14" Opacity="0" IsHitTestVisible="False">
+                        <controls:GlassSurface.Shadow>
+                            <ThemeShadow x:Name="FilterDockShadow" />
+                        </controls:GlassSurface.Shadow>
+                    </controls:GlassSurface>
                     <Border x:Name="FilterDockDivider" Height="1"
                             Background="{ThemeResource DividerBrush}"
                             VerticalAlignment="Bottom" IsHitTestVisible="False" />
@@ -243,22 +248,44 @@
                             <ColumnDefinition Width="*" />
                             <ColumnDefinition Width="Auto" />
                         </Grid.ColumnDefinitions>
-                        <ScrollViewer HorizontalScrollMode="Enabled" HorizontalScrollBarVisibility="Hidden"
-                                      VerticalScrollMode="Disabled" VerticalAlignment="Center">
-                            <ItemsControl ItemsSource="{Binding Categories}">
-                                <ItemsControl.ItemsPanel>
-                                    <ItemsPanelTemplate>
-                                        <StackPanel Orientation="Horizontal" />
-                                    </ItemsPanelTemplate>
-                                </ItemsControl.ItemsPanel>
-                                <ItemsControl.ItemTemplate>
-                                    <DataTemplate>
-                                        <ToggleButton Style="{StaticResource FilterChipStyle}" Content="{Binding Name}" Tag="{Binding}"
-                                                      IsChecked="{Binding IsSelected, Mode=OneWay}"
-                                                      Click="OnCategoryPillClick" Margin="0,0,8,0" />
-                                    </DataTemplate>
-                                </ItemsControl.ItemTemplate>
-                            </ItemsControl>
+                        <ScrollViewer x:Name="CategoryScroller"
+                                      controls:ScrollWheelBehavior.HorizontalWheelMode="ShiftOnly"
+                                      HorizontalScrollMode="Enabled" HorizontalScrollBarVisibility="Hidden"
+                                      VerticalScrollMode="Disabled" VerticalScrollBarVisibility="Disabled"
+                                      VerticalAlignment="Center">
+                            <Grid x:Name="CategoryTrackHost" VerticalAlignment="Center">
+                                <!-- 统一横向导航高反差弹簧滑行胶囊：单实例物理跟随，杜绝多选态残留 -->
+                                <Border x:Name="CategoryGlidePill" Height="36" Width="84"
+                                        CornerRadius="{StaticResource RadiusChip}"
+                                        Background="{ThemeResource NavChipSelectedBackgroundBrush}"
+                                        HorizontalAlignment="Left" VerticalAlignment="Center"
+                                        Opacity="0" IsHitTestVisible="False" />
+                                <ListView x:Name="CategoryNavList" AutomationProperties.Name="点播分类"
+                                          ItemsSource="{Binding Categories}"
+                                          SelectionMode="Single" IsItemClickEnabled="False"
+                                          Background="Transparent" BorderThickness="0" Padding="0"
+                                          ItemContainerStyle="{StaticResource HorizontalNavChipItemStyle}"
+                                          SelectionChanged="OnCategorySelectionChanged"
+                                          ContainerContentChanging="OnCategoryContainerChanging"
+                                          ScrollViewer.HorizontalScrollMode="Disabled"
+                                          ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                                          ScrollViewer.VerticalScrollMode="Disabled"
+                                          ScrollViewer.VerticalScrollBarVisibility="Disabled">
+                                    <ListView.ItemsPanel>
+                                        <ItemsPanelTemplate>
+                                            <StackPanel Orientation="Horizontal" />
+                                        </ItemsPanelTemplate>
+                                    </ListView.ItemsPanel>
+                                    <ListView.ItemContainerTransitions>
+                                        <TransitionCollection />
+                                    </ListView.ItemContainerTransitions>
+                                    <ListView.ItemTemplate>
+                                        <DataTemplate>
+                                            <TextBlock Text="{Binding Name}" Style="{StaticResource NavSegmentTextStyle}" VerticalAlignment="Center" />
+                                        </DataTemplate>
+                                    </ListView.ItemTemplate>
+                                </ListView>
+                            </Grid>
                         </ScrollViewer>
                         <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="10" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="12,0,0,0">
                             <controls:AnchoredChoice Header="站点" ItemsSource="{Binding Sites}" MaxWidth="204"

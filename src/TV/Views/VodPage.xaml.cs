@@ -1,3 +1,5 @@
+using System.Collections.Specialized;
+using System.ComponentModel;
 using Microsoft.UI.Input;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -16,6 +18,9 @@ namespace TV.Views;
 public sealed partial class VodPage : Page
 {
     private ScrollViewer? _postersScroll;
+    private VodViewModel? _observed;
+    private readonly NavigationRailController _categoryNav;
+    private bool _syncingCategory;
     private bool _browseLayoutReady;
     private bool _backToTopVisible;
     private bool _topHidden;
@@ -27,6 +32,12 @@ public sealed partial class VodPage : Page
     {
         InitializeComponent();
         NavigationCacheMode = Microsoft.UI.Xaml.Navigation.NavigationCacheMode.Required;
+        _categoryNav = NavigationMotion.AttachHorizontalList(
+            CategoryNavList,
+            CategoryTrackHost,
+            CategoryGlidePill,
+            HorizontalIndicatorMode.PillMatchWidth,
+            CategoryScroller);
         MotionService.AttachTactile(HeaderSearchButton, 1.02f, 0.96f, -1f);
         MotionService.AttachTactile(HeaderReloadButton, 1.04f, 0.94f, -1f);
         MotionService.AttachTactile(FilterButton, 1.02f, 0.96f, -1f);
@@ -34,6 +45,9 @@ public sealed partial class VodPage : Page
         _overlayWheelHandler = OnOverlayPointerWheelChanged;
         TopCollapsibleBand.AddHandler(PointerWheelChangedEvent, _overlayWheelHandler, handledEventsToo: true);
         StickyDockBand.AddHandler(PointerWheelChangedEvent, _overlayWheelHandler, handledEventsToo: true);
+        FilterDockGlass.Translation = new System.Numerics.Vector3(0f, 0f, 12f);
+        FilterDockShadow.Receivers.Add(Posters);
+        Unloaded += OnPageUnloaded;
     }
 
     private VodViewModel ViewModel => (VodViewModel)DataContext;
@@ -41,8 +55,58 @@ public sealed partial class VodPage : Page
     private async void OnLoaded(object sender, RoutedEventArgs e)
     {
         Diagnostics.Log("VodPage loaded");
+        AttachCategoryObserver(ViewModel);
+        SyncCategorySelection(animate: false);
         try { await ViewModel.InitializeAsync(); Diagnostics.Log("VodPage initialized"); }
         catch (Exception ex) { ViewModel.StatusMessage = "加载失败：" + ex.Message; }
+        if (IsLoaded) SyncCategorySelection(animate: false);
+    }
+
+    private void OnPageUnloaded(object sender, RoutedEventArgs e) => AttachCategoryObserver(null);
+
+    private void AttachCategoryObserver(VodViewModel? model)
+    {
+        if (ReferenceEquals(_observed, model)) return;
+        if (_observed is not null)
+        {
+            _observed.PropertyChanged -= OnVodViewModelPropertyChanged;
+            _observed.Categories.CollectionChanged -= OnCategoriesCollectionChanged;
+        }
+        _observed = model;
+        if (_observed is not null)
+        {
+            _observed.PropertyChanged += OnVodViewModelPropertyChanged;
+            _observed.Categories.CollectionChanged += OnCategoriesCollectionChanged;
+        }
+    }
+
+    private void OnCategoriesCollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
+    {
+        if (e.Action == NotifyCollectionChangedAction.Reset)
+        {
+            _categoryNav.ResetAnchor();
+            CategoryScroller.ChangeView(0, null, null, disableAnimation: true);
+        }
+        SyncCategorySelection(animate: false);
+    }
+
+    private void OnVodViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(VodViewModel.SelectedCategory))
+            SyncCategorySelection(animate: false);
+    }
+
+    private void SyncCategorySelection(bool animate)
+    {
+        if (_observed is null) return;
+        var target = _observed.SelectedCategory;
+        if (!ReferenceEquals(CategoryNavList.SelectedItem, target))
+        {
+            _syncingCategory = true;
+            try { CategoryNavList.SelectedItem = target; }
+            finally { _syncingCategory = false; }
+        }
+        _categoryNav.Sync(animate);
     }
 
     private void OnSearchClick(object sender, RoutedEventArgs e) => App.Window.OpenSearch();
@@ -160,20 +224,9 @@ public sealed partial class VodPage : Page
 
     private void OnOverlayPointerWheelChanged(object sender, PointerRoutedEventArgs e)
     {
-        if (_postersScroll is null) return;
-        var point = e.GetCurrentPoint(this);
-        var props = point.Properties;
-        if (props.IsHorizontalMouseWheel) return;
-        var shiftDown = InputKeyboardSource.GetKeyStateForCurrentThread(VirtualKey.Shift).HasFlag(Windows.UI.Core.CoreVirtualKeyStates.Down);
-        if (shiftDown) return;
-        var delta = props.MouseWheelDelta;
-        if (delta == 0) return;
-        var target = Math.Clamp(_postersScroll.VerticalOffset - delta * 0.9, 0, _postersScroll.ScrollableHeight);
-        if (Math.Abs(target - _postersScroll.VerticalOffset) > 0.5)
-        {
-            _postersScroll.ChangeView(null, target, null, disableAnimation: false);
+        if (e.Handled || _postersScroll is null) return;
+        if (ScrollWheelBehavior.ForwardVerticalWheel(_postersScroll, e, this))
             e.Handled = true;
-        }
     }
 
     private void OnTopClick(object sender, RoutedEventArgs e) => _postersScroll?.ChangeView(null, 0, null, disableAnimation: false);
@@ -211,24 +264,35 @@ public sealed partial class VodPage : Page
         MotionService.SetFloatingVisible(BackToTop, visible, offsetY: 16, hiddenScale: 0.84f);
     }
 
-    private async void OnCategoryPillClick(object sender, RoutedEventArgs e)
+    private async void OnCategorySelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        if (sender is ToggleButton { Tag: VodCategory category } button)
+        if (_syncingCategory) return;
+        if (CategoryNavList.SelectedItem is not VodCategory category) return;
+
+        if (ViewModel.SelectedSite is { } site && BilibiliVodProvider.Supports(site) && BilibiliVodProvider.IsLoginCategory(category.Id))
         {
-            if (ViewModel.SelectedSite is { } site && BilibiliVodProvider.Supports(site) && BilibiliVodProvider.IsLoginCategory(category.Id))
-            {
-                button.IsChecked = false;
-                if (XamlRoot is null) return;
-                using var dialog = new BilibiliLoginDialog(App.Services.BilibiliAccount, XamlRoot);
-                try { await dialog.ShowAsync(); }
-                catch (Exception) { ViewModel.StatusMessage = "B 站账号面板无法打开，请重试。"; }
-                return;
-            }
+            _syncingCategory = true;
+            try { CategoryNavList.SelectedItem = ViewModel.SelectedCategory; }
+            finally { _syncingCategory = false; }
+            _categoryNav.Sync(animate: false);
+            if (XamlRoot is null) return;
+            using var dialog = new BilibiliLoginDialog(App.Services.BilibiliAccount, XamlRoot);
+            try { await dialog.ShowAsync(); }
+            catch (Exception) { ViewModel.StatusMessage = "B 站账号面板无法打开，请重试。"; }
+            return;
+        }
+
+        if (!ReferenceEquals(ViewModel.SelectedCategory, category))
+        {
             ViewModel.SelectedCategory = category;
-            button.IsChecked = true;
-            MotionService.PulseElement(button, 0.93f);
             _postersScroll?.ChangeView(null, 0, null, disableAnimation: false);
         }
+    }
+
+    private void OnCategoryContainerChanging(ListViewBase sender, ContainerContentChangingEventArgs args)
+    {
+        if (!args.InRecycleQueue && args.Item is VodCategory category)
+            Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(args.ItemContainer, category.Name);
     }
 
     private void OnPosterContainerChanging(ListViewBase sender, ContainerContentChangingEventArgs args)

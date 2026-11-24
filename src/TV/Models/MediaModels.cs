@@ -8,6 +8,7 @@ public sealed partial class VodCategory : CommunityToolkit.Mvvm.ComponentModel.O
     [JsonPropertyName("type_id"), JsonConverter(typeof(FlexibleStringConverter))] public string Id { get; set; } = string.Empty;
     [JsonPropertyName("type_name")] public string Name { get; set; } = string.Empty;
     [CommunityToolkit.Mvvm.ComponentModel.ObservableProperty, JsonIgnore] private bool _isSelected;
+    public override string ToString() => Name;
 }
 
 public sealed class VodItem

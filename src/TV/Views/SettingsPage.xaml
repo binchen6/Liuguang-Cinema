@@ -11,97 +11,7 @@
         <x:Double x:Key="SettingsContentMaxWidth">820</x:Double>
         <x:Double x:Key="SettingsRowMinHeight">52</x:Double>
         <Thickness x:Key="SettingsScrollPadding">4,0,20,24</Thickness>
-
-        <!-- 左侧分区导航项：48 高、极轻磨砂选中底板；全局朱砂指示条由 SettingsNavIndicator 弹簧驱动 -->
-        <Style x:Key="SettingsNavSectionStyle" TargetType="Expander">
-            <Setter Property="HorizontalAlignment" Value="Stretch" />
-            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
-            <Setter Property="Margin" Value="0,2" />
-            <Setter Property="IsTabStop" Value="False" />
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="Expander">
-                        <ToggleButton x:Name="HeaderToggle"
-                                      Content="{TemplateBinding Header}"
-                                      Height="{StaticResource NavItemHeight}"
-                                      Padding="0,0,12,0"
-                                      HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
-                                      VerticalContentAlignment="Center"
-                                      Background="Transparent" BorderThickness="0"
-                                      CornerRadius="{StaticResource RadiusControl}"
-                                      UseSystemFocusVisuals="True"
-                                      IsChecked="{Binding IsExpanded, Mode=TwoWay, RelativeSource={RelativeSource TemplatedParent}}">
-                            <ToggleButton.Template>
-                                <ControlTemplate TargetType="ToggleButton">
-                                    <Grid x:Name="Root" Background="{TemplateBinding Background}"
-                                          CornerRadius="{TemplateBinding CornerRadius}"
-                                          Padding="{TemplateBinding Padding}">
-                                        <Border x:Name="HoverOverlay" CornerRadius="{TemplateBinding CornerRadius}"
-                                                Background="Transparent" IsHitTestVisible="False" />
-                                        <Border x:Name="CheckedPlate" CornerRadius="{TemplateBinding CornerRadius}"
-                                                Background="{ThemeResource GlassActivePlateBrush}"
-                                                BorderBrush="{ThemeResource GlassEdgeBrush}" BorderThickness="1"
-                                                Opacity="0" IsHitTestVisible="False" />
-                                        <ContentPresenter x:Name="Presenter"
-                                                          Content="{TemplateBinding Content}"
-                                                          ContentTemplate="{TemplateBinding ContentTemplate}"
-                                                          Margin="14,0,0,0"
-                                                          HorizontalAlignment="Left" VerticalAlignment="Center" />
-                                        <VisualStateManager.VisualStateGroups>
-                                            <VisualStateGroup x:Name="CommonStates">
-                                                <VisualState x:Name="Normal" />
-                                                <VisualState x:Name="PointerOver">
-                                                    <VisualState.Setters>
-                                                        <Setter Target="HoverOverlay.Background" Value="{ThemeResource NavHoverBrush}" />
-                                                    </VisualState.Setters>
-                                                </VisualState>
-                                                <VisualState x:Name="Pressed">
-                                                    <VisualState.Setters>
-                                                        <Setter Target="HoverOverlay.Background" Value="{ThemeResource SurfaceHoverBrush}" />
-                                                    </VisualState.Setters>
-                                                </VisualState>
-                                                <VisualState x:Name="Disabled">
-                                                    <VisualState.Setters>
-                                                        <Setter Target="Root.Opacity" Value="0.42" />
-                                                    </VisualState.Setters>
-                                                </VisualState>
-                                                <VisualState x:Name="Checked">
-                                                    <VisualState.Setters>
-                                                        <Setter Target="CheckedPlate.Opacity" Value="1" />
-                                                    </VisualState.Setters>
-                                                </VisualState>
-                                                <VisualState x:Name="CheckedPointerOver">
-                                                    <VisualState.Setters>
-                                                        <Setter Target="CheckedPlate.Opacity" Value="1" />
-                                                        <Setter Target="HoverOverlay.Background" Value="{ThemeResource NavHoverBrush}" />
-                                                    </VisualState.Setters>
-                                                </VisualState>
-                                                <VisualState x:Name="CheckedPressed">
-                                                    <VisualState.Setters>
-                                                        <Setter Target="CheckedPlate.Opacity" Value="1" />
-                                                        <Setter Target="HoverOverlay.Background" Value="{ThemeResource SurfaceHoverBrush}" />
-                                                    </VisualState.Setters>
-                                                </VisualState>
-                                                <VisualState x:Name="CheckedDisabled">
-                                                    <VisualState.Setters>
-                                                        <Setter Target="CheckedPlate.Opacity" Value="1" />
-                                                        <Setter Target="Root.Opacity" Value="0.42" />
-                                                    </VisualState.Setters>
-                                                </VisualState>
-                                                <VisualState x:Name="Indeterminate" />
-                                                <VisualState x:Name="IndeterminatePointerOver" />
-                                                <VisualState x:Name="IndeterminatePressed" />
-                                                <VisualState x:Name="IndeterminateDisabled" />
-                                            </VisualStateGroup>
-                                        </VisualStateManager.VisualStateGroups>
-                                    </Grid>
-                                </ControlTemplate>
-                            </ToggleButton.Template>
-                        </ToggleButton>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
-        </Style>
+        <!-- 左侧分区导航样式 SettingsNavSectionStyle 统一收拢于 Styles/Navigation.xaml -->
     </Page.Resources>
 
     <Grid Padding="{StaticResource PagePaddingWide}" RowSpacing="20">
@@ -129,6 +39,8 @@
 
             <controls:GlassSurface Width="{StaticResource SettingsNavWidth}"
                                    CornerRadius="{StaticResource RadiusPanel}" Padding="8,10" VerticalAlignment="Top">
+                <ScrollViewer HorizontalScrollMode="Disabled" HorizontalScrollBarVisibility="Disabled"
+                              VerticalScrollMode="Enabled" VerticalScrollBarVisibility="Auto">
                 <Grid x:Name="SettingsNavHost">
                     <StackPanel Spacing="2">
                         <!-- 片源 -->
@@ -136,8 +48,8 @@
                                   AutomationProperties.Name="片源" ToolTipService.ToolTip="片源">
                             <Expander.Header>
                                 <StackPanel Orientation="Horizontal" Spacing="{StaticResource SpaceSmall}">
-                                    <controls:LineIcon PathData="{StaticResource IconGlobe}" IconSize="17" Foreground="{ThemeResource SecondaryTextBrush}" />
-                                    <TextBlock Text="片源" Style="{StaticResource BodyText}" VerticalAlignment="Center" />
+                                    <controls:LineIcon PathData="{StaticResource IconGlobe}" IconSize="17" />
+                                    <TextBlock Text="片源" Style="{StaticResource NavItemTextStyle}" VerticalAlignment="Center" />
                                 </StackPanel>
                             </Expander.Header>
                         </Expander>
@@ -146,8 +58,8 @@
                                   AutomationProperties.Name="播放" ToolTipService.ToolTip="播放">
                             <Expander.Header>
                                 <StackPanel Orientation="Horizontal" Spacing="{StaticResource SpaceSmall}">
-                                    <controls:LineIcon PathData="{StaticResource IconPlayOutline}" IconSize="17" Foreground="{ThemeResource SecondaryTextBrush}" />
-                                    <TextBlock Text="播放" Style="{StaticResource BodyText}" VerticalAlignment="Center" />
+                                    <controls:LineIcon PathData="{StaticResource IconPlayOutline}" IconSize="17" />
+                                    <TextBlock Text="播放" Style="{StaticResource NavItemTextStyle}" VerticalAlignment="Center" />
                                 </StackPanel>
                             </Expander.Header>
                         </Expander>
@@ -156,8 +68,8 @@
                                   AutomationProperties.Name="弹幕与 AI" ToolTipService.ToolTip="AI 字幕、翻译与弹弹play 弹幕">
                             <Expander.Header>
                                 <StackPanel Orientation="Horizontal" Spacing="{StaticResource SpaceSmall}">
-                                    <controls:LineIcon PathData="{StaticResource IconSpark}" IconSize="17" Foreground="{ThemeResource SecondaryTextBrush}" />
-                                    <TextBlock Text="弹幕与 AI" Style="{StaticResource BodyText}" VerticalAlignment="Center" />
+                                    <controls:LineIcon PathData="{StaticResource IconSpark}" IconSize="17" />
+                                    <TextBlock Text="弹幕与 AI" Style="{StaticResource NavItemTextStyle}" VerticalAlignment="Center" />
                                 </StackPanel>
                             </Expander.Header>
                         </Expander>
@@ -166,8 +78,8 @@
                                   AutomationProperties.Name="网盘" ToolTipService.ToolTip="网盘">
                             <Expander.Header>
                                 <StackPanel Orientation="Horizontal" Spacing="{StaticResource SpaceSmall}">
-                                    <controls:LineIcon PathData="{StaticResource IconCloud}" IconSize="17" Foreground="{ThemeResource SecondaryTextBrush}" />
-                                    <TextBlock Text="网盘" Style="{StaticResource BodyText}" VerticalAlignment="Center" />
+                                    <controls:LineIcon PathData="{StaticResource IconCloud}" IconSize="17" />
+                                    <TextBlock Text="网盘" Style="{StaticResource NavItemTextStyle}" VerticalAlignment="Center" />
                                 </StackPanel>
                             </Expander.Header>
                         </Expander>
@@ -176,8 +88,8 @@
                                   AutomationProperties.Name="网络" ToolTipService.ToolTip="网络">
                             <Expander.Header>
                                 <StackPanel Orientation="Horizontal" Spacing="{StaticResource SpaceSmall}">
-                                    <controls:LineIcon PathData="{StaticResource IconNetwork}" IconSize="17" Foreground="{ThemeResource SecondaryTextBrush}" />
-                                    <TextBlock Text="网络" Style="{StaticResource BodyText}" VerticalAlignment="Center" />
+                                    <controls:LineIcon PathData="{StaticResource IconNetwork}" IconSize="17" />
+                                    <TextBlock Text="网络" Style="{StaticResource NavItemTextStyle}" VerticalAlignment="Center" />
                                 </StackPanel>
                             </Expander.Header>
                         </Expander>
@@ -186,8 +98,8 @@
                                   AutomationProperties.Name="外观与内容" ToolTipService.ToolTip="外观与内容">
                             <Expander.Header>
                                 <StackPanel Orientation="Horizontal" Spacing="{StaticResource SpaceSmall}">
-                                    <controls:LineIcon PathData="{StaticResource IconPalette}" IconSize="17" Foreground="{ThemeResource SecondaryTextBrush}" />
-                                    <TextBlock Text="外观与内容" Style="{StaticResource BodyText}" VerticalAlignment="Center" />
+                                    <controls:LineIcon PathData="{StaticResource IconPalette}" IconSize="17" />
+                                    <TextBlock Text="外观与内容" Style="{StaticResource NavItemTextStyle}" VerticalAlignment="Center" />
                                 </StackPanel>
                             </Expander.Header>
                         </Expander>
@@ -196,8 +108,8 @@
                                   AutomationProperties.Name="存储" ToolTipService.ToolTip="存储">
                             <Expander.Header>
                                 <StackPanel Orientation="Horizontal" Spacing="{StaticResource SpaceSmall}">
-                                    <controls:LineIcon PathData="{StaticResource IconStorage}" IconSize="17" Foreground="{ThemeResource SecondaryTextBrush}" />
-                                    <TextBlock Text="存储" Style="{StaticResource BodyText}" VerticalAlignment="Center" />
+                                    <controls:LineIcon PathData="{StaticResource IconStorage}" IconSize="17" />
+                                    <TextBlock Text="存储" Style="{StaticResource NavItemTextStyle}" VerticalAlignment="Center" />
                                 </StackPanel>
                             </Expander.Header>
                         </Expander>
@@ -206,8 +118,8 @@
                                   AutomationProperties.Name="关于" ToolTipService.ToolTip="关于">
                             <Expander.Header>
                                 <StackPanel Orientation="Horizontal" Spacing="{StaticResource SpaceSmall}">
-                                    <controls:LineIcon PathData="{StaticResource IconInfo}" IconSize="17" Foreground="{ThemeResource SecondaryTextBrush}" />
-                                    <TextBlock Text="关于" Style="{StaticResource BodyText}" VerticalAlignment="Center" />
+                                    <controls:LineIcon PathData="{StaticResource IconInfo}" IconSize="17" />
+                                    <TextBlock Text="关于" Style="{StaticResource NavItemTextStyle}" VerticalAlignment="Center" />
                                 </StackPanel>
                             </Expander.Header>
                         </Expander>
@@ -218,8 +130,9 @@
                             Width="3" Height="20" CornerRadius="1.5"
                             Background="{ThemeResource SelectionIndicatorBrush}"
                             HorizontalAlignment="Left" VerticalAlignment="Top"
-                            Margin="2,0,0,0" Opacity="0" IsHitTestVisible="False" />
+                            Margin="0,0,0,0" Opacity="0" IsHitTestVisible="False" />
                 </Grid>
+                </ScrollViewer>
             </controls:GlassSurface>
 
             <Grid Grid.Column="1" RowSpacing="{StaticResource SpaceSmall}">
@@ -228,8 +141,9 @@
                     <RowDefinition Height="Auto" />
                 </Grid.RowDefinitions>
 
-                <!-- 设置内容：右侧内容区的滚动容器（workspace_layout 断言按此名称取 bounds/滚动） -->
+                <!-- 设置内容：右侧内容区的滚动容器（启用未聚焦 NumberBox 滚轮防劫持，保持纵滑丝滑一致） -->
                 <ScrollViewer x:Name="SettingsScroller" AutomationProperties.Name="设置内容"
+                              controls:ScrollWheelBehavior.GuardNumberBoxWheel="True"
                               HorizontalContentAlignment="Stretch"
                               HorizontalScrollMode="Disabled" HorizontalScrollBarVisibility="Disabled"
                               VerticalScrollMode="Enabled" VerticalScrollBarVisibility="Auto"
@@ -303,7 +217,7 @@
                                                                     Tag="{Binding}" Click="OnRemoveSourceClick"
                                                                     ToolTipService.ToolTip="删除仓库"
                                                                     AutomationProperties.Name="删除仓库">
-                                                                <FontIcon Glyph="&#xE74D;" FontSize="16" />
+                                                                <controls:LineIcon PathData="{StaticResource IconTrash}" IconSize="15" />
                                                             </Button>
                                                         </Grid>
                                                     </Border>
@@ -393,23 +307,27 @@
                                 </StackPanel>
                             </Border>
                             <Border Style="{StaticResource SettingsCardStyle}">
-                                <StackPanel Spacing="8">
-                                    <TextBlock Text="缓存与画质" Style="{StaticResource LabelText}" />
+                                <StackPanel Spacing="6">
+                                    <TextBlock Text="缓存与画质" Style="{StaticResource LabelText}" Margin="0,0,0,4" />
+                                    <Border Height="1" Background="{ThemeResource DividerBrush}" />
                                     <Grid MinHeight="{StaticResource SettingsRowMinHeight}" ColumnSpacing="{StaticResource SpaceLarge}">
                                         <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
                                         <TextBlock Text="点播缓存 (ms)" Style="{StaticResource LabelText}" Width="{StaticResource SettingsFormLabelWidth}" VerticalAlignment="Center" />
                                         <NumberBox Grid.Column="1" MinWidth="160" MaxWidth="{StaticResource SettingsFormControlWidth}" Minimum="1200" Maximum="12000" SpinButtonPlacementMode="Inline" Value="{Binding NetworkCache, Mode=TwoWay}" HorizontalAlignment="Left" />
                                     </Grid>
+                                    <Border Height="1" Background="{ThemeResource DividerBrush}" />
                                     <Grid MinHeight="{StaticResource SettingsRowMinHeight}" ColumnSpacing="{StaticResource SpaceLarge}">
                                         <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
                                         <TextBlock Text="直播缓存 (ms)" Style="{StaticResource LabelText}" Width="{StaticResource SettingsFormLabelWidth}" VerticalAlignment="Center" />
                                         <NumberBox Grid.Column="1" MinWidth="160" MaxWidth="{StaticResource SettingsFormControlWidth}" Minimum="500" Maximum="8000" SpinButtonPlacementMode="Inline" Value="{Binding LiveCache, Mode=TwoWay}" HorizontalAlignment="Left" />
                                     </Grid>
+                                    <Border Height="1" Background="{ThemeResource DividerBrush}" />
                                     <Grid MinHeight="{StaticResource SettingsRowMinHeight}" ColumnSpacing="{StaticResource SpaceLarge}">
                                         <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
                                         <TextBlock Text="默认音量" Style="{StaticResource LabelText}" Width="{StaticResource SettingsFormLabelWidth}" VerticalAlignment="Center" />
                                         <NumberBox Grid.Column="1" MinWidth="160" MaxWidth="{StaticResource SettingsFormControlWidth}" Minimum="0" Maximum="100" SpinButtonPlacementMode="Inline" Value="{Binding DefaultVolume, Mode=TwoWay}" HorizontalAlignment="Left" />
                                     </Grid>
+                                    <Border Height="1" Background="{ThemeResource DividerBrush}" />
                                     <Grid MinHeight="{StaticResource SettingsRowMinHeight}" ColumnSpacing="{StaticResource SpaceLarge}">
                                         <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
                                         <TextBlock Text="默认画质" Style="{StaticResource LabelText}" Width="{StaticResource SettingsFormLabelWidth}" VerticalAlignment="Center" />
@@ -629,8 +547,9 @@
                                 </StackPanel>
                             </Border>
                             <Border Style="{StaticResource SettingsCardStyle}">
-                                <StackPanel Spacing="10">
-                                    <TextBlock Text="手动输入凭据" Style="{StaticResource LabelText}" />
+                                <StackPanel Spacing="6">
+                                    <TextBlock Text="手动输入凭据" Style="{StaticResource LabelText}" Margin="0,0,0,4" />
+                                    <Border Height="1" Background="{ThemeResource DividerBrush}" />
                                     <Grid MinHeight="{StaticResource SettingsRowMinHeight}" ColumnSpacing="{StaticResource SpaceLarge}">
                                         <Grid.ColumnDefinitions>
                                             <ColumnDefinition Width="Auto" />
@@ -641,6 +560,7 @@
                                                      PlaceholderText="粘贴 Token" HorizontalAlignment="Left"
                                                      Password="{Binding AliToken, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
                                     </Grid>
+                                    <Border Height="1" Background="{ThemeResource DividerBrush}" />
                                     <Grid MinHeight="{StaticResource SettingsRowMinHeight}" ColumnSpacing="{StaticResource SpaceLarge}">
                                         <Grid.ColumnDefinitions>
                                             <ColumnDefinition Width="Auto" />
@@ -651,6 +571,7 @@
                                                      PlaceholderText="粘贴 Cookie" HorizontalAlignment="Left"
                                                      Password="{Binding QuarkCookie, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
                                     </Grid>
+                                    <Border Height="1" Background="{ThemeResource DividerBrush}" />
                                     <Grid MinHeight="{StaticResource SettingsRowMinHeight}" ColumnSpacing="{StaticResource SpaceLarge}">
                                         <Grid.ColumnDefinitions>
                                             <ColumnDefinition Width="Auto" />
@@ -661,6 +582,7 @@
                                                      PlaceholderText="粘贴 Cookie" HorizontalAlignment="Left"
                                                      Password="{Binding UcCookie, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
                                     </Grid>
+                                    <Border Height="1" Background="{ThemeResource DividerBrush}" />
                                     <Grid MinHeight="{StaticResource SettingsRowMinHeight}" ColumnSpacing="{StaticResource SpaceLarge}">
                                         <Grid.ColumnDefinitions>
                                             <ColumnDefinition Width="Auto" />
@@ -672,12 +594,12 @@
                                                      Password="{Binding BaiduCookie, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" HorizontalAlignment="Left" />
                                     </Grid>
                                     <Button Content="加密保存" Command="{Binding SaveCloudCommand}"
-                                            Style="{StaticResource PrimaryButtonStyle}" HorizontalAlignment="Left" Margin="0,4,0,0" />
+                                            Style="{StaticResource PrimaryButtonStyle}" HorizontalAlignment="Left" Margin="0,6,0,0" />
                                 </StackPanel>
                             </Border>
                             <Border Style="{StaticResource SettingsCardStyle}">
-                                <StackPanel Spacing="10">
-                                    <Grid ColumnSpacing="{StaticResource SpaceSmall}">
+                                <StackPanel Spacing="6">
+                                    <Grid ColumnSpacing="{StaticResource SpaceSmall}" Margin="0,0,0,4">
                                         <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
                                         <StackPanel Spacing="{StaticResource SpaceTiny}">
                                             <TextBlock Text="安全播放加速" Style="{StaticResource LabelText}" />
@@ -691,11 +613,13 @@
                                         <TextBlock Text="启用预读加速" Style="{StaticResource LabelText}" VerticalAlignment="Center" />
                                         <ToggleSwitch Grid.Column="1" IsOn="{Binding CloudAcceleration, Mode=TwoWay}" OnContent="" OffContent="" MinWidth="0" HorizontalAlignment="Right" VerticalAlignment="Center" />
                                     </Grid>
+                                    <Border Height="1" Background="{ThemeResource DividerBrush}" />
                                     <Grid MinHeight="{StaticResource SettingsRowMinHeight}" ColumnSpacing="{StaticResource SpaceLarge}">
                                         <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
                                         <TextBlock Text="并发连接数" Style="{StaticResource LabelText}" Width="{StaticResource SettingsFormLabelWidth}" VerticalAlignment="Center" />
                                         <NumberBox Grid.Column="1" MinWidth="160" Maximum="6" Minimum="1" SpinButtonPlacementMode="Inline" Value="{Binding CloudThreads, Mode=TwoWay}" HorizontalAlignment="Left" />
                                     </Grid>
+                                    <Border Height="1" Background="{ThemeResource DividerBrush}" />
                                     <Grid MinHeight="{StaticResource SettingsRowMinHeight}" ColumnSpacing="{StaticResource SpaceLarge}">
                                         <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
                                         <TextBlock Text="预读分块 (MB)" Style="{StaticResource LabelText}" Width="{StaticResource SettingsFormLabelWidth}" VerticalAlignment="Center" />
@@ -740,8 +664,11 @@
                                 <TextBlock Text="外观与内容" Style="{StaticResource SectionTitleText}" />
                                 <TextBlock Text="主题、动效、窗口行为与推荐内容偏好。" Style="{StaticResource SecondaryText}" />
                             </StackPanel>
+                            <!-- 卡片 1：外观与窗口行为 -->
                             <Border Style="{StaticResource SettingsCardStyle}">
                                 <StackPanel Spacing="6">
+                                    <TextBlock Text="外观与窗口" Style="{StaticResource LabelText}" Margin="0,0,0,4" />
+                                    <Border Height="1" Background="{ThemeResource DividerBrush}" />
                                     <Grid MinHeight="{StaticResource SettingsRowMinHeight}" ColumnSpacing="{StaticResource SpaceLarge}">
                                         <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
                                         <TextBlock Text="颜色主题" Style="{StaticResource LabelText}" VerticalAlignment="Center" />
@@ -773,6 +700,12 @@
                                                                  SelectedIndex="{Binding CloseBehaviorIndex, Mode=TwoWay}"
                                                                  Options="每次询问|最小化到托盘|退出应用" />
                                     </Grid>
+                                </StackPanel>
+                            </Border>
+                            <!-- 卡片 2：推荐与元数据 -->
+                            <Border Style="{StaticResource SettingsCardStyle}">
+                                <StackPanel Spacing="6">
+                                    <TextBlock Text="推荐与元数据" Style="{StaticResource LabelText}" Margin="0,0,0,4" />
                                     <Border Height="1" Background="{ThemeResource DividerBrush}" />
                                     <Grid MinHeight="{StaticResource SettingsRowMinHeight}" ColumnSpacing="{StaticResource SpaceLarge}">
                                         <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
@@ -944,6 +877,10 @@
 
                         <!-- ============ 关于 ============ -->
                         <StackPanel x:Name="AboutPane" Spacing="16" Visibility="Collapsed">
+                            <StackPanel Spacing="4">
+                                <TextBlock Text="关于" Style="{StaticResource SectionTitleText}" />
+                                <TextBlock Text="版本信息、视觉设计体系、安全存储与软件更新。" Style="{StaticResource SecondaryText}" />
+                            </StackPanel>
                             <Border Style="{StaticResource SettingsCardStyle}" Padding="24,22">
                                 <Grid ColumnSpacing="20">
                                     <Grid.ColumnDefinitions>

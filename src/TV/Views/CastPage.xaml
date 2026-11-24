@@ -58,9 +58,10 @@
             <!-- 左栏：磨砂遥测卡 + 设备会话 + 来电请求 -->
             <ScrollViewer x:Name="CastScroll" Grid.Row="0" Grid.RowSpan="2" Grid.Column="0"
                           AutomationProperties.Name="投屏侧栏"
+                          Padding="0,0,10,4"
                           VerticalAlignment="Stretch" HorizontalScrollMode="Disabled"
                           HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
-                <StackPanel Spacing="{StaticResource SpaceMedium}" Margin="0,0,0,4">
+                <StackPanel Spacing="{StaticResource SpaceMedium}">
                     <StackPanel x:Name="ReceiverActions" Visibility="Collapsed" Spacing="{StaticResource SpaceMini}">
                         <Grid x:Name="ReceiverActionGrid">
                             <StackPanel x:Name="ReceiverButtons" Orientation="Horizontal" Spacing="{StaticResource SpaceMini}">

@@ -10,6 +10,7 @@
                 <ResourceDictionary Source="ms-appx:///Styles/Tokens.xaml" />
                 <ResourceDictionary Source="ms-appx:///Styles/Icons.xaml" />
                 <ResourceDictionary Source="ms-appx:///Styles/Controls.xaml" />
+                <ResourceDictionary Source="ms-appx:///Styles/Navigation.xaml" />
             </ResourceDictionary.MergedDictionaries>
 
             <!-- 播放器专属光学磨砂玻璃材质（规避 WinUI AcrylicBrush 在 SwapChainPanel 上变黑块的硬件限制：

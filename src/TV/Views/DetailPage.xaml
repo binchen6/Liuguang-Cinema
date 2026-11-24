@@ -42,13 +42,17 @@
                     BorderThickness="1" BorderBrush="{ThemeResource GlassEdgeBrush}"
                     Background="{ThemeResource GlassPanelBrush}">
                 <Grid>
-                    <!-- 视差海报氛围底纹 -->
+                    <!-- 视差海报氛围底纹 + 顶部光学焦散与内倒角高光（与下方 GlassSurface 保持统一光学质感） -->
                     <Border x:Name="HeroBackdropLayer" IsHitTestVisible="False" Margin="-24">
                         <Border.Background>
                             <ImageBrush ImageSource="{Binding SelectedCard.Poster}" Stretch="UniformToFill" Opacity="0.22" />
                         </Border.Background>
                     </Border>
                     <Rectangle Fill="{ThemeResource HeroScrimBrush}" IsHitTestVisible="False" />
+                    <Border CornerRadius="13" BorderThickness="1" BorderBrush="{ThemeResource GlassInnerBevelBrush}"
+                            Margin="1" IsHitTestVisible="False" />
+                    <Border Height="1" VerticalAlignment="Top" Margin="18,0"
+                            Background="{ThemeResource GlassCausticBrush}" IsHitTestVisible="False" />
 
                     <Grid x:Name="HeroGrid" Padding="28" ColumnSpacing="{StaticResource SpaceXLarge}">
                         <Grid.ColumnDefinitions>
@@ -330,9 +334,11 @@
                                   MaxHeight="{StaticResource EpisodePanelMaxHeight}"
                                   Background="Transparent"
                                   BorderThickness="0"
+                                  Padding="0,0,8,0"
                                   ContainerContentChanging="OnEpisodeContainerChanging"
+                                  ScrollViewer.HorizontalScrollMode="Disabled"
                                   ScrollViewer.VerticalScrollBarVisibility="Auto"
-                                  ScrollViewer.IsVerticalScrollChainingEnabled="False">
+                                  ScrollViewer.IsVerticalScrollChainingEnabled="True">
                             <GridView.ItemTemplate>
                                 <DataTemplate>
                                     <Button Content="{Binding Name}"
@@ -366,12 +372,13 @@
                           SelectionMode="None"
                           Background="Transparent"
                           BorderThickness="0"
+                          controls:ScrollWheelBehavior.HorizontalWheelMode="ShiftOnly"
                           ContainerContentChanging="OnRelatedContainerChanging"
                           ScrollViewer.HorizontalScrollMode="Enabled"
-                          ScrollViewer.HorizontalScrollBarVisibility="Auto"
+                          ScrollViewer.HorizontalScrollBarVisibility="Hidden"
                           ScrollViewer.VerticalScrollMode="Disabled"
                           ScrollViewer.VerticalScrollBarVisibility="Disabled"
-                          ScrollViewer.IsHorizontalScrollChainingEnabled="False">
+                          ScrollViewer.IsVerticalScrollChainingEnabled="True">
                     <ListView.ItemsPanel>
                         <ItemsPanelTemplate>
                             <ItemsStackPanel Orientation="Horizontal" />
