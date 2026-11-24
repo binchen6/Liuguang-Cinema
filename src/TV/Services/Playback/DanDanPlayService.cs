@@ -55,6 +55,8 @@ public sealed partial class DanDanPlayService
     private const int HashPrefixBytes = 16 * 1024 * 1024; // 16 MB per DanDanPlay /api/v2/match spec
     private const int MaxEpisodeQueryNumber = 9999;
     private const double MinTitleRelevanceScore = 230.0;
+    private static readonly TimeSpan SearchRequestTimeout = TimeSpan.FromSeconds(15);
+    private static readonly TimeSpan CommentRequestTimeout = TimeSpan.FromSeconds(25);
 
     private readonly SourceHttpClient _http;
     private readonly DatabaseService _database;
@@ -150,19 +152,22 @@ public sealed partial class DanDanPlayService
         }
 
         // Strategy B: Multi-candidate canonical search via GET /api/v2/search/episodes (v2 search engine)
+        // Query without the strict episode= filter first so DanDanPlay returns all seasons & episodes in one round-trip,
+        // avoiding redundant sequential requests that increase timeout risk on high-latency links.
         var collectedGroups = new Dictionary<long, DanDanPlayAnimeGroup>();
         var queries = BuildSearchQueries(identity);
-        var validEpParam = identity.EpisodeNumber is >= 1 and <= MaxEpisodeQueryNumber ? identity.EpisodeNumber : null;
+        Exception? lastTransientError = null;
 
         foreach (var query in queries)
         {
-            var groups = await TrySearchEpisodesSafeAsync(query, validEpParam, useV2: true, token).ConfigureAwait(false);
-            if (groups.Count == 0 && validEpParam.HasValue)
-                groups = await TrySearchEpisodesSafeAsync(query, null, useV2: true, token).ConfigureAwait(false);
-            if (groups.Count == 0)
-                groups = await TrySearchEpisodesSafeAsync(query, validEpParam, useV2: false, token).ConfigureAwait(false);
-            if (groups.Count == 0 && validEpParam.HasValue)
-                groups = await TrySearchEpisodesSafeAsync(query, null, useV2: false, token).ConfigureAwait(false);
+            var (groups, error) = await TrySearchEpisodesSafeAsync(query, null, useV2: true, token).ConfigureAwait(false);
+            if (error is not null) lastTransientError = error;
+            if (groups.Count == 0 && error is null)
+            {
+                var (legacyGroups, legacyError) = await TrySearchEpisodesSafeAsync(query, null, useV2: false, token).ConfigureAwait(false);
+                if (legacyError is not null) lastTransientError = legacyError;
+                groups = legacyGroups;
+            }
 
             foreach (var group in groups)
                 collectedGroups.TryAdd(group.AnimeId, group);
@@ -204,6 +209,8 @@ public sealed partial class DanDanPlayService
             catch (OperationCanceledException) when (token.IsCancellationRequested) { throw; }
             catch (Exception ex)
             {
+                if (ex is TimeoutException or HttpRequestException or OperationCanceledException)
+                    lastTransientError ??= ex;
                 Diagnostics.Log($"DanDanPlay filename match fallback skipped: {ex.GetType().Name} {ex.Message}");
             }
         }
@@ -212,6 +219,13 @@ public sealed partial class DanDanPlayService
         {
             CacheMatch(cacheKey, fileCandidate);
             return fileCandidate;
+        }
+
+        if (collectedGroups.Count == 0 && lastTransientError is not null)
+        {
+            if (lastTransientError is TimeoutException or OperationCanceledException)
+                throw new TimeoutException("弹弹play 服务响应超时，请稍后重试。", lastTransientError);
+            throw lastTransientError;
         }
 
         var display = string.IsNullOrWhiteSpace(identity.CleanTitle) ? title : identity.CleanTitle;
@@ -230,20 +244,26 @@ public sealed partial class DanDanPlayService
         return groups;
     }
 
-    private async Task<IReadOnlyList<DanDanPlayAnimeGroup>> TrySearchEpisodesSafeAsync(
+    private async Task<(IReadOnlyList<DanDanPlayAnimeGroup> Groups, Exception? TransientError)> TrySearchEpisodesSafeAsync(
         string keyword, int? episodeNumber, bool useV2, CancellationToken token)
     {
         var query = SanitizeSearchKeyword(keyword);
-        if (query.Length < 2) return [];
+        if (query.Length < 2) return ([], null);
         try
         {
-            return await SearchEpisodesCoreAsync(query, episodeNumber, useV2, token).ConfigureAwait(false);
+            var result = await SearchEpisodesCoreAsync(query, episodeNumber, useV2, token).ConfigureAwait(false);
+            return (result, null);
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested) { throw; }
         catch (InvalidDataException ex)
         {
             Diagnostics.Log($"DanDanPlay search skipped ({query}, ep={episodeNumber}, v2={useV2}): {ex.Message}");
-            return [];
+            return ([], null);
+        }
+        catch (Exception ex) when (ex is TimeoutException or HttpRequestException or OperationCanceledException)
+        {
+            Diagnostics.Log($"DanDanPlay search transient error ({query}, ep={episodeNumber}, v2={useV2}): {ex.GetType().Name} {ex.Message}");
+            return ([], ex);
         }
     }
 
@@ -296,8 +316,21 @@ public sealed partial class DanDanPlayService
             return cached.Comments;
 
         var path = $"/api/v2/comment/{episodeId.ToString(CultureInfo.InvariantCulture)}";
-        var url = $"{ApiBaseUrl}{path}?withRelated={(withRelated ? "true" : "false")}&chConvert={Math.Clamp(chConvert, 0, 2)}";
-        var json = await SendSignedAsync(HttpMethod.Get, path, url, bodyJson: null, token).ConfigureAwait(false);
+        var convert = Math.Clamp(chConvert, 0, 2);
+        var url = $"{ApiBaseUrl}{path}?withRelated={(withRelated ? "true" : "false")}&chConvert={convert}";
+        string json;
+        try
+        {
+            json = await SendSignedAsync(HttpMethod.Get, path, url, bodyJson: null, token, CommentRequestTimeout).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (withRelated && !token.IsCancellationRequested &&
+            (ex is TimeoutException || (ex is HttpRequestException hre && (hre.StatusCode is null || (int)hre.StatusCode >= 500))))
+        {
+            // Third-party related comment aggregation can stall at peak hours; fall back to direct DanDanPlay comments.
+            Diagnostics.Log($"DanDanPlay withRelated=true failed ({ex.GetType().Name}), falling back to direct comments");
+            var directUrl = $"{ApiBaseUrl}{path}?withRelated=false&chConvert={convert}";
+            json = await SendSignedAsync(HttpMethod.Get, path, directUrl, bodyJson: null, token, CommentRequestTimeout).ConfigureAwait(false);
+        }
         var comments = DanmakuService.ParseContent(json);
 
         if (_commentCache.Count >= 32)
@@ -331,6 +364,11 @@ public sealed partial class DanDanPlayService
             using var doc = JsonDocument.Parse(json);
             EnsureSuccess(doc.RootElement, "凭证验证失败");
             return (true, "弹弹play 开放弹幕库连接正常");
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested) { throw; }
+        catch (OperationCanceledException)
+        {
+            return (false, "弹弹play 服务响应超时，请稍后重试。");
         }
         catch (Exception ex)
         {
@@ -746,28 +784,46 @@ public sealed partial class DanDanPlayService
         return MultiWhitespace().Replace(sb.ToString(), " ").Trim();
     }
 
-    private async Task<string> SendSignedAsync(HttpMethod method, string apiPath, string url, string? bodyJson, CancellationToken token)
+    private async Task<string> SendSignedAsync(
+        HttpMethod method,
+        string apiPath,
+        string url,
+        string? bodyJson,
+        CancellationToken token,
+        TimeSpan? requestTimeout = null)
     {
         var (appId, secrets) = await ResolveCredentialsAsync(token).ConfigureAwait(false);
         if (string.IsNullOrWhiteSpace(appId) || secrets.Count == 0)
             throw new InvalidOperationException("尚未配置弹弹play 开放平台 AppId/AppSecret，请在“设置 → 弹幕与 AI”中填入凭证。");
 
+        var timeout = requestTimeout ?? SearchRequestTimeout;
         var startIdx = _useBackupSecret && secrets.Count > 1 ? 1 : 0;
         Exception? lastError = null;
         for (var attempt = 0; attempt < secrets.Count; attempt++)
         {
             var idx = (startIdx + attempt) % secrets.Count;
-            try
+            for (var retry = 0; retry < 2; retry++)
             {
-                var result = await SendWithSingleCredentialAsync(method, apiPath, url, bodyJson, appId, secrets[idx], token).ConfigureAwait(false);
-                if (idx == 1) _useBackupSecret = true;
-                else if (idx == 0) _useBackupSecret = false;
-                return result;
-            }
-            catch (HttpRequestException ex) when (ex.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden && attempt + 1 < secrets.Count)
-            {
-                Diagnostics.Log($"DanDanPlay secret #{idx + 1} rejected ({(int?)ex.StatusCode}), failing over to backup secret");
-                lastError = ex;
+                try
+                {
+                    var result = await SendWithSingleCredentialAsync(method, apiPath, url, bodyJson, appId, secrets[idx], token, timeout).ConfigureAwait(false);
+                    if (idx == 1) _useBackupSecret = true;
+                    else if (idx == 0) _useBackupSecret = false;
+                    return result;
+                }
+                catch (HttpRequestException ex) when (ex.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden && attempt + 1 < secrets.Count)
+                {
+                    Diagnostics.Log($"DanDanPlay secret #{idx + 1} rejected ({(int?)ex.StatusCode}), failing over to backup secret");
+                    lastError = ex;
+                    break;
+                }
+                catch (Exception ex) when (retry == 0 && !token.IsCancellationRequested &&
+                    (ex is TimeoutException || (ex is HttpRequestException hre && (hre.StatusCode is null || (int)hre.StatusCode >= 500 || hre.StatusCode == HttpStatusCode.TooManyRequests))))
+                {
+                    Diagnostics.Log($"DanDanPlay transient failure on {apiPath} ({ex.GetType().Name}), retrying once");
+                    lastError = ex;
+                    await Task.Delay(400, token).ConfigureAwait(false);
+                }
             }
         }
         throw lastError ?? new HttpRequestException("弹弹play API 鉴权失败。");
@@ -780,7 +836,8 @@ public sealed partial class DanDanPlayService
         string? bodyJson,
         string appId,
         string appSecret,
-        CancellationToken token)
+        CancellationToken token,
+        TimeSpan? requestTimeout = null)
     {
         var timestamp = DateTimeOffset.UtcNow.ToUnixTimeSeconds().ToString(CultureInfo.InvariantCulture);
         var signature = ComputeSignature(appId, timestamp, apiPath, appSecret);
@@ -793,9 +850,18 @@ public sealed partial class DanDanPlayService
             ["X-Signature"] = signature
         };
 
-        var exchange = method == HttpMethod.Post
-            ? await _http.PostJsonAsync(url, bodyJson ?? "{}", headers, maxBytes: 12 * 1024 * 1024, cancellationToken: token).ConfigureAwait(false)
-            : await _http.GetExchangeAsync(url, headers, maxBytes: 12 * 1024 * 1024, cancellationToken: token).ConfigureAwait(false);
+        var timeout = requestTimeout ?? SearchRequestTimeout;
+        HttpExchangeResult exchange;
+        try
+        {
+            exchange = method == HttpMethod.Post
+                ? await _http.PostJsonAsync(url, bodyJson ?? "{}", headers, maxBytes: 12 * 1024 * 1024, cancellationToken: token, requestTimeout: timeout).ConfigureAwait(false)
+                : await _http.GetExchangeAsync(url, headers, maxBytes: 12 * 1024 * 1024, cancellationToken: token, requestTimeout: timeout).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException ex) when (!token.IsCancellationRequested)
+        {
+            throw new TimeoutException("弹弹play 服务响应超时，请稍后重试。", ex);
+        }
 
         if (exchange.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
             throw new HttpRequestException($"弹弹play API 鉴权失败（HTTP {(int)exchange.StatusCode}），请检查密钥配置或系统时间是否准确。", null, exchange.StatusCode);

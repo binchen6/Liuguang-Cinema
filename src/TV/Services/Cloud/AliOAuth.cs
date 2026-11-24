@@ -58,7 +58,7 @@ public static class AliOAuth
                     UserId: String(result.Json, "user_id"),
                     DeviceId: String(result.Json, "device_id"));
             }
-            catch (Exception ex) when (ex is not OperationCanceledException)
+            catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
             {
                 Diagnostics.Log($"阿里官方 Token 接口 {new Uri(url).Host}: {ex.GetType().Name}");
             }

@@ -1545,6 +1545,9 @@ public sealed partial class PlayerPage : Page
             DisplayMemberPath = nameof(DanDanPlayEpisode.DisplayName)
         };
 
+        CancellationTokenSource? activeSearchCts = null;
+        var dialogClosed = false;
+
         async Task DoSearchAsync()
         {
             var q = DanDanPlayService.SanitizeSearchKeyword(queryBox.Text);
@@ -1553,19 +1556,39 @@ public sealed partial class PlayerPage : Page
                 statusText.Text = "请输入至少 2 个字符进行搜索。";
                 return;
             }
+            activeSearchCts?.Cancel();
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(25));
+            activeSearchCts = cts;
             searchBtn.IsEnabled = false;
             statusText.Text = "正在搜索弹弹play 开放弹幕库…";
             try
             {
-                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
                 var groups = await App.Services.DanDanPlay.SearchEpisodesAsync(q, null, cts.Token);
+                if (dialogClosed || !ReferenceEquals(activeSearchCts, cts)) return;
                 var flat = groups.SelectMany(g => g.Episodes).Take(120).ToArray();
                 resultList.ItemsSource = flat;
                 if (flat.Length > 0) resultList.SelectedIndex = 0;
                 statusText.Text = flat.Length > 0 ? $"找到 {flat.Length} 个分集，选中后点击确定加载弹幕。" : "未找到匹配分集，请尝试缩短关键词。";
             }
-            catch (Exception ex) { statusText.Text = "搜索失败：" + ex.Message; }
-            finally { searchBtn.IsEnabled = true; }
+            catch (OperationCanceledException) when (dialogClosed || !ReferenceEquals(activeSearchCts, cts)) { }
+            catch (OperationCanceledException)
+            {
+                if (!dialogClosed && ReferenceEquals(activeSearchCts, cts))
+                    statusText.Text = "搜索超时，弹弹play 服务响应较慢，请稍后重试。";
+            }
+            catch (Exception ex)
+            {
+                if (!dialogClosed && ReferenceEquals(activeSearchCts, cts))
+                    statusText.Text = "搜索失败：" + ex.Message;
+            }
+            finally
+            {
+                if (ReferenceEquals(activeSearchCts, cts))
+                {
+                    activeSearchCts = null;
+                    searchBtn.IsEnabled = true;
+                }
+            }
         }
 
         searchBtn.Click += async (_, _) => await DoSearchAsync();
@@ -1601,6 +1624,8 @@ public sealed partial class PlayerPage : Page
         }
         finally
         {
+            dialogClosed = true;
+            activeSearchCts?.Cancel();
             _danmakuSearchDialog = null;
             if (IsLoaded) ShowControls();
         }
@@ -1611,8 +1636,9 @@ public sealed partial class PlayerPage : Page
         CancelDanmakuLoad();
         _rawComments = [];
         DanmakuLayer.Clear();
-        _danmakuLoad = new CancellationTokenSource();
-        var token = _danmakuLoad.Token;
+        using var cts = new CancellationTokenSource();
+        _danmakuLoad = cts;
+        var token = cts.Token;
         try
         {
             await ReadDanmakuPreferencesAsync();
@@ -1642,13 +1668,15 @@ public sealed partial class PlayerPage : Page
                         var match = await ViewModel.MatchDanDanPlayAsync(token);
                         comments = await App.Services.DanDanPlay.GetCommentsAsync(match.EpisodeId, withRelated: true, chConvert: 1, token);
                     }
-                    catch (InvalidDataException ddpMiss) when (!token.IsCancellationRequested)
+                    catch (Exception ddpError) when (!token.IsCancellationRequested &&
+                        ddpError is InvalidDataException or HttpRequestException or TimeoutException or OperationCanceledException)
                     {
-                        // DanDanPlay 主要覆盖番剧与动画；若未收录该影视，自动回退原站弹幕或 B 站在线弹幕库
+                        var isNetworkFailure = ddpError is not InvalidDataException;
+                        // DanDanPlay 主要覆盖番剧与动画，且弱网/高峰期可能超时；未收录或暂不可用时自动回退原站或 B 站弹幕库
                         if (_danmakuAddress is { } originUri)
                         {
                             comments = await App.Services.Danmaku.LoadAsync(originUri, token);
-                            ViewModel.QualityMessage = "已回退原站弹幕";
+                            ViewModel.QualityMessage = isNetworkFailure ? "弹弹play 响应超时，已自动回退原站弹幕" : "已回退原站弹幕";
                         }
                         else
                         {
@@ -1656,10 +1684,11 @@ public sealed partial class PlayerPage : Page
                             {
                                 var bili = await ViewModel.MatchOnlineMediaAsync(token);
                                 comments = await App.Services.Danmaku.LoadAsync(bili.Danmaku, token);
+                                if (isNetworkFailure) ViewModel.QualityMessage = "弹弹play 暂不可用，已自动回退哔哩哔哩弹幕";
                             }
                             catch (Exception) when (!token.IsCancellationRequested)
                             {
-                                throw ddpMiss;
+                                throw ddpError;
                             }
                         }
                     }
@@ -1698,7 +1727,15 @@ public sealed partial class PlayerPage : Page
             if (DanmakuLayer.LoadedCount == 0) ViewModel.QualityMessage = "当前匹配节目没有可显示的弹幕。";
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested) { }
+        catch (OperationCanceledException)
+        {
+            ViewModel.QualityMessage = "弹幕匹配超时，请稍后重试或切换弹幕源。";
+        }
         catch (Exception ex) { if (!token.IsCancellationRequested) ViewModel.QualityMessage = "弹幕加载失败：" + ex.Message; }
+        finally
+        {
+            if (ReferenceEquals(_danmakuLoad, cts)) _danmakuLoad = null;
+        }
     }
 
     private void ApplyFilteredComments()
@@ -1714,8 +1751,8 @@ public sealed partial class PlayerPage : Page
     {
         var load = _danmakuLoad;
         _danmakuLoad = null;
-        load?.Cancel();
-        load?.Dispose();
+        try { load?.Cancel(); }
+        catch (ObjectDisposedException) { }
     }
 
     private void OnControlPointerEntered(object sender, PointerRoutedEventArgs e)

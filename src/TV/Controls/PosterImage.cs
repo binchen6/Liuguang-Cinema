@@ -67,6 +67,7 @@ public static class PosterImage
             image.Source = bitmap;
             if (bitmap is not null && GetAutoFit(image)) Apply(image);
         }
+        catch (OperationCanceledException) { }
         catch (Exception ex) { Diagnostics.Log($"封面绑定失败: {ex.GetType().Name} 0x{ex.HResult:X8} {ex.Message}"); }
     }
 

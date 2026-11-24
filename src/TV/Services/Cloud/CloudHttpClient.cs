@@ -107,4 +107,46 @@ public sealed class CloudHttpClient : IDisposable
             RedirectLocation = response.Headers.Location
         };
     }
+
+    /// <summary>
+    /// Issues a lightweight 1-byte Range probe to inspect the actual upstream file size and
+    /// Content-Disposition without downloading the payload. Returns (null, null) if probing fails.
+    /// </summary>
+    public async Task<(long? TotalLength, string? ContentDisposition)> ProbeRangeLengthAsync(
+        string url,
+        IReadOnlyDictionary<string, string>? headers = null,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Get, url);
+            request.Headers.TryAddWithoutValidation("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/132.0.0.0 Safari/537.36");
+            if (headers is not null)
+                foreach (var (name, value) in headers)
+                {
+                    if (name.Equals("Host", StringComparison.OrdinalIgnoreCase) || name.Equals("Range", StringComparison.OrdinalIgnoreCase)) continue;
+                    request.Headers.Remove(name);
+                    request.Headers.TryAddWithoutValidation(name, value);
+                }
+            request.Headers.TryAddWithoutValidation("Range", "bytes=0-0");
+
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            timeout.CancelAfter(TimeSpan.FromSeconds(4));
+            using var response = await _client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, timeout.Token).ConfigureAwait(false);
+            if (!response.IsSuccessStatusCode) return (null, null);
+
+            long? totalLength = response.Content.Headers.ContentRange?.Length;
+            if (totalLength is null && response.StatusCode == HttpStatusCode.OK)
+                totalLength = response.Content.Headers.ContentLength;
+            var disposition = response.Content.Headers.ContentDisposition?.FileNameStar
+                ?? response.Content.Headers.ContentDisposition?.FileName
+                ?? (response.Content.Headers.TryGetValues("Content-Disposition", out var raw) ? string.Join(';', raw) : null);
+            return (totalLength, disposition);
+        }
+        catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
+        {
+            Diagnostics.Log($"网盘媒体探测跳过: {ex.GetType().Name}");
+            return (null, null);
+        }
+    }
 }

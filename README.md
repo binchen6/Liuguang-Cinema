@@ -44,8 +44,8 @@
 > 社区开源发行版未附带商业 Authenticode 代码签名证书，在开启 Windows 11 **智能应用控制（Smart App Control）** 或 SmartScreen 的设备上可能出现提示或拦截，详见 [智能应用控制与签名说明](docs/smart-app-control.md)。下载后建议核对官方 SHA-256：
 
 ```powershell
-Get-FileHash .\TV-Setup-1.9.4-x64.exe -Algorithm SHA256
-Get-Content .\TV-Setup-1.9.4-x64.exe.sha256
+Get-FileHash .\TV-Setup-1.9.5-x64.exe -Algorithm SHA256
+Get-Content .\TV-Setup-1.9.5-x64.exe.sha256
 ```
 
 ---
@@ -123,7 +123,7 @@ installer/ & scripts/    Inno Setup 脚本、构建与验收脚本
 docs/                    设计规范、开发指南、站点验收与发行说明
 ```
 
-文档索引见 [文档中心](docs/README.md)：[功能介绍](docs/showcase.md) · [开发指南](docs/development.md) · [设计语言](docs/brand-design-system.md) · [设计契约](docs/design-guide.md) · [动效规范](docs/motion-spec.md) · [智能应用控制说明](docs/smart-app-control.md) · [站点验收](docs/site-verification.md) · [1.9.4 发行说明](docs/releases/release-1.9.4.md)。
+文档索引见 [文档中心](docs/README.md)：[功能介绍](docs/showcase.md) · [开发指南](docs/development.md) · [设计语言](docs/brand-design-system.md) · [设计契约](docs/design-guide.md) · [动效规范](docs/motion-spec.md) · [智能应用控制说明](docs/smart-app-control.md) · [站点验收](docs/site-verification.md) · [1.9.5 发行说明](docs/releases/release-1.9.5.md)。
 
 ---
 

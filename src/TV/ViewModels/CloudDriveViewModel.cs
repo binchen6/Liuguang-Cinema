@@ -173,7 +173,7 @@ public sealed partial class CloudDriveViewModel : ObservableObject
                 _page++;
                 HasMore = listing.HasMore;
             }
-            catch (Exception ex) when (ex is not OperationCanceledException) { StatusMessage = ex.Message; }
+            catch (Exception ex) when (!token.IsCancellationRequested) { StatusMessage = ex.Message; }
             finally { if (!token.IsCancellationRequested) IsLoading = false; }
         }
         else await ReadFolderAsync(account.Provider, _page + 1, true, token);
@@ -267,5 +267,7 @@ public sealed partial class CloudDriveViewModel : ObservableObject
         CanGoUp = _folders.Count > 1 || _searchResults;
     }
 
-    private static bool IsMedia(string name) => Path.GetExtension(name).ToLowerInvariant() is ".mp4" or ".m4v" or ".mkv" or ".avi" or ".mov" or ".webm" or ".flv" or ".ts" or ".mp3" or ".m4a" or ".aac";
+    private static bool IsMedia(string name) => Path.GetExtension(name).ToLowerInvariant() is
+        ".mp4" or ".m4v" or ".mkv" or ".avi" or ".mov" or ".webm" or ".flv" or ".ts" or ".m2ts" or
+        ".rmvb" or ".wmv" or ".mpg" or ".mpeg" or ".3gp" or ".mp3" or ".m4a" or ".aac" or ".flac" or ".wav";
 }

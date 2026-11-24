@@ -160,8 +160,10 @@ public sealed partial class PanSearchVodProvider(SourceHttpClient http, CloudDri
             _rawCache[key] = entry;
             return entry;
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (Exception ex) when (!token.IsCancellationRequested)
         {
+            if (ex is OperationCanceledException or TimeoutException)
+                _panSearchCooldownUntil = DateTimeOffset.UtcNow.AddSeconds(45);
             return null;
         }
         finally
@@ -210,7 +212,7 @@ public sealed partial class PanSearchVodProvider(SourceHttpClient http, CloudDri
                 return _buildId!;
 
             var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) { ["User-Agent"] = BrowserUa };
-            var page = await http.GetBytesAsync(BaseUrl + "/", headers, maxBytes: 2 * 1024 * 1024, cancellationToken: token).ConfigureAwait(false);
+            var page = await http.GetBytesAsync(BaseUrl + "/", headers, maxBytes: 2 * 1024 * 1024, cancellationToken: token, requestTimeout: TimeSpan.FromSeconds(10)).ConfigureAwait(false);
             var html = Encoding.UTF8.GetString(page.Content);
             var match = BuildIdRegex().Match(html);
             if (!match.Success) throw new InvalidDataException("网盘搜索索引暂时不可用。");
@@ -232,7 +234,7 @@ public sealed partial class PanSearchVodProvider(SourceHttpClient http, CloudDri
             ["User-Agent"] = BrowserUa,
             ["Referer"] = BaseUrl + "/"
         };
-        var exchange = await http.GetExchangeAsync(url, headers, maxBytes: 4 * 1024 * 1024, cancellationToken: token).ConfigureAwait(false);
+        var exchange = await http.GetExchangeAsync(url, headers, maxBytes: 4 * 1024 * 1024, cancellationToken: token, requestTimeout: TimeSpan.FromSeconds(10)).ConfigureAwait(false);
         return ((int)exchange.StatusCode is >= 200 and < 300 ? exchange.Payload.Content : null, exchange.StatusCode);
     }
 

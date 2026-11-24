@@ -18,6 +18,7 @@
 
 ## 版本发行说明
 
+- [1.9.5](releases/release-1.9.5.md)：修复阿里云盘分享目录获取失败（修正 `/v2/share_link/get_share_token`、`/adrive/v2/file/list_by_share` 与 `type` 字段解析）及分享原画播放（替代已返回 HTTP 410 的旧直链接口，改为转存至个人盘取直链并支持预览回退）；深度优化 UC 网盘原画播放（引入持久化每账号设备标识与 AES-128-CBC `ut` 参数、官方桌面 UA、请求期 Cookie 快照、约 14 MB 会员/客户端提示视频探测与设备轮换重试及自动转码兜底）；根治弹幕匹配 `The operation was canceled.` 报错（修复自定义 DoH DNS 超时穿透与故障缓存污染、精简弹弹play 查询轮次并新增瞬态超时重试与直连回退、自动回退原站/B 站弹幕并统一友好中文提示）；顺带修复图片缓存超时日志刷屏、`PanSearch` 超时未回退 `panso.vip` 及多处超时取消守卫。
 - [1.9.4](releases/release-1.9.4.md)：消除播放器高回报率鼠标移动卡顿（节流快路径、去移动期 `SetCursorPos`、移除 `SwapChainPanel` 实时 `ThemeShadow`）、提升多环境兼容（LibVLC `:avcodec-hw=any`、多显/老系统 API 兜底）、修复 `AI剧`/`盘搜`/`奥特` 搜索并排除空 `XPath` 占位项、支持明文 URL `csp_T4`、清理死代码并精简事实化核对全站文档。
 - [1.9.3](releases/release-1.9.3.md)：统一全站横竖导航并根治点播多选残留与切回「最新影片」胶囊丢失、移除全站弹层双层滚动条叠加、优化浅色护眼主题与浅色玻璃、以 WinUI 3 原生透明 `InputCursor` 实装播放页鼠标自动隐藏、搜索预测分层提速与全站滚轮一致性治理。
 - [1.9.2](releases/release-1.9.2.md)：内核级播放防息屏/防休眠、播放器 3 秒悬停感知隐藏、`GlassSurface` 多层光学玻璃重构与 Compositor 缓存优化。

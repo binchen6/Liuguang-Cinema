@@ -38,7 +38,7 @@ public sealed class DnsResolverService : IDisposable
                     catch (Exception) when (item != addresses[^1]) { }
                 }
             }
-            catch (Exception ex) when (ex is not OperationCanceledException) { Diagnostics.Log("DNS fallback: " + ex.Message); }
+            catch (Exception ex) when (!token.IsCancellationRequested) { Diagnostics.Log("DNS fallback: " + ex.Message); }
         }
         var socket = new Socket(SocketType.Stream, ProtocolType.Tcp) { NoDelay = true };
         try
@@ -114,8 +114,7 @@ public sealed class DnsResolverService : IDisposable
         }
         catch
         {
-            if (_cache.TryRemove($"{provider}:{host}", out var entry))
-                _cache[$"{provider}:{host}"] = entry with { ExpiresAt = DateTimeOffset.UtcNow.AddSeconds(30) };
+            _cache.TryRemove($"{provider}:{host}", out _);
             throw;
         }
     }

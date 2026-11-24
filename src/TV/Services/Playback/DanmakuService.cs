@@ -66,7 +66,17 @@ public sealed class DanmakuService(SourceHttpClient http)
             if (!file.Exists || file.Length > 8 * 1024 * 1024) throw new InvalidDataException("本地弹幕不存在或超过大小限制。");
             bytes = await File.ReadAllBytesAsync(file.FullName, token).ConfigureAwait(false);
         }
-        else bytes = (await http.GetBytesAsync(uri.AbsoluteUri, maxBytes: 8 * 1024 * 1024, cancellationToken: token).ConfigureAwait(false)).Content;
+        else
+        {
+            try
+            {
+                bytes = (await http.GetBytesAsync(uri.AbsoluteUri, maxBytes: 8 * 1024 * 1024, cancellationToken: token).ConfigureAwait(false)).Content;
+            }
+            catch (OperationCanceledException ex) when (!token.IsCancellationRequested)
+            {
+                throw new TimeoutException("弹幕文件下载超时，请稍后重试。", ex);
+            }
+        }
         return ParseContent(System.Text.Encoding.UTF8.GetString(bytes));
     }
 

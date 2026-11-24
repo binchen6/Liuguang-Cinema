@@ -108,6 +108,7 @@ public sealed class CloudDriveService : IDisposable
             AvailableVideoHeights = result.AvailableVideoHeights,
             AvailableQualities = result.AvailableQualities,
             ResolvedQuality = result.ResolvedQuality,
+            Notice = result.Notice,
             ExpiresAt = result.ExpiresAt
         };
     }
@@ -187,7 +188,7 @@ public sealed class CloudDriveService : IDisposable
                     foreach (var file in files)
                         episodes.Add(new Episode { Name = SafeEpisodeName(file.Name), Url = GetPlaybackId(file) });
                 }
-                catch (Exception ex) when (ex is not OperationCanceledException)
+                catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
                 {
                     Diagnostics.Log("分享扩展失败: " + ex.Message);
                     episodes.Add(episode);
@@ -260,6 +261,8 @@ public sealed class CloudDriveService : IDisposable
         await _database.SetSettingAsync(CredentialKey(provider), SecretStore.Protect(credential), cancellationToken).ConfigureAwait(false);
         if (provider == CloudProviderKind.Ali && _providers[CloudProviderKind.Ali] is AliCloudProvider ali)
             ali.InvalidateAccountCache();
+        else if (provider is CloudProviderKind.Quark or CloudProviderKind.UC && _providers[provider] is QuarkCloudProvider quark)
+            quark.InvalidateAccountCache();
         AccountChanged?.Invoke(this, provider);
     }
 

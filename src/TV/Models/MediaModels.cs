@@ -103,6 +103,7 @@ public sealed class PlaybackRequest
     [JsonIgnore] internal IReadOnlySet<int>? AvailableVideoHeights { get; set; }
     [JsonIgnore] internal IReadOnlyList<QualityOption>? AvailableQualities { get; set; }
     [JsonIgnore] internal QualityOption? ResolvedQuality { get; set; }
+    [JsonIgnore] internal string? Notice { get; set; }
     [JsonIgnore] internal bool UsesProviderVideoHeights { get; set; }
     [JsonIgnore] internal bool HasFixedVideoTrack { get; set; }
     [JsonIgnore] internal bool SeekOnAudioTrackChange { get; set; }
@@ -118,6 +119,7 @@ public sealed class PlaybackRequest
         Subtitles = [.. Subtitles], AudioTracks = [.. AudioTracks], CloudSubtitles = CloudSubtitles, Danmaku = Danmaku,
         RecoverMissingSource = RecoverMissingSource,
         AvailableVideoHeights = AvailableVideoHeights, AvailableQualities = AvailableQualities, ResolvedQuality = ResolvedQuality,
+        Notice = Notice,
         UsesProviderVideoHeights = UsesProviderVideoHeights, HasFixedVideoTrack = HasFixedVideoTrack,
         SeekOnAudioTrackChange = SeekOnAudioTrackChange, UseAvformatDemuxer = UseAvformatDemuxer
     };

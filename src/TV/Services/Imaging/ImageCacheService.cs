@@ -191,7 +191,12 @@ public sealed partial class ImageCacheService : IDisposable
             }
             return image;
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (OperationCanceledException)
+        {
+            RecordFailure(url);
+            return null;
+        }
+        catch (Exception ex)
         {
             RecordFailure(url);
             Diagnostics.Log($"图片加载失败 {url}: {ex.GetType().Name} {ex.Message}");
@@ -245,7 +250,12 @@ public sealed partial class ImageCacheService : IDisposable
             _ = Task.Run(() => PersistNormalizedToDiskAsync(path, raw));
             return raw;
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (OperationCanceledException)
+        {
+            RecordFailure(url);
+            return null;
+        }
+        catch (Exception ex)
         {
             RecordFailure(url);
             Diagnostics.Log($"图片下载失败 {url}: {ex.GetType().Name} {ex.Message}");

@@ -26,6 +26,11 @@ public sealed class CloudCookieJar
             }
     }
 
+    public void Clear()
+    {
+        lock (_gate) _values.Clear();
+    }
+
     public string ToHeader()
     {
         lock (_gate) return string.Join("; ", _values.Select(pair => pair.Key + "=" + pair.Value));

@@ -68,6 +68,7 @@ public sealed record CloudPlayResult(string Url, IReadOnlyDictionary<string, str
     public IReadOnlySet<int>? AvailableVideoHeights { get; init; }
     public IReadOnlyList<QualityOption>? AvailableQualities { get; init; }
     public QualityOption? ResolvedQuality { get; init; }
+    public string? Notice { get; init; }
     internal bool UseBoundedRanges { get; init; }
     public DateTimeOffset ExpiresAt { get; init; } = DateTimeOffset.UtcNow.AddMinutes(45);
 }

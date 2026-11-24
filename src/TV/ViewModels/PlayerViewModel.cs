@@ -337,6 +337,7 @@ public sealed partial class PlayerViewModel : ObservableObject
             }
             _resolvedMedia = media;
             SelectedQuality = DisplayQuality(media, SelectedQuality);
+            if (!string.IsNullOrWhiteSpace(media.Notice)) QualityMessage = media.Notice;
             DanmakuChanged?.Invoke(this, media.Danmaku);
             _timer.Start();
         }
@@ -739,6 +740,7 @@ public sealed partial class PlayerViewModel : ObservableObject
             ReleaseMedia(previous, media);
             DanmakuChanged?.Invoke(this, media.Danmaku);
             SelectedQuality = DisplayQuality(media, quality);
+            if (!string.IsNullOrWhiteSpace(media.Notice)) QualityMessage = media.Notice;
             _timer.Start();
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested) { }
@@ -1385,7 +1387,7 @@ public sealed partial class PlayerViewModel : ObservableObject
                     StatusMessage = "正在使用刷新后的媒体地址恢复播放…";
                     return;
                 }
-                catch (Exception ex) when (ex is not OperationCanceledException)
+                catch (Exception ex) when (!token.IsCancellationRequested)
                 {
                     Diagnostics.Log($"原来源刷新失败: {ex.GetType().Name}");
                 }

@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Net;
 using System.Text.Json;
 using TV.Models;
 using TV.Services.Persistence;
@@ -23,14 +24,79 @@ public sealed class AliCloudProvider : ICloudDriveProvider
     private readonly Func<CancellationToken, Task<string>>? _credential;
     private readonly DatabaseService? _database;
     private readonly ConcurrentDictionary<string, string> _markers = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<string, (string DriveId, string FileId)> _savedIds = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<string, string> _saveDirIds = new(StringComparer.Ordinal);
+    private readonly SemaphoreSlim _saveLock = new(1, 1);
     private DriveAccountContext? _account;
     private DateTimeOffset _accessExpiresAt;
     private readonly SemaphoreSlim _accountLock = new(1, 1);
+
     private static readonly Dictionary<string, string> Headers = new(StringComparer.OrdinalIgnoreCase)
     {
         ["Referer"] = "https://www.alipan.com/",
         ["Origin"] = "https://www.alipan.com"
     };
+
+    private static readonly string[] ShareInfoEndpoints =
+    [
+        "https://api.alipan.com/adrive/v3/share_link/get_share_by_anonymous",
+        "https://api.aliyundrive.com/adrive/v3/share_link/get_share_by_anonymous"
+    ];
+
+    private static readonly string[] ShareTokenEndpoints =
+    [
+        "https://api.alipan.com/v2/share_link/get_share_token",
+        "https://api.aliyundrive.com/v2/share_link/get_share_token"
+    ];
+
+    private static readonly string[] ShareListEndpoints =
+    [
+        "https://api.alipan.com/adrive/v2/file/list_by_share",
+        "https://api.aliyundrive.com/adrive/v2/file/list_by_share",
+        "https://api.alipan.com/adrive/v3/file/list"
+    ];
+
+    private static readonly string[] BatchEndpoints =
+    [
+        "https://api.alipan.com/adrive/v4/batch",
+        "https://api.alipan.com/v3/batch",
+        "https://api.aliyundrive.com/v3/batch"
+    ];
+
+    private static readonly string[] CreateFolderEndpoints =
+    [
+        "https://api.alipan.com/adrive/v2/file/createWithFolders",
+        "https://api.alipan.com/adrive/v2/file/create_with_proof",
+        "https://api.aliyundrive.com/adrive/v2/file/createWithFolders"
+    ];
+
+    private static readonly string[] SharePreviewEndpoints =
+    [
+        "https://api.alipan.com/v2/file/get_share_link_video_preview_play_info",
+        "https://api.aliyundrive.com/v2/file/get_share_link_video_preview_play_info"
+    ];
+
+    private static readonly string[] LegacyShareDownloadEndpoints =
+    [
+        "https://api.alipan.com/v2/file/get_share_link_download_url",
+        "https://api.aliyundrive.com/v2/file/get_share_link_download_url"
+    ];
+
+    private static readonly string[] DirectCopyEndpoints =
+    [
+        "https://api.alipan.com/adrive/v2/file/copy",
+        "https://api.alipan.com/v2/file/copy"
+    ];
+
+    private static readonly string[] OpenApiDownloadEndpoints = ["https://openapi.alipan.com/adrive/v1.0/openFile/getDownloadUrl"];
+    private static readonly string[] WebDownloadEndpoints = ["https://api.alipan.com/v2/file/get_download_url", "https://api.aliyundrive.com/v2/file/get_download_url"];
+    private static readonly string[] OpenApiListEndpoints = ["https://openapi.alipan.com/adrive/v1.0/openFile/list"];
+    private static readonly string[] OpenApiSearchEndpoints = ["https://openapi.alipan.com/adrive/v1.0/openFile/search"];
+    private static readonly string[] OpenApiCreateEndpoints = ["https://openapi.alipan.com/adrive/v1.0/openFile/create"];
+    private static readonly string[] WebListEndpoints = ["https://api.alipan.com/adrive/v3/file/list", "https://api.aliyundrive.com/adrive/v3/file/list"];
+    private static readonly string[] WebSearchEndpoints = ["https://api.alipan.com/adrive/v3/file/search", "https://api.aliyundrive.com/adrive/v3/file/search"];
+    private static readonly string[] OpenApiUserEndpoints = ["https://openapi.alipan.com/adrive/v1.0/user/getDriveInfo", "https://openapi.aliyundrive.com/adrive/v1.0/user/getDriveInfo"];
+    private static readonly string[] WebUserEndpoints = ["https://api.alipan.com/v2/user/get", "https://api.aliyundrive.com/v2/user/get", "https://user.alipan.com/v2/user/get", "https://user.aliyundrive.com/v2/user/get"];
 
     public AliCloudProvider(CloudHttpClient http, Func<CancellationToken, Task<string>>? credential = null, DatabaseService? database = null)
     {
@@ -38,6 +104,7 @@ public sealed class AliCloudProvider : ICloudDriveProvider
         _credential = credential;
         _database = database;
     }
+
     public CloudProviderKind Kind => CloudProviderKind.Ali;
     public bool CanHandle(string url) => CloudShareLink.TryParse(url, out var link) && link.Provider == Kind;
 
@@ -46,6 +113,8 @@ public sealed class AliCloudProvider : ICloudDriveProvider
         _account = null;
         _accessExpiresAt = DateTimeOffset.MinValue;
         _markers.Clear();
+        _savedIds.Clear();
+        _saveDirIds.Clear();
     }
 
     public async Task<CloudShare> GetShareAsync(string url, CancellationToken cancellationToken = default)
@@ -53,23 +122,56 @@ public sealed class AliCloudProvider : ICloudDriveProvider
         if (!CloudShareLink.TryParse(url, out var link) || link.Provider != Kind)
             throw new ArgumentException("阿里分享链接格式无效。", nameof(url));
         var shareId = link.ShareId;
+        var infoTask = PostWithFallbackAsync(ShareInfoEndpoints, new { share_id = shareId }, Headers, cancellationToken);
         var tokenTask = GetShareTokenAsync(shareId, link.Passcode, cancellationToken);
-        var infoTask = _http.PostJsonAsync("https://api.aliyundrive.com/adrive/v3/share_link/get_share_by_anonymous", new { share_id = shareId }, Headers, cancellationToken);
-        await Task.WhenAll(tokenTask, infoTask).ConfigureAwait(false);
-        var token = await tokenTask.ConfigureAwait(false);
+
         var info = await infoTask.ConfigureAwait(false);
-        EnsureSuccess(info, "阿里分享不存在或已失效");
-        var root = info.Json;
-        var parent = link.FolderId;
-        if (string.IsNullOrEmpty(parent) && root.TryGetProperty("file_infos", out var infos) && infos.ValueKind == JsonValueKind.Array && infos.GetArrayLength() > 0)
+        try
         {
-            var first = infos[0];
-            parent = String(first, "file_type") == "folder" ? String(first, "file_id") : "root";
+            EnsureSuccess(info, "阿里分享不存在或已失效");
         }
-        if (string.IsNullOrEmpty(parent)) parent = "root";
+        catch
+        {
+            _ = tokenTask.ContinueWith(static t => _ = t.Exception, TaskContinuationOptions.OnlyOnFaulted);
+            throw;
+        }
+
+        var root = info.Json;
+        string token;
+        try
+        {
+            token = await tokenTask.ConfigureAwait(false);
+        }
+        catch (Exception ex) when (!cancellationToken.IsCancellationRequested &&
+            string.IsNullOrWhiteSpace(link.Passcode) &&
+            root.ValueKind == JsonValueKind.Object &&
+            root.TryGetProperty("has_pwd", out var hasPwd) &&
+            hasPwd.ValueKind == JsonValueKind.True)
+        {
+            throw new InvalidOperationException("阿里分享需要提取码。", ex);
+        }
+
         var files = new List<CloudFile>();
         var subtitles = new List<CloudFile>();
-        await ListFilesAsync(link, parent, token, string.Empty, files, subtitles, 0, cancellationToken).ConfigureAwait(false);
+        var initialParent = string.IsNullOrEmpty(link.FolderId) ? "root" : link.FolderId;
+        await ListFilesAsync(link, initialParent, token, string.Empty, files, subtitles, 0, cancellationToken).ConfigureAwait(false);
+
+        // Fallback: if listing "root" returned nothing, try any folder IDs advertised in anonymous share metadata.
+        if (string.IsNullOrEmpty(link.FolderId) && files.Count == 0 && subtitles.Count == 0 &&
+            root.TryGetProperty("file_infos", out var infos) && infos.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var entry in infos.EnumerateArray())
+            {
+                var entryType = First(String(entry, "type"), String(entry, "file_type"));
+                var entryId = String(entry, "file_id");
+                if (entryType == "folder" && CloudShareLink.IsIdentifier(entryId))
+                    await ListFilesAsync(link, entryId, token, String(entry, "file_name"), files, subtitles, 1, cancellationToken).ConfigureAwait(false);
+            }
+        }
+
+        if (files.Count == 0 && subtitles.Count == 0)
+            throw new InvalidDataException("阿里分享中没有可播放的媒体文件。");
+
         return new CloudShare
         {
             Provider = Kind,
@@ -85,7 +187,11 @@ public sealed class AliCloudProvider : ICloudDriveProvider
     private Task<string> GetShareTokenAsync(string shareId, string passcode, CancellationToken cancellationToken) =>
         _tokens.GetAsync(shareId, passcode, async () =>
         {
-            var result = await _http.PostJsonAsync("https://api.aliyundrive.com/adrive/v3/share_link/get_share_token", new { share_id = shareId, share_pwd = passcode }).ConfigureAwait(false);
+            var result = await PostWithFallbackAsync(
+                ShareTokenEndpoints,
+                new { share_id = shareId, share_pwd = passcode },
+                Headers,
+                CancellationToken.None).ConfigureAwait(false);
             EnsureSuccess(result, "阿里分享令牌获取失败");
             var token = String(result.Json, "share_token");
             if (token.Length == 0) throw new InvalidDataException("阿里分享令牌为空或分享已失效。");
@@ -101,19 +207,23 @@ public sealed class AliCloudProvider : ICloudDriveProvider
         {
             var body = new Dictionary<string, object?>
             {
-                ["limit"] = 200, ["share_id"] = link.ShareId, ["parent_file_id"] = parent,
-                ["order_by"] = "name", ["order_direction"] = "ASC"
+                ["limit"] = 200,
+                ["share_id"] = link.ShareId,
+                ["parent_file_id"] = parent,
+                ["order_by"] = "name",
+                ["order_direction"] = "ASC",
+                ["url_expire_sec"] = 14400
             };
             if (marker is not null) body["marker"] = marker;
             var headers = new Dictionary<string, string>(Headers, StringComparer.OrdinalIgnoreCase) { ["x-share-token"] = token };
-            var result = await _http.PostJsonAsync("https://api.aliyundrive.com/adrive/v3/file/list", body, headers, cancellationToken).ConfigureAwait(false);
+            var result = await PostWithFallbackAsync(ShareListEndpoints, body, headers, cancellationToken).ConfigureAwait(false);
             EnsureSuccess(result, "阿里文件列表读取失败");
             var items = result.Json.TryGetProperty("items", out var array) && array.ValueKind == JsonValueKind.Array ? array : default;
             if (items.ValueKind != JsonValueKind.Array) break;
             var folders = new List<(string Id, string Name)>();
             foreach (var item in items.EnumerateArray())
             {
-                var type = String(item, "file_type");
+                var type = First(String(item, "type"), String(item, "file_type"));
                 var id = String(item, "file_id");
                 var name = String(item, "name");
                 if (!CloudShareLink.IsIdentifier(id)) continue;
@@ -123,11 +233,12 @@ public sealed class AliCloudProvider : ICloudDriveProvider
                     if (subtitles.Count < 1000)
                         subtitles.Add(new CloudFile(Kind, link.ShareId, id, string.Empty, name, Long(item, "size"), parentName, link.Passcode, link.FolderId, parent));
                 }
-                else if (type == "file" && IsMedia(String(item, "category"), name))
+                else if (type == "file" && IsMedia(String(item, "category"), String(item, "mime_type"), name))
                     files.Add(new CloudFile(Kind, link.ShareId, id, string.Empty, name, Long(item, "size"), parentName, link.Passcode, link.FolderId, parent));
                 if (files.Count >= 500) break;
             }
-            foreach (var folder in folders) await ListFilesAsync(link, folder.Id, token, folder.Name, files, subtitles, depth + 1, cancellationToken).ConfigureAwait(false);
+            foreach (var folder in folders)
+                await ListFilesAsync(link, folder.Id, token, folder.Name, files, subtitles, depth + 1, cancellationToken).ConfigureAwait(false);
             marker = String(result.Json, "next_marker");
         } while (!string.IsNullOrWhiteSpace(marker) && files.Count < 500);
     }
@@ -138,31 +249,272 @@ public sealed class AliCloudProvider : ICloudDriveProvider
         {
             if (!quality.Contains("原画", StringComparison.OrdinalIgnoreCase) && quality != "自动")
                 throw new NotSupportedException("阿里云盘当前线路仅提供原画。");
+            return await PlayPersonalFileAsync(file.FileToken, file.FileId, file.Name, cancellationToken).ConfigureAwait(false);
+        }
+
+        var shareToken = await GetShareTokenAsync(file.ShareId, file.Passcode, cancellationToken).ConfigureAwait(false);
+        var contentType = Services.Playback.HlsManifest.RecognizeResponse("https://media.invalid/" + Uri.EscapeDataString(file.Name), null);
+
+        // Authenticated playback path (required since Alipan retired anonymous get_share_link_download_url with HTTP 410):
+        // Save the shared item to the user's drive folder "流光影院" and resolve its original download URL,
+        // falling back to authenticated share video preview transcoding if copy fails (e.g. drive full).
+        if (_credential is not null)
+        {
+            var ctx = await GetAccountContextAsync(cancellationToken).ConfigureAwait(false);
+            try
+            {
+                var saved = await SaveShareFileAsync(ctx, file, shareToken, forceRefresh: false, cancellationToken).ConfigureAwait(false);
+                try
+                {
+                    return await PlayPersonalFileAsync(saved.DriveId, saved.FileId, file.Name, cancellationToken).ConfigureAwait(false);
+                }
+                catch (InvalidOperationException ex) when (IsMissingFileError(ex.Message))
+                {
+                    // Cached copied file was deleted in user's drive — re-copy and retry once.
+                    var recopied = await SaveShareFileAsync(ctx, file, shareToken, forceRefresh: true, cancellationToken).ConfigureAwait(false);
+                    return await PlayPersonalFileAsync(recopied.DriveId, recopied.FileId, file.Name, cancellationToken).ConfigureAwait(false);
+                }
+            }
+            catch (CloudAuthenticationException) { throw; }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
+            catch (Exception copyEx) when (!CloudSubtitleFiles.IsSubtitle(file.Name))
+            {
+                Diagnostics.Log($"阿里分享转存原画失败，尝试分享转码预览: {copyEx.Message}");
+                var previewUrl = await TryGetSharePreviewUrlAsync(file, shareToken, cancellationToken).ConfigureAwait(false);
+                if (!string.IsNullOrEmpty(previewUrl))
+                    return new CloudPlayResult(previewUrl, Headers, FileExtension: CloudSubtitleFiles.Extension(file.Name));
+                throw;
+            }
+        }
+
+        // Legacy anonymous share download fallback (for test fixtures / environments without account credentials).
+        var headers = new Dictionary<string, string>(Headers, StringComparer.OrdinalIgnoreCase) { ["x-share-token"] = shareToken };
+        var result = await PostWithFallbackAsync(
+            LegacyShareDownloadEndpoints,
+            new { file_id = file.FileId, share_id = file.ShareId, expire_sec = 600 },
+            headers,
+            cancellationToken).ConfigureAwait(false);
+        EnsureSuccess(result, "阿里分享原画播放失败");
+        var url = First(String(result.Json, "download_url"), String(result.Json, "url"));
+        if (url.Length == 0) throw new InvalidDataException("阿里未返回下载地址，可能需要在设置中登录。");
+        return new CloudPlayResult(url, Headers, contentType, CloudSubtitleFiles.Extension(file.Name));
+    }
+
+    private async Task<CloudPlayResult> PlayPersonalFileAsync(string driveHint, string fileId, string fileName, CancellationToken cancellationToken)
+    {
+        var response = await ExecuteDriveRequestAsync(async (ctx, ct) =>
+        {
+            var drive = string.IsNullOrWhiteSpace(driveHint) ? ctx.DefaultDriveId : driveHint;
+            var body = ctx.IsOpenApi
+                ? (object)new { drive_id = drive, file_id = fileId }
+                : new { drive_id = drive, file_id = fileId, expire_sec = 14400 };
+            var endpoints = ctx.IsOpenApi ? OpenApiDownloadEndpoints : WebDownloadEndpoints;
+            return await PostWithFallbackAsync(endpoints, body, AccountHeaders(ctx), ct).ConfigureAwait(false);
+        }, cancellationToken).ConfigureAwait(false);
+        EnsureSuccess(response, "阿里个人文件原画播放失败");
+        var address = First(String(response.Json, "url"), String(response.Json, "download_url"));
+        if (!Uri.TryCreate(address, UriKind.Absolute, out _)) throw new InvalidDataException("阿里未返回个人文件播放地址。");
+        var mediaType = Services.Playback.HlsManifest.RecognizeResponse("https://media.invalid/" + Uri.EscapeDataString(fileName), null);
+        return new CloudPlayResult(address, Headers, mediaType, CloudSubtitleFiles.Extension(fileName));
+    }
+
+    private async Task<(string DriveId, string FileId)> SaveShareFileAsync(
+        DriveAccountContext ctx, CloudFile file, string shareToken, bool forceRefresh, CancellationToken cancellationToken)
+    {
+        var targetDrive = ctx.ResourceDriveId.Length > 0 ? ctx.ResourceDriveId : ctx.DefaultDriveId;
+        var accountKey = ctx.UserId.Length > 0 ? ctx.UserId : targetDrive;
+        var cacheKey = $"{accountKey}/{file.ShareId}/{file.FileId}";
+        var settingKey = $"cloud.saved.Ali.{cacheKey}";
+
+        if (!forceRefresh)
+        {
+            if (_savedIds.TryGetValue(cacheKey, out var cached)) return cached;
+            if (_database is not null)
+            {
+                var stored = await _database.GetSettingAsync(settingKey, cancellationToken).ConfigureAwait(false);
+                if (TryParseSavedPair(stored, out var pair))
+                    return _savedIds[cacheKey] = pair;
+            }
+        }
+        else
+        {
+            _savedIds.TryRemove(cacheKey, out _);
+            if (_database is not null)
+                await _database.SetSettingAsync(settingKey, string.Empty, cancellationToken).ConfigureAwait(false);
+        }
+
+        await _saveLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            if (!forceRefresh && _savedIds.TryGetValue(cacheKey, out var cached)) return cached;
+            var saveDirId = await EnsureSaveDirAsync(targetDrive, cancellationToken).ConfigureAwait(false);
+
+            var copyResult = await ExecuteDriveRequestAsync(async (activeCtx, ct) =>
+            {
+                var headers = AccountHeaders(activeCtx);
+                headers["x-share-token"] = shareToken;
+                var batchBody = new
+                {
+                    requests = new[]
+                    {
+                        new
+                        {
+                            id = "0",
+                            method = "POST",
+                            url = "/file/copy",
+                            headers = new Dictionary<string, string> { ["Content-Type"] = "application/json" },
+                            body = new
+                            {
+                                file_id = file.FileId,
+                                share_id = file.ShareId,
+                                auto_rename = true,
+                                to_parent_file_id = saveDirId,
+                                to_drive_id = targetDrive
+                            }
+                        }
+                    },
+                    resource = "file"
+                };
+                var res = await PostWithFallbackAsync(BatchEndpoints, batchBody, headers, ct).ConfigureAwait(false);
+                if ((int)res.StatusCode is 404 or 405)
+                {
+                    var directBody = new
+                    {
+                        file_id = file.FileId,
+                        share_id = file.ShareId,
+                        auto_rename = true,
+                        to_parent_file_id = saveDirId,
+                        to_drive_id = targetDrive
+                    };
+                    res = await PostWithFallbackAsync(
+                        DirectCopyEndpoints,
+                        directBody,
+                        headers,
+                        ct).ConfigureAwait(false);
+                }
+                return res;
+            }, cancellationToken).ConfigureAwait(false);
+
+            EnsureSuccess(copyResult, "阿里分享转存失败");
+            var copiedFileId = ExtractCopiedFileId(copyResult.Json, out var subStatus, out var subMessage);
+            if (copiedFileId.Length == 0)
+            {
+                if (subStatus == 401)
+                    throw new CloudAuthenticationException(Kind, "阿里云盘登录已失效，请重新扫码。");
+                throw new InvalidOperationException(string.IsNullOrWhiteSpace(subMessage)
+                    ? "阿里分享转存失败，未返回文件 ID。"
+                    : $"阿里分享转存失败：{subMessage}");
+            }
+
+            var saved = (targetDrive, copiedFileId);
+            _savedIds[cacheKey] = saved;
+            if (_database is not null)
+                await _database.SetSettingAsync(settingKey, $"{targetDrive}:{copiedFileId}", cancellationToken).ConfigureAwait(false);
+            return saved;
+        }
+        finally
+        {
+            _saveLock.Release();
+        }
+    }
+
+    private async Task<string> EnsureSaveDirAsync(string driveId, CancellationToken cancellationToken)
+    {
+        if (_saveDirIds.TryGetValue(driveId, out var cached)) return cached;
+
+        // First check root listing for an existing "流光影院" folder.
+        var listResult = await ExecuteDriveRequestAsync(async (ctx, ct) =>
+        {
+            var body = BuildDriveBody(ctx.IsOpenApi, isSearch: false, driveId, "root", marker: null);
+            var endpoints = ctx.IsOpenApi ? OpenApiListEndpoints : WebListEndpoints;
+            return await PostWithFallbackAsync(endpoints, body, AccountHeaders(ctx), ct).ConfigureAwait(false);
+        }, cancellationToken).ConfigureAwait(false);
+
+        if (listResult.StatusCode == HttpStatusCode.OK &&
+            listResult.Json.TryGetProperty("items", out var items) &&
+            items.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var item in items.EnumerateArray())
+            {
+                var isFolder = String(item, "type") == "folder" || String(item, "file_type") == "folder";
+                if (isFolder && String(item, "name") == "流光影院" && String(item, "file_id") is { Length: > 0 } existingId)
+                    return _saveDirIds[driveId] = existingId;
+            }
+        }
+
+        // Create "流光影院" folder (check_name_mode = refuse returns existing folder's file_id if raced).
+        var createResult = await ExecuteDriveRequestAsync(async (ctx, ct) =>
+        {
+            var body = new
+            {
+                drive_id = driveId,
+                parent_file_id = "root",
+                name = "流光影院",
+                type = "folder",
+                check_name_mode = "refuse"
+            };
+            var endpoints = ctx.IsOpenApi ? OpenApiCreateEndpoints : CreateFolderEndpoints;
+            return await PostWithFallbackAsync(endpoints, body, AccountHeaders(ctx), ct).ConfigureAwait(false);
+        }, cancellationToken).ConfigureAwait(false);
+        EnsureSuccess(createResult, "创建阿里播放目录失败");
+        var createdId = String(createResult.Json, "file_id");
+        if (createdId.Length == 0) throw new InvalidDataException("阿里云盘未返回播放目录 ID。");
+        return _saveDirIds[driveId] = createdId;
+    }
+
+    private async Task<string?> TryGetSharePreviewUrlAsync(CloudFile file, string shareToken, CancellationToken cancellationToken)
+    {
+        try
+        {
             var response = await ExecuteDriveRequestAsync(async (ctx, ct) =>
             {
-                var drive = string.IsNullOrWhiteSpace(file.FileToken) ? ctx.DefaultDriveId : file.FileToken;
-                var body = ctx.IsOpenApi
-                    ? (object)new { drive_id = drive, file_id = file.FileId }
-                    : new { drive_id = drive, file_id = file.FileId, expire_sec = 14400 };
-                var endpoints = ctx.IsOpenApi
-                    ? new[] { "https://openapi.alipan.com/adrive/v1.0/openFile/getDownloadUrl" }
-                    : new[] { "https://api.alipan.com/v2/file/get_download_url", "https://api.aliyundrive.com/v2/file/get_download_url" };
-                return await PostWithFallbackAsync(endpoints, body, AccountHeaders(ctx), ct).ConfigureAwait(false);
+                var headers = AccountHeaders(ctx);
+                headers["x-share-token"] = shareToken;
+                var body = new
+                {
+                    share_id = file.ShareId,
+                    file_id = file.FileId,
+                    category = "live_transcoding",
+                    template_id = ""
+                };
+                return await PostWithFallbackAsync(SharePreviewEndpoints, body, headers, ct).ConfigureAwait(false);
             }, cancellationToken).ConfigureAwait(false);
-            EnsureSuccess(response, "阿里个人文件原画播放失败");
-            var address = First(String(response.Json, "url"), String(response.Json, "download_url"));
-            if (!Uri.TryCreate(address, UriKind.Absolute, out _)) throw new InvalidDataException("阿里未返回个人文件播放地址。");
-            var mediaType = Services.Playback.HlsManifest.RecognizeResponse("https://media.invalid/" + Uri.EscapeDataString(file.Name), null);
-            return new CloudPlayResult(address, Headers, mediaType, CloudSubtitleFiles.Extension(file.Name));
+
+            if (response.StatusCode != HttpStatusCode.OK || response.Json.ValueKind != JsonValueKind.Object)
+                return null;
+            if (!response.Json.TryGetProperty("video_preview_play_info", out var info) || info.ValueKind != JsonValueKind.Object)
+                return null;
+            if (!info.TryGetProperty("live_transcoding_task_list", out var tasks) || tasks.ValueKind != JsonValueKind.Array)
+                return null;
+
+            string? bestUrl = null;
+            var bestRank = -1;
+            foreach (var task in tasks.EnumerateArray())
+            {
+                var url = String(task, "url");
+                if (!Uri.TryCreate(url, UriKind.Absolute, out var uri) || uri.Scheme is not ("http" or "https")) continue;
+                var rank = String(task, "template_id").ToUpperInvariant() switch
+                {
+                    "QHD" => 5,
+                    "FHD" => 4,
+                    "HD" => 3,
+                    "SD" => 2,
+                    "LD" => 1,
+                    _ => 0
+                };
+                if (rank > bestRank)
+                {
+                    bestRank = rank;
+                    bestUrl = uri.AbsoluteUri;
+                }
+            }
+            return bestUrl;
         }
-        var token = await GetShareTokenAsync(file.ShareId, file.Passcode, cancellationToken).ConfigureAwait(false);
-        var headers = new Dictionary<string, string>(Headers, StringComparer.OrdinalIgnoreCase) { ["x-share-token"] = token };
-        var result = await _http.PostJsonAsync("https://api.aliyundrive.com/v2/file/get_share_link_download_url", new { file_id = file.FileId, share_id = file.ShareId, expire_sec = 600 }, headers, cancellationToken).ConfigureAwait(false);
-        EnsureSuccess(result, "阿里分享原画播放失败");
-        var url = String(result.Json, "download_url");
-        if (url.Length == 0) throw new InvalidDataException("阿里未返回下载地址，可能需要在设置中登录。");
-        var contentType = Services.Playback.HlsManifest.RecognizeResponse("https://media.invalid/" + Uri.EscapeDataString(file.Name), null);
-        return new CloudPlayResult(url, Headers, contentType, CloudSubtitleFiles.Extension(file.Name));
+        catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
+        {
+            Diagnostics.Log($"阿里分享预览流获取失败: {ex.GetType().Name}");
+            return null;
+        }
     }
 
     public async Task<CloudDriveListing> ListFolderAsync(string folderId, string path, int page, CancellationToken cancellationToken = default)
@@ -228,10 +580,10 @@ public sealed class AliCloudProvider : ICloudDriveProvider
             var body = BuildDriveBody(ctx.IsOpenApi, isSearch, driveId, parentOrQuery, marker);
             var endpoints = (ctx.IsOpenApi, isSearch) switch
             {
-                (true, false) => new[] { "https://openapi.alipan.com/adrive/v1.0/openFile/list" },
-                (true, true) => new[] { "https://openapi.alipan.com/adrive/v1.0/openFile/search" },
-                (false, false) => new[] { "https://api.alipan.com/adrive/v3/file/list", "https://api.aliyundrive.com/adrive/v3/file/list" },
-                (false, true) => new[] { "https://api.alipan.com/adrive/v3/file/search", "https://api.aliyundrive.com/adrive/v3/file/search" }
+                (true, false) => OpenApiListEndpoints,
+                (true, true) => OpenApiSearchEndpoints,
+                (false, false) => WebListEndpoints,
+                (false, true) => WebSearchEndpoints
             };
             return await PostWithFallbackAsync(endpoints, body, AccountHeaders(ctx), ct).ConfigureAwait(false);
         }, cancellationToken).ConfigureAwait(false);
@@ -299,12 +651,12 @@ public sealed class AliCloudProvider : ICloudDriveProvider
     {
         var ctx = await GetAccountContextAsync(cancellationToken).ConfigureAwait(false);
         var result = await send(ctx, cancellationToken).ConfigureAwait(false);
-        if (result.StatusCode == System.Net.HttpStatusCode.Unauthorized)
+        if (result.StatusCode == HttpStatusCode.Unauthorized)
         {
             InvalidateAccountCache();
             ctx = await GetAccountContextAsync(cancellationToken).ConfigureAwait(false);
             result = await send(ctx, cancellationToken).ConfigureAwait(false);
-            if (result.StatusCode == System.Net.HttpStatusCode.Unauthorized)
+            if (result.StatusCode == HttpStatusCode.Unauthorized)
                 throw new CloudAuthenticationException(Kind, "阿里云盘登录已失效，请重新扫码。");
         }
         return result;
@@ -319,12 +671,14 @@ public sealed class AliCloudProvider : ICloudDriveProvider
             try
             {
                 var result = await _http.PostJsonAsync(endpoint, body, headers, cancellationToken).ConfigureAwait(false);
-                if (result.StatusCode == System.Net.HttpStatusCode.OK || result.StatusCode == System.Net.HttpStatusCode.Unauthorized)
+                if (result.StatusCode is HttpStatusCode.OK or HttpStatusCode.Created or HttpStatusCode.Unauthorized)
+                    return result;
+                if (IsDefinitiveBusinessError(result))
                     return result;
                 lastResult = result;
                 Diagnostics.Log($"阿里网盘接口 {new Uri(endpoint).Host}{new Uri(endpoint).AbsolutePath}: HTTP {(int)result.StatusCode}");
             }
-            catch (Exception ex) when (ex is not OperationCanceledException)
+            catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
             {
                 lastException = ex;
                 Diagnostics.Log($"阿里网盘接口 {new Uri(endpoint).Host}{new Uri(endpoint).AbsolutePath}: {ex.GetType().Name}");
@@ -332,6 +686,17 @@ public sealed class AliCloudProvider : ICloudDriveProvider
         }
         if (lastResult is not null) return lastResult;
         throw lastException ?? new InvalidOperationException("阿里云盘接口请求失败。");
+    }
+
+    private static bool IsDefinitiveBusinessError(CloudHttpResult result)
+    {
+        if (result.StatusCode != HttpStatusCode.BadRequest && result.StatusCode != HttpStatusCode.Forbidden)
+            return false;
+        var code = String(result.Json, "code");
+        return code.StartsWith("ShareLink", StringComparison.OrdinalIgnoreCase) ||
+               code.StartsWith("InvalidParameter", StringComparison.OrdinalIgnoreCase) ||
+               code.Equals("NotFound.File", StringComparison.OrdinalIgnoreCase) ||
+               code.Equals("NotFound.ShareLink", StringComparison.OrdinalIgnoreCase);
     }
 
     private async Task<DriveAccountContext> GetAccountContextAsync(CancellationToken cancellationToken)
@@ -381,9 +746,7 @@ public sealed class AliCloudProvider : ICloudDriveProvider
         var backupDrive = token.BackupDriveId;
         var userId = token.UserId;
 
-        string[] endpoints = token.IsOpenApi
-            ? ["https://openapi.alipan.com/adrive/v1.0/user/getDriveInfo", "https://openapi.aliyundrive.com/adrive/v1.0/user/getDriveInfo"]
-            : ["https://api.alipan.com/v2/user/get", "https://api.aliyundrive.com/v2/user/get", "https://user.alipan.com/v2/user/get", "https://user.aliyundrive.com/v2/user/get"];
+        var endpoints = token.IsOpenApi ? OpenApiUserEndpoints : WebUserEndpoints;
 
         var headers = BearerHeaders(token.AccessToken);
         foreach (var endpoint in endpoints)
@@ -391,7 +754,7 @@ public sealed class AliCloudProvider : ICloudDriveProvider
             try
             {
                 var user = await _http.PostJsonAsync(endpoint, new { }, headers, cancellationToken).ConfigureAwait(false);
-                if (user.StatusCode == System.Net.HttpStatusCode.OK && user.Json.ValueKind == JsonValueKind.Object)
+                if (user.StatusCode == HttpStatusCode.OK && user.Json.ValueKind == JsonValueKind.Object)
                 {
                     var d = String(user.Json, "default_drive_id");
                     var r = String(user.Json, "resource_drive_id");
@@ -406,7 +769,7 @@ public sealed class AliCloudProvider : ICloudDriveProvider
                 }
                 Diagnostics.Log($"阿里账号信息接口 {new Uri(endpoint).Host}: HTTP {(int)user.StatusCode}");
             }
-            catch (Exception ex) when (ex is not OperationCanceledException)
+            catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
             {
                 Diagnostics.Log($"阿里账号信息接口 {new Uri(endpoint).Host}: {ex.GetType().Name}");
             }
@@ -426,16 +789,57 @@ public sealed class AliCloudProvider : ICloudDriveProvider
             var payload = new { deviceName = "Edge浏览器", modelName = "Windows网页版", pubKey = session.PublicKeyHex };
             var response = await _http.PostJsonAsync("https://api.alipan.com/users/v1/users/device/create_session",
                 payload, headers, cancellationToken).ConfigureAwait(false);
-            if (response.StatusCode == System.Net.HttpStatusCode.OK)
+            if (response.StatusCode == HttpStatusCode.OK)
                 return session;
             Diagnostics.Log($"阿里设备会话初始化返回 HTTP {(int)response.StatusCode}");
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
         {
             Diagnostics.Log($"阿里设备会话初始化跳过: {ex.GetType().Name}");
         }
         return null;
     }
+
+    private static string ExtractCopiedFileId(JsonElement root, out int subStatus, out string subMessage)
+    {
+        subStatus = 200;
+        subMessage = string.Empty;
+        if (root.ValueKind != JsonValueKind.Object) return string.Empty;
+
+        // Direct /file/copy response
+        var directId = String(root, "file_id");
+        if (directId.Length > 0) return directId;
+
+        // Batch /adrive/v4/batch or /v3/batch response
+        if (root.TryGetProperty("responses", out var responses) && responses.ValueKind == JsonValueKind.Array && responses.GetArrayLength() > 0)
+        {
+            var first = responses[0];
+            if (first.TryGetProperty("status", out var st) && st.TryGetInt32(out var statusNum))
+                subStatus = statusNum;
+            if (first.TryGetProperty("body", out var body) && body.ValueKind == JsonValueKind.Object)
+            {
+                var id = String(body, "file_id");
+                if (id.Length > 0 && subStatus is >= 200 and < 300) return id;
+                subMessage = First(String(body, "message"), String(body, "code"));
+            }
+        }
+        return string.Empty;
+    }
+
+    private static bool TryParseSavedPair(string? stored, out (string DriveId, string FileId) pair)
+    {
+        pair = default;
+        if (string.IsNullOrWhiteSpace(stored)) return false;
+        var sep = stored.IndexOf(':');
+        if (sep <= 0 || sep >= stored.Length - 1) return false;
+        pair = (stored[..sep], stored[(sep + 1)..]);
+        return true;
+    }
+
+    private static bool IsMissingFileError(string message) =>
+        message.Contains("404", StringComparison.Ordinal) ||
+        message.Contains("NotFound", StringComparison.OrdinalIgnoreCase) ||
+        message.Contains("不存在", StringComparison.Ordinal);
 
     private static bool HasDualDrives(DriveAccountContext ctx) =>
         ctx.ResourceDriveId.Length > 0 && ctx.BackupDriveId.Length > 0 &&
@@ -478,16 +882,37 @@ public sealed class AliCloudProvider : ICloudDriveProvider
 
     private static void EnsureSuccess(CloudHttpResult result, string fallback)
     {
-        if ((int)result.StatusCode >= 400) throw new InvalidOperationException($"{fallback}（HTTP {(int)result.StatusCode}）");
-        if (result.Json.ValueKind != JsonValueKind.Object) return;
         var code = String(result.Json, "code");
+        var message = First(String(result.Json, "message"), code);
+        if (code.Equals("ShareLink.Cancelled", StringComparison.OrdinalIgnoreCase) ||
+            code.Equals("ShareLink.Forbidden", StringComparison.OrdinalIgnoreCase) ||
+            code.Equals("ShareLink.NotFound", StringComparison.OrdinalIgnoreCase) ||
+            code.Equals("NotFound.ShareLink", StringComparison.OrdinalIgnoreCase) ||
+            code.Equals("ShareLinkExpired", StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException($"阿里分享已失效（{code}）");
+        if (code.Equals("InvalidParameter.SharePwd", StringComparison.OrdinalIgnoreCase) ||
+            code.Equals("ShareLink.InvalidPassword", StringComparison.OrdinalIgnoreCase) ||
+            code.Equals("ShareLinkTokenInvalid", StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException($"阿里分享提取码错误或已失效（{code}）");
+        if ((int)result.StatusCode >= 400)
+            throw new InvalidOperationException(message.Length > 0
+                ? $"{fallback}（HTTP {(int)result.StatusCode}）：{message}"
+                : $"{fallback}（HTTP {(int)result.StatusCode}）");
+        if (result.Json.ValueKind != JsonValueKind.Object) return;
         if (code.Length > 0 && !code.Equals("OK", StringComparison.OrdinalIgnoreCase))
-            throw new InvalidOperationException($"{fallback}：{First(String(result.Json, "message"), code)}");
+            throw new InvalidOperationException($"{fallback}：{message}");
     }
 
-    private static bool IsMedia(string category, string name) => category is "video" or "audio" || Path.GetExtension(name).ToLowerInvariant() is ".mp4" or ".mkv" or ".avi" or ".mov" or ".flv" or ".mp3" or ".m4a";
+    private static bool IsMedia(string category, string mimeType, string name) =>
+        category is "video" or "audio" ||
+        mimeType.StartsWith("video/", StringComparison.OrdinalIgnoreCase) ||
+        mimeType.StartsWith("audio/", StringComparison.OrdinalIgnoreCase) ||
+        Path.GetExtension(name).ToLowerInvariant() is
+            ".mp4" or ".mkv" or ".avi" or ".mov" or ".flv" or ".ts" or ".m2ts" or
+            ".webm" or ".rmvb" or ".wmv" or ".mpg" or ".mpeg" or ".m4v" or ".3gp" or
+            ".mp3" or ".m4a" or ".flac" or ".wav" or ".aac";
+
     private static string String(JsonElement element, string name) => element.ValueKind == JsonValueKind.Object && element.TryGetProperty(name, out var value) ? value.ValueKind == JsonValueKind.String ? value.GetString() ?? string.Empty : value.GetRawText().Trim('"') : string.Empty;
     private static long Long(JsonElement element, string name) => element.TryGetProperty(name, out var value) && value.TryGetInt64(out var number) ? number : 0;
     private static string First(params string[] values) => values.FirstOrDefault(value => !string.IsNullOrWhiteSpace(value)) ?? string.Empty;
-
 }

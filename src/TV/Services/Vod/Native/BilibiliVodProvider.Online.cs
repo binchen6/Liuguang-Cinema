@@ -46,7 +46,7 @@ public sealed partial class BilibiliVodProvider
                             candidates.Add((item, seasonId, score));
                         }
                     }
-                    catch (Exception ex) when (!token.IsCancellationRequested && ex is HttpRequestException or InvalidDataException or JsonException)
+                    catch (Exception ex) when (!token.IsCancellationRequested && ex is HttpRequestException or InvalidDataException or JsonException or OperationCanceledException)
                     {
                         Diagnostics.Log($"哔哩媒体搜索不可用 ({type}): {ex.GetType().Name}");
                     }
@@ -65,12 +65,20 @@ public sealed partial class BilibiliVodProvider
                     Text(episode, "long_title") is { Length: > 0 } name ? name : Text(episode, "title"), aid, cid);
             }
         }
-        catch (Exception ex) when (!token.IsCancellationRequested && ex is HttpRequestException or InvalidDataException or JsonException)
+        catch (Exception ex) when (!token.IsCancellationRequested && ex is HttpRequestException or InvalidDataException or JsonException or OperationCanceledException)
         {
             Diagnostics.Log($"哔哩番剧弹幕匹配失败: {ex.GetType().Name}");
         }
-        var videos = await ReadApiAsync(site, "/x/web-interface/wbi/search/type", token,
-            ("search_type", "video"), ("keyword", wanted)).ConfigureAwait(false);
+        JsonElement videos;
+        try
+        {
+            videos = await ReadApiAsync(site, "/x/web-interface/wbi/search/type", token,
+                ("search_type", "video"), ("keyword", wanted)).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException ex) when (!token.IsCancellationRequested)
+        {
+            throw new TimeoutException("哔哩哔哩弹幕搜索超时，请稍后重试。", ex);
+        }
         var normalized = SearchScoring.Normalize(identity.BaseTitle);
         foreach (var video in Array(videos, "result").Where(item =>
             SearchScoring.Normalize(PlaybackParsing.StripHtml(Text(item, "title"))) == normalized).Take(3))

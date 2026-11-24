@@ -9,6 +9,9 @@ namespace TV.Services.Cloud;
 
 public sealed class QuarkCloudProvider : ICloudDriveProvider
 {
+    private const long UcPromoCheckMinFileSize = 35L * 1024 * 1024;
+    private const long UcPromoMaxActualSize = 28L * 1024 * 1024;
+
     private readonly CloudHttpClient _http;
     private readonly Func<CancellationToken, Task<string>> _credential;
     private readonly DatabaseService _database;
@@ -16,7 +19,9 @@ public sealed class QuarkCloudProvider : ICloudDriveProvider
     private readonly string _home;
     private readonly CloudShareTokenCache _tokens = new();
     private readonly ConcurrentDictionary<string, string> _savedIds = new();
+    private readonly ConcurrentDictionary<string, string> _deviceIds = new(StringComparer.Ordinal);
     private readonly SemaphoreSlim _saveLock = new(1, 1);
+    private readonly SemaphoreSlim _deviceLock = new(1, 1);
     private readonly CloudCookieJar _jar = new();
     private readonly SemaphoreSlim _jarLock = new(1, 1);
     private string _seed = string.Empty;
@@ -38,6 +43,16 @@ public sealed class QuarkCloudProvider : ICloudDriveProvider
     private string ClientQuery => Kind == CloudProviderKind.UC ? "pr=UCBrowser&fr=pc" : "pr=ucpro&fr=pc";
     public bool CanHandle(string url) => CloudShareLink.TryParse(url, out var link) && link.Provider == Kind;
 
+    public void InvalidateAccountCache()
+    {
+        _jar.Clear();
+        _seed = string.Empty;
+        _persisted = string.Empty;
+        _saveDirIds.Clear();
+        _savedIds.Clear();
+        _deviceIds.Clear();
+    }
+
     public async Task<CloudShare> GetShareAsync(string url, CancellationToken cancellationToken = default)
     {
         if (!CloudShareLink.TryParse(url, out var link) || link.Provider != Kind)
@@ -47,8 +62,15 @@ public sealed class QuarkCloudProvider : ICloudDriveProvider
         var subtitles = new List<CloudFile>();
         await ListFilesAsync(link, "0", token, string.Empty, files, subtitles, 0, cancellationToken).ConfigureAwait(false);
         if (files.Count == 0) throw new InvalidDataException($"{Kind} 分享中没有可播放的媒体文件。");
-        return new CloudShare { Provider = Kind, ShareId = link.ShareId, SourceUrl = url, Name = $"{Kind} 分享",
-            Files = files.OrderBy(file => file.Name, StringComparer.CurrentCultureIgnoreCase).ToList(), SubtitleFiles = subtitles };
+        return new CloudShare
+        {
+            Provider = Kind,
+            ShareId = link.ShareId,
+            SourceUrl = url,
+            Name = $"{Kind} 分享",
+            Files = files.OrderBy(file => file.Name, StringComparer.CurrentCultureIgnoreCase).ToList(),
+            SubtitleFiles = subtitles
+        };
     }
 
     private Task<string> GetShareTokenAsync(string shareId, string passcode, CancellationToken cancellationToken) =>
@@ -102,73 +124,226 @@ public sealed class QuarkCloudProvider : ICloudDriveProvider
     {
         var height = quality.Contains("原画", StringComparison.OrdinalIgnoreCase) ? -1 :
             quality.EndsWith('p') && int.TryParse(quality.AsSpan(0, quality.Length - 1), out var resolution) ? resolution : 0;
-        return PlayAsync(file, new QualityOption(quality, height), includeOriginalAlternatives: false, cancellationToken);
+        return PlayAsync(file, new QualityOption(quality, height), includeOriginalAlternatives: false, allowTranscodeFallback: false, cancellationToken);
     }
 
     public Task<CloudPlayResult> PlayAsync(CloudFile file, QualityOption quality, CancellationToken cancellationToken = default) =>
-        PlayAsync(file, quality, includeOriginalAlternatives: true, cancellationToken);
+        PlayAsync(file, quality, includeOriginalAlternatives: true, allowTranscodeFallback: true, cancellationToken);
 
-    private async Task<CloudPlayResult> PlayAsync(CloudFile file, QualityOption quality, bool includeOriginalAlternatives,
+    private async Task<CloudPlayResult> PlayAsync(
+        CloudFile file,
+        QualityOption quality,
+        bool includeOriginalAlternatives,
+        bool allowTranscodeFallback,
         CancellationToken cancellationToken)
     {
         var cookie = await _credential(cancellationToken).ConfigureAwait(false);
         var driveName = CloudAccountInfo.DisplayName(Kind);
         if (string.IsNullOrWhiteSpace(cookie)) throw new CloudAuthenticationException(Kind, $"{driveName}转码与原画需要扫码登录；公开分享浏览无需登录。");
-        var savedId = file.ShareId == "drive" ? file.FileId : await SaveFileAsync(file, cookie, cancellationToken).ConfigureAwait(false);
+        var account = AccountKey(cookie);
+        var savedId = file.ShareId == "drive"
+            ? file.FileId
+            : await SaveFileAsync(file, cookie, forceRefresh: false, cancellationToken).ConfigureAwait(false);
+
         if (quality.RequestsOriginal)
         {
-            var otherQualities = includeOriginalAlternatives ? ReadOptionalTranscodesAsync(savedId, cookie, cancellationToken) : null;
-            var original = await GetDownloadUrlAsync(savedId, cookie, cancellationToken).ConfigureAwait(false);
-            var alternatives = otherQualities is null ? [] : await otherQualities.ConfigureAwait(false);
-            if (original.Length == 0) throw new InvalidDataException($"{driveName}未返回播放地址，请更换清晰度或重试。");
-            var contentType = Services.Playback.HlsManifest.RecognizeResponse("https://media.invalid/" + Uri.EscapeDataString(file.Name), null);
-            return new CloudPlayResult(original, Headers(cookie), contentType, CloudSubtitleFiles.Extension(file.Name))
-            {
-                AvailableQualities = includeOriginalAlternatives ? TranscodingOptions(alternatives) : null
-            };
+            return await PlayOriginalAsync(file, savedId, cookie, account, includeOriginalAlternatives, allowTranscodeFallback, cancellationToken).ConfigureAwait(false);
         }
-        var variants = await ReadTranscodesAsync(savedId, cookie, cancellationToken).ConfigureAwait(false);
-        if (variants.Length == 0) throw new InvalidDataException($"{Kind} 未返回播放地址，请更换清晰度或重试。");
+
+        return await PlayTranscodedAsync(file, savedId, quality, cookie, notice: null, cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task<CloudPlayResult> PlayOriginalAsync(
+        CloudFile file,
+        string savedId,
+        string cookie,
+        string account,
+        bool includeOriginalAlternatives,
+        bool allowTranscodeFallback,
+        CancellationToken cancellationToken)
+    {
+        var driveName = CloudAccountInfo.DisplayName(Kind);
+        DownloadLinkResult download;
+        try
+        {
+            download = await GetDownloadUrlAsync(savedId, cookie, account, rotateDeviceId: false, useClientVersionParams: false, cancellationToken).ConfigureAwait(false);
+        }
+        catch (InvalidOperationException ex) when (file.ShareId != "drive" && IsMissingFileError(ex.Message))
+        {
+            savedId = await SaveFileAsync(file, cookie, forceRefresh: true, cancellationToken).ConfigureAwait(false);
+            download = await GetDownloadUrlAsync(savedId, cookie, account, rotateDeviceId: false, useClientVersionParams: false, cancellationToken).ConfigureAwait(false);
+        }
+
+        if (download.Url.Length == 0)
+            throw new InvalidDataException($"{driveName}未返回播放地址，请更换清晰度或重试。");
+
+        var downloadHeaders = HeadersForCookie(download.RequestCookie);
+
+        // UC Drive anti-abuse guard: if UC returns a ~14 MB "use UC Browser / buy VIP" placeholder video
+        // instead of the real video file, rotate UTDID + desktop client params once; if still replaced,
+        // fall back cleanly to the highest real transcoded stream instead of playing a 10s promo clip.
+        if (Kind == CloudProviderKind.UC && !CloudSubtitleFiles.IsSubtitle(file.Name) && file.Size >= UcPromoCheckMinFileSize)
+        {
+            var probe = await _http.ProbeRangeLengthAsync(download.Url, downloadHeaders, cancellationToken).ConfigureAwait(false);
+            if (probe.TotalLength is > 0 && IsLikelyUcPromoVideo(file.Size, probe.TotalLength.Value, probe.ContentDisposition))
+            {
+                Diagnostics.Log($"UC 原画探测疑似返回提示视频 (actual={probe.TotalLength.Value}, expected={file.Size})，轮换设备标识并重试");
+                var retried = await GetDownloadUrlAsync(savedId, cookie, account, rotateDeviceId: true, useClientVersionParams: true, cancellationToken).ConfigureAwait(false);
+                if (retried.Url.Length > 0)
+                {
+                    var retriedHeaders = HeadersForCookie(retried.RequestCookie);
+                    var retryProbe = await _http.ProbeRangeLengthAsync(retried.Url, retriedHeaders, cancellationToken).ConfigureAwait(false);
+                    if (retryProbe.TotalLength is not > 0 || !IsLikelyUcPromoVideo(file.Size, retryProbe.TotalLength.Value, retryProbe.ContentDisposition))
+                    {
+                        download = retried;
+                        downloadHeaders = retriedHeaders;
+                    }
+                    else
+                    {
+                        Diagnostics.Log($"UC 原画轮换设备标识后仍返回提示视频 (actual={retryProbe.TotalLength.Value}, expected={file.Size})");
+                        return await HandleUcPromoReplacementAsync(file, savedId, cookie, allowTranscodeFallback, cancellationToken).ConfigureAwait(false);
+                    }
+                }
+                else
+                {
+                    return await HandleUcPromoReplacementAsync(file, savedId, cookie, allowTranscodeFallback, cancellationToken).ConfigureAwait(false);
+                }
+            }
+        }
+
+        // Fetch optional transcode quality choices AFTER file/download so concurrent Set-Cookie
+        // rotations never race with the download URL's request-time cookie snapshot.
+        var alternatives = includeOriginalAlternatives
+            ? await ReadOptionalTranscodesAsync(savedId, cookie, cancellationToken).ConfigureAwait(false)
+            : [];
+        var contentType = Services.Playback.HlsManifest.RecognizeResponse("https://media.invalid/" + Uri.EscapeDataString(file.Name), null);
+        return new CloudPlayResult(download.Url, downloadHeaders, contentType, CloudSubtitleFiles.Extension(file.Name))
+        {
+            AvailableQualities = includeOriginalAlternatives ? TranscodingOptions(alternatives) : null
+        };
+    }
+
+    private async Task<CloudPlayResult> HandleUcPromoReplacementAsync(
+        CloudFile file,
+        string savedId,
+        string cookie,
+        bool allowTranscodeFallback,
+        CancellationToken cancellationToken)
+    {
+        if (allowTranscodeFallback)
+        {
+            try
+            {
+                var fallback = await PlayTranscodedAsync(
+                    file,
+                    savedId,
+                    new QualityOption("自动", 0),
+                    cookie,
+                    notice: null,
+                    cancellationToken).ConfigureAwait(false);
+                var label = fallback.ResolvedQuality?.Name ?? "可用转码";
+                return fallback with
+                {
+                    Notice = $"UC 网盘当前账号原画受服务端客户端策略限制，已自动切换至 {label} 播放；如需原画请尝试重新登录 UC 账号或切换夸克/阿里线路"
+                };
+            }
+            catch (Exception ex) when (!cancellationToken.IsCancellationRequested && ex is not CloudAuthenticationException)
+            {
+                Diagnostics.Log($"UC 原画受限后回退转码失败: {ex.Message}");
+            }
+        }
+
+        throw new InvalidOperationException("UC 网盘当前账号对原画下载返回了会员/客户端提示视频，无法直接获取原画；可切换转码清晰度、重新扫码登录 UC 或改用夸克/阿里线路。");
+    }
+
+    private async Task<CloudPlayResult> PlayTranscodedAsync(
+        CloudFile file,
+        string savedId,
+        QualityOption quality,
+        string cookie,
+        string? notice,
+        CancellationToken cancellationToken)
+    {
+        TranscodeFetchResult fetched;
+        try
+        {
+            fetched = await ReadTranscodesAsync(savedId, cookie, cancellationToken).ConfigureAwait(false);
+        }
+        catch (InvalidOperationException ex) when (file.ShareId != "drive" && IsMissingFileError(ex.Message))
+        {
+            savedId = await SaveFileAsync(file, cookie, forceRefresh: true, cancellationToken).ConfigureAwait(false);
+            fetched = await ReadTranscodesAsync(savedId, cookie, cancellationToken).ConfigureAwait(false);
+        }
+
+        var variants = fetched.Variants;
+        if (variants.Length == 0) throw new InvalidDataException($"{CloudAccountInfo.DisplayName(Kind)}未返回播放地址，请更换清晰度或重试。");
         var transcoded = variants.Where(item => item.Format.Matches(quality)).OrderByDescending(item => item.Format.Height)
             .ThenByDescending(item => item.Format.FrameRate).FirstOrDefault()
             ?? throw new NotSupportedException($"网盘未提供 {quality.Name}。");
         var options = TranscodingOptions(variants);
-        return new CloudPlayResult(transcoded.Url, Headers(cookie), FileExtension: CloudSubtitleFiles.Extension(file.Name))
+        return new CloudPlayResult(transcoded.Url, HeadersForCookie(fetched.RequestCookie), FileExtension: CloudSubtitleFiles.Extension(file.Name))
         {
             AvailableVideoHeights = variants.Where(item => item.Format.Height > 0).Select(item => item.Format.Height).ToHashSet(),
             AvailableQualities = options,
-            ResolvedQuality = options.FirstOrDefault(option => !option.RequestsOriginal && transcoded.Format.Matches(option))
+            ResolvedQuality = options.FirstOrDefault(option => !option.RequestsOriginal && transcoded.Format.Matches(option)),
+            Notice = notice
         };
     }
 
-    private async Task<string> SaveFileAsync(CloudFile file, string cookie, CancellationToken cancellationToken)
+    internal static bool IsLikelyUcPromoVideo(long expectedFileSize, long actualLength, string? contentDisposition)
+    {
+        if (actualLength <= 0 || expectedFileSize < UcPromoCheckMinFileSize) return false;
+        if (!string.IsNullOrWhiteSpace(contentDisposition) &&
+            (contentDisposition.Contains("uc_browser", StringComparison.OrdinalIgnoreCase) ||
+             contentDisposition.Contains("ucbrowser", StringComparison.OrdinalIgnoreCase) ||
+             contentDisposition.Contains("会员", StringComparison.Ordinal)) &&
+            actualLength < expectedFileSize / 2)
+            return true;
+        return actualLength < UcPromoMaxActualSize && actualLength < expectedFileSize / 2;
+    }
+
+    private async Task<string> SaveFileAsync(CloudFile file, string cookie, bool forceRefresh, CancellationToken cancellationToken)
     {
         var account = AccountKey(cookie);
         var key = $"{account}/{file.ShareId}/{file.FileId}";
-        if (_savedIds.TryGetValue(key, out var cached)) return cached;
         var settingKey = $"cloud.saved.{Kind}.{key}";
-        var stored = await _database.GetSettingAsync(settingKey, cancellationToken).ConfigureAwait(false);
-        if (string.IsNullOrWhiteSpace(stored))
+        if (!forceRefresh)
         {
-            // 会话 Cookie 会轮换，旧版本用整串 Cookie 做账号标识，这里顺手把历史转存记录迁移过来。
-            var legacy = await _database.GetSettingAsync($"cloud.saved.{Kind}.{LegacyAccountKey(cookie)}/{file.ShareId}/{file.FileId}", cancellationToken).ConfigureAwait(false);
-            if (!string.IsNullOrWhiteSpace(legacy))
+            if (_savedIds.TryGetValue(key, out var cached)) return cached;
+            var stored = await _database.GetSettingAsync(settingKey, cancellationToken).ConfigureAwait(false);
+            if (string.IsNullOrWhiteSpace(stored))
             {
-                stored = legacy;
-                await _database.SetSettingAsync(settingKey, legacy, cancellationToken).ConfigureAwait(false);
+                // 会话 Cookie 会轮换，旧版本用整串 Cookie 做账号标识，这里顺手把历史转存记录迁移过来。
+                var legacy = await _database.GetSettingAsync($"cloud.saved.{Kind}.{LegacyAccountKey(cookie)}/{file.ShareId}/{file.FileId}", cancellationToken).ConfigureAwait(false);
+                if (!string.IsNullOrWhiteSpace(legacy))
+                {
+                    stored = legacy;
+                    await _database.SetSettingAsync(settingKey, legacy, cancellationToken).ConfigureAwait(false);
+                }
             }
+            if (!string.IsNullOrWhiteSpace(stored)) return _savedIds[key] = stored;
         }
-        if (!string.IsNullOrWhiteSpace(stored)) return _savedIds[key] = stored;
+        else
+        {
+            _savedIds.TryRemove(key, out _);
+            await _database.SetSettingAsync(settingKey, string.Empty, cancellationToken).ConfigureAwait(false);
+        }
+
         await _saveLock.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            if (_savedIds.TryGetValue(key, out cached)) return cached;
+            if (!forceRefresh && _savedIds.TryGetValue(key, out var cached)) return cached;
             var token = await GetShareTokenAsync(file.ShareId, file.Passcode, cancellationToken).ConfigureAwait(false);
             var dir = await EnsureSaveDirAsync(account, cookie, cancellationToken).ConfigureAwait(false);
             var body = new
             {
-                fid_list = new[] { file.FileId }, fid_token_list = new[] { file.FileToken }, to_pdir_fid = dir,
-                pwd_id = file.ShareId, stoken = token, pdir_fid = "0", scene = "link"
+                fid_list = new[] { file.FileId },
+                fid_token_list = new[] { file.FileToken },
+                to_pdir_fid = dir,
+                pwd_id = file.ShareId,
+                stoken = token,
+                pdir_fid = "0",
+                scene = "link"
             };
             var saved = await SendAsync(HttpMethod.Post, _api + "share/sharepage/save?" + ClientQuery, body, cookie, cancellationToken).ConfigureAwait(false);
             EnsureSuccess(saved, "转存失败");
@@ -211,11 +386,39 @@ public sealed class QuarkCloudProvider : ICloudDriveProvider
         return _saveDirIds[account] = NestedString(created.Json, "data", "fid") is { Length: > 0 } id ? id : throw new InvalidDataException("网盘未返回播放目录。");
     }
 
+    private async Task<string> GetOrCreateUcDeviceIdAsync(string account, bool forceRotate, CancellationToken cancellationToken)
+    {
+        var settingKey = $"cloud.ucUtdid.{account}";
+        if (!forceRotate && _deviceIds.TryGetValue(account, out var cached) && UcDeviceToken.IsValidDeviceId(cached))
+            return cached;
+
+        await _deviceLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            if (!forceRotate)
+            {
+                if (_deviceIds.TryGetValue(account, out cached) && UcDeviceToken.IsValidDeviceId(cached))
+                    return cached;
+                var stored = await _database.GetSettingAsync(settingKey, cancellationToken).ConfigureAwait(false);
+                if (UcDeviceToken.IsValidDeviceId(stored))
+                    return _deviceIds[account] = stored!;
+            }
+            var fresh = UcDeviceToken.NewDeviceId();
+            _deviceIds[account] = fresh;
+            await _database.SetSettingAsync(settingKey, fresh, cancellationToken).ConfigureAwait(false);
+            return fresh;
+        }
+        finally
+        {
+            _deviceLock.Release();
+        }
+    }
+
     private async Task<TranscodedVideo[]> ReadOptionalTranscodesAsync(string fileId, string cookie, CancellationToken token)
     {
         using var budget = CancellationTokenSource.CreateLinkedTokenSource(token);
         budget.CancelAfter(TimeSpan.FromMilliseconds(1600));
-        try { return await ReadTranscodesAsync(fileId, cookie, budget.Token).ConfigureAwait(false); }
+        try { return (await ReadTranscodesAsync(fileId, cookie, budget.Token).ConfigureAwait(false)).Variants; }
         catch (Exception ex) when (!token.IsCancellationRequested &&
             ex is HttpRequestException or InvalidDataException or InvalidOperationException or OperationCanceledException)
         {
@@ -223,18 +426,48 @@ public sealed class QuarkCloudProvider : ICloudDriveProvider
         }
     }
 
-    private async Task<TranscodedVideo[]> ReadTranscodesAsync(string fileId, string cookie, CancellationToken cancellationToken)
+    private async Task<TranscodeFetchResult> ReadTranscodesAsync(string fileId, string cookie, CancellationToken cancellationToken)
     {
         const string resolutions = "normal,low,high,super,2k,4k";
-        var result = Kind == CloudProviderKind.Quark
-            ? await SendAsync(HttpMethod.Post, "https://drive.quark.cn/1/clouddrive/file/v2/play/project?pr=ucpro&fr=pc",
-                new { fid = fileId, resolutions, supports = "fmp4_av,m3u8,dolby_vision" }, cookie, cancellationToken).ConfigureAwait(false)
-            : await SendAsync(HttpMethod.Post, _api + "file/v2/play?pr=UCBrowser&fr=pc", new { fid = fileId, resolutions, supports = "fmp4" }, cookie, cancellationToken).ConfigureAwait(false);
-        if (Kind == CloudProviderKind.Quark && ((int)result.StatusCode is 404 or 405 or >= 500 ||
-            String(result.Json, "message").Contains("plf_invalid", StringComparison.OrdinalIgnoreCase)))
-            result = await SendAsync(HttpMethod.Post, _api + "file/v2/play?pr=ucpro&fr=pc", new { fid = fileId, resolutions, supports = "fmp4" }, cookie, cancellationToken).ConfigureAwait(false);
-        EnsureSuccess(result, "转码播放失败");
-        var list = Property(Property(result.Json, "data"), "video_list");
+        var projectUrl = Kind == CloudProviderKind.Quark
+            ? "https://drive.quark.cn/1/clouddrive/file/v2/play/project?pr=ucpro&fr=pc"
+            : _api + "file/v2/play/project?pr=UCBrowser&fr=pc";
+        var requestCookie = CookieHeader(cookie);
+        var result = await SendWithCookieSnapshotAsync(
+            HttpMethod.Post,
+            projectUrl,
+            new { fid = fileId, resolutions, supports = "fmp4_av,m3u8,dolby_vision" },
+            requestCookie,
+            absorbCookies: true,
+            cancellationToken).ConfigureAwait(false);
+
+        var parsed = ParseTranscodes(result.Json);
+        if ((int)result.StatusCode is 400 or 404 or 405 or >= 500 ||
+            String(result.Json, "message").Contains("plf_invalid", StringComparison.OrdinalIgnoreCase) ||
+            parsed.Length == 0)
+        {
+            requestCookie = CookieHeader(cookie);
+            result = await SendWithCookieSnapshotAsync(
+                HttpMethod.Post,
+                _api + "file/v2/play?" + ClientQuery,
+                new { fid = fileId, resolutions, supports = "fmp4" },
+                requestCookie,
+                absorbCookies: true,
+                cancellationToken).ConfigureAwait(false);
+            EnsureSuccess(result, "转码播放失败");
+            parsed = ParseTranscodes(result.Json);
+        }
+        else
+        {
+            EnsureSuccess(result, "转码播放失败");
+        }
+
+        return new TranscodeFetchResult(parsed, requestCookie);
+    }
+
+    private static TranscodedVideo[] ParseTranscodes(JsonElement root)
+    {
+        var list = Property(Property(root, "data"), "video_list");
         if (list.ValueKind != JsonValueKind.Array) return [];
         var candidates = new List<TranscodedVideo>();
         foreach (var video in list.EnumerateArray())
@@ -263,34 +496,62 @@ public sealed class QuarkCloudProvider : ICloudDriveProvider
         [new QualityOption("原画", -1) { IsOriginal = true }, .. VideoFormat.ToOptions(variants.Select(item => item.Format), markHighestOriginal: false)];
 
     private sealed record TranscodedVideo(string Url, VideoFormat Format);
+    private sealed record TranscodeFetchResult(TranscodedVideo[] Variants, string RequestCookie);
+    private sealed record DownloadLinkResult(string Url, string RequestCookie);
 
-    private async Task<string> GetDownloadUrlAsync(string fileId, string cookie, CancellationToken cancellationToken)
+    private async Task<DownloadLinkResult> GetDownloadUrlAsync(
+        string fileId,
+        string cookie,
+        string account,
+        bool rotateDeviceId,
+        bool useClientVersionParams,
+        CancellationToken cancellationToken)
     {
         var downloadApi = Kind == CloudProviderKind.Quark ? "https://drive.quark.cn/1/clouddrive/" : _api;
+        var query = ClientQuery;
+        if (Kind == CloudProviderKind.UC)
+        {
+            var utdid = await GetOrCreateUcDeviceIdAsync(account, rotateDeviceId, cancellationToken).ConfigureAwait(false);
+            var ut = UcDeviceToken.CreateToken(utdid);
+            if (useClientVersionParams) query += "&sys=win32&ve=1.8.5";
+            query += "&ut=" + Uri.EscapeDataString(ut);
+        }
+
         var body = new { fids = new[] { fileId } };
-        var result = await SendAsync(HttpMethod.Post, downloadApi + "file/download?" + ClientQuery, body, cookie, cancellationToken).ConfigureAwait(false);
+        var requestCookie = CookieHeader(cookie);
+        var result = await SendWithCookieSnapshotAsync(HttpMethod.Post, downloadApi + "file/download?" + query, body, requestCookie, absorbCookies: true, cancellationToken).ConfigureAwait(false);
         if (Kind == CloudProviderKind.Quark && (int)result.StatusCode is 404 or 405 or >= 500)
-            result = await SendAsync(HttpMethod.Post, _api + "file/download?" + ClientQuery, body, cookie, cancellationToken).ConfigureAwait(false);
+        {
+            requestCookie = CookieHeader(cookie);
+            result = await SendWithCookieSnapshotAsync(HttpMethod.Post, _api + "file/download?" + query, body, requestCookie, absorbCookies: true, cancellationToken).ConfigureAwait(false);
+        }
         if (Kind == CloudProviderKind.Quark && (int)result.StatusCode is 400 or >= 500)
-            result = await SendAsync(HttpMethod.Post, _api + "file/download?" + ClientQuery + "&uc_param_str=",
-                new { fids = fileId }, cookie, cancellationToken).ConfigureAwait(false);
+        {
+            requestCookie = CookieHeader(cookie);
+            result = await SendWithCookieSnapshotAsync(HttpMethod.Post, _api + "file/download?" + query + "&uc_param_str=",
+                new { fids = fileId }, requestCookie, absorbCookies: true, cancellationToken).ConfigureAwait(false);
+        }
         EnsureSuccess(result, "原画地址获取失败");
         var data = Property(result.Json, "data");
-        if (data.ValueKind == JsonValueKind.Array && data.GetArrayLength() > 0) data = data[0];
+        if (data.ValueKind == JsonValueKind.Array)
+        {
+            if (data.GetArrayLength() == 0) return new DownloadLinkResult(string.Empty, requestCookie);
+            data = data[0];
+        }
         var url = data.ValueKind == JsonValueKind.String ? data.GetString() : String(data, "download_url");
-        return Uri.TryCreate(url, UriKind.Absolute, out var media) && media.Scheme is "http" or "https" ? media.AbsoluteUri : string.Empty;
+        var resolved = Uri.TryCreate(url, UriKind.Absolute, out var media) && media.Scheme is "http" or "https" ? media.AbsoluteUri : string.Empty;
+        return new DownloadLinkResult(resolved, requestCookie);
     }
 
-    private Dictionary<string, string> Headers(string cookie)
+    private Dictionary<string, string> HeadersForCookie(string cookieHeader)
     {
         var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
         {
-            ["User-Agent"] = $"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) {(Kind == CloudProviderKind.UC ? "uc-cloud-drive" : "quark-cloud-drive")}/2.5.20 Chrome/100.0.4896.160 Electron/18.3.5.4-b478491100 Safari/537.36",
+            ["User-Agent"] = $"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) {(Kind == CloudProviderKind.UC ? "uc-cloud-drive" : "quark-cloud-drive")}/2.5.20 Chrome/100.0.4896.160 Electron/18.3.5.4-b478491100 Safari/537.36 Channel/pckk_other_ch",
             ["Referer"] = _home,
             ["Origin"] = _home.TrimEnd('/')
         };
-        var merged = CookieHeader(cookie);
-        if (!string.IsNullOrWhiteSpace(merged)) headers["Cookie"] = merged;
+        if (!string.IsNullOrWhiteSpace(cookieHeader)) headers["Cookie"] = cookieHeader;
         return headers;
     }
 
@@ -368,7 +629,8 @@ public sealed class QuarkCloudProvider : ICloudDriveProvider
     /// <summary>接口每次调用都会轮换会话 Cookie，播放地址的 CDN 只认最新值，所以统一从合并后的 Cookie 组装请求头。</summary>
     private string CookieHeader(string cookie)
     {
-        if (!string.IsNullOrWhiteSpace(cookie) && !string.Equals(_seed, cookie, StringComparison.Ordinal))
+        if (string.IsNullOrWhiteSpace(cookie)) return string.Empty;
+        if (!string.Equals(_seed, cookie, StringComparison.Ordinal))
         {
             _seed = cookie;
             _jar.MergeHeader(cookie);
@@ -377,10 +639,23 @@ public sealed class QuarkCloudProvider : ICloudDriveProvider
         return merged.Length > 0 ? merged : cookie;
     }
 
-    private async Task<CloudHttpResult> SendAsync(HttpMethod method, string url, object? json, string cookie, CancellationToken cancellationToken)
+    private Task<CloudHttpResult> SendAsync(HttpMethod method, string url, object? json, string cookie, CancellationToken cancellationToken)
     {
-        var result = await _http.SendAsync(method, url, json, Headers(cookie), cancellationToken: cancellationToken).ConfigureAwait(false);
-        if (result.Cookies.Count > 0) await AbsorbAsync(result.Cookies, cancellationToken).ConfigureAwait(false);
+        var hasCookie = !string.IsNullOrWhiteSpace(cookie);
+        var snapshot = hasCookie ? CookieHeader(cookie) : string.Empty;
+        return SendWithCookieSnapshotAsync(method, url, json, snapshot, absorbCookies: hasCookie, cancellationToken);
+    }
+
+    private async Task<CloudHttpResult> SendWithCookieSnapshotAsync(
+        HttpMethod method,
+        string url,
+        object? json,
+        string cookieSnapshot,
+        bool absorbCookies,
+        CancellationToken cancellationToken)
+    {
+        var result = await _http.SendAsync(method, url, json, HeadersForCookie(cookieSnapshot), cancellationToken: cancellationToken).ConfigureAwait(false);
+        if (absorbCookies && result.Cookies.Count > 0) await AbsorbAsync(result.Cookies, cancellationToken).ConfigureAwait(false);
         return result;
     }
 
@@ -394,14 +669,20 @@ public sealed class QuarkCloudProvider : ICloudDriveProvider
         _persisted = merged;
         await _jarLock.WaitAsync(cancellationToken).ConfigureAwait(false);
         try { await _database.SetSettingAsync(CredentialKey, SecretStore.Protect(merged), cancellationToken).ConfigureAwait(false); }
-        catch (Exception ex) when (ex is not OperationCanceledException) { Diagnostics.Log($"{Kind} 会话 Cookie 保存失败：{ex.Message}"); }
+        catch (Exception ex) when (!cancellationToken.IsCancellationRequested) { Diagnostics.Log($"{Kind} 会话 Cookie 保存失败：{ex.Message}"); }
         finally { _jarLock.Release(); }
     }
+
+    private static bool IsMissingFileError(string message) =>
+        message.Contains("404", StringComparison.Ordinal) ||
+        message.Contains("not found", StringComparison.OrdinalIgnoreCase) ||
+        message.Contains("不存在", StringComparison.Ordinal) ||
+        message.Contains("file_not_found", StringComparison.OrdinalIgnoreCase);
 
     private void EnsureSuccess(CloudHttpResult result, string fallback)
     {
         if (result.StatusCode == HttpStatusCode.Unauthorized)
-            throw new CloudAuthenticationException(Kind, $"{Kind} 网盘登录已失效，请重新扫码。");
+            throw new CloudAuthenticationException(Kind, $"{CloudAccountInfo.DisplayName(Kind)}登录已失效，请重新扫码。");
         var code = String(result.Json, "code");
         var message = First(String(result.Json, "message"), String(result.Json, "msg"), code);
         if ((int)result.StatusCode >= 400) throw new InvalidOperationException($"{fallback}（HTTP {(int)result.StatusCode}）{message}");
@@ -409,7 +690,13 @@ public sealed class QuarkCloudProvider : ICloudDriveProvider
             throw new InvalidOperationException($"{fallback}：{message}");
     }
 
-    private static bool IsMedia(JsonElement item, string name) => String(item, "obj_category") is "video" or "audio" || Path.GetExtension(name).ToLowerInvariant() is ".mp4" or ".mkv" or ".avi" or ".mov" or ".flv" or ".mp3" or ".m4a";
+    private static bool IsMedia(JsonElement item, string name) =>
+        String(item, "obj_category") is "video" or "audio" ||
+        Path.GetExtension(name).ToLowerInvariant() is
+            ".mp4" or ".mkv" or ".avi" or ".mov" or ".flv" or ".ts" or ".m2ts" or
+            ".webm" or ".rmvb" or ".wmv" or ".mpg" or ".mpeg" or ".m4v" or ".3gp" or
+            ".mp3" or ".m4a" or ".flac" or ".wav" or ".aac";
+
     private static JsonElement Property(JsonElement element, string name) => element.ValueKind == JsonValueKind.Object && element.TryGetProperty(name, out var value) ? value : default;
     private static string String(JsonElement element, string name) => Property(element, name) is { ValueKind: JsonValueKind.String } value ? value.GetString() ?? string.Empty : Property(element, name).ValueKind is JsonValueKind.Number ? Property(element, name).GetRawText() : string.Empty;
     private static string NestedString(JsonElement element, params string[] path)

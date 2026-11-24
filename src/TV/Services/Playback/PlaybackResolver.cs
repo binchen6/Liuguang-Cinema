@@ -48,7 +48,7 @@ public sealed class PlaybackResolver(AppServices services)
                 cloud = forDownload ? await services.Cloud.ResolveAsync(request.Url, "原画", token)
                     : await services.Cloud.ResolveAsync(request.Url, cloudQuality, token);
             }
-            catch (InvalidOperationException ex) when (input?.Host == "quark" && quality.Name == "自动" && cloudQuality.RequestsOriginal &&
+            catch (InvalidOperationException ex) when (input?.Host is "quark" or "uc" && quality.Name == "自动" && cloudQuality.RequestsOriginal &&
                 ex.Message.StartsWith("原画地址获取失败", StringComparison.Ordinal))
             {
                 cloudQuality = quality;
@@ -58,14 +58,16 @@ public sealed class PlaybackResolver(AppServices services)
             request.CloudSubtitles = cloud.SubtitleTracks ?? [];
             request.AvailableQualities = cloud.AvailableQualities;
             request.ResolvedQuality = cloud.ResolvedQuality;
-            request.HasFixedVideoTrack = cloudQuality.RequestsOriginal || input?.Host is "ali" or "baidu";
+            request.Notice = cloud.Notice;
+            request.HasFixedVideoTrack = (cloudQuality.RequestsOriginal && (cloud.ResolvedQuality is null || cloud.ResolvedQuality.RequestsOriginal))
+                || input?.Host is "ali" or "baidu";
             if (cloud.AvailableVideoHeights is { Count: > 0 } heights)
             {
                 request.AvailableVideoHeights = heights;
                 request.UsesProviderVideoHeights = true;
             }
-            // The default MP4 and adaptive demuxers can fault when stopping a retimed seek on Quark media.
-            request.UseAvformatDemuxer = input?.Host == "quark" &&
+            // The default MP4 and adaptive demuxers can fault when stopping a retimed seek on Quark/UC media.
+            request.UseAvformatDemuxer = input?.Host is "quark" or "uc" &&
                 (cloud.ContentType == "video/mp4" || HlsManifest.IsPlaylist(cloud.Url, cloud.ContentType));
             if (input?.Host == "ali") request.AvailableVideoHeights = new HashSet<int>();
             request.Headers.Clear();

@@ -159,9 +159,10 @@ public sealed partial class WoggNativeProvider : ICategoryFilterVodProvider
             }
             catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
             {
-                Diagnostics.Log($"玩偶{source.Label}{source.Index}读取失败: {ex.GetType().Name}");
+                Diagnostics.Log($"玩偶{source.Label}{source.Index}读取失败: {ex.GetType().Name} - {ex.Message}");
                 var status = ex is CloudAuthenticationException ? "登录后读取" :
                     ex.Message.Contains("已失效", StringComparison.Ordinal) ? "分享已失效" :
+                    ex.Message.Contains("提取码", StringComparison.Ordinal) ? "需要提取码" :
                     ex.Message.Contains("没有可播放", StringComparison.Ordinal) ? "未找到媒体" : "目录读取失败";
                 return (Share: (CloudShare?)null, Status: status);
             }

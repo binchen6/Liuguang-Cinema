@@ -42,7 +42,7 @@ public sealed class MyDriveVodProvider(CloudDriveService cloud) : INativeVodProv
                 var listing = await cloud.SearchFolderAsync(provider, keyword, page, cancellationToken).ConfigureAwait(false);
                 return listing.Items.Where(item => !item.IsFolder).ToArray();
             }
-            catch (Exception ex) when (ex is not OperationCanceledException)
+            catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
             {
                 Services.Diagnostics.Log($"我的云盘搜索失败 ({provider}): {ex.GetType().Name}");
                 return Array.Empty<CloudDriveItem>();
