@@ -15,6 +15,8 @@ public sealed record SpiderPlayResult(string Url, IReadOnlyDictionary<string, st
     public bool UseHttpProxy { get; init; }
     public bool UnwrapPngHlsSegments { get; init; }
     internal bool SeekOnAudioTrackChange { get; init; }
+    internal string? BrowserFailureMessage { get; init; }
+    internal Func<Uri, bool>? BrowserMediaFilter { get; init; }
 }
 
 public sealed class SpiderVodClient

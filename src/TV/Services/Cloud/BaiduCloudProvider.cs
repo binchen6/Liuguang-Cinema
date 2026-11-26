@@ -174,7 +174,8 @@ public sealed class BaiduCloudProvider : ICloudDriveProvider
             throw new InvalidDataException("百度播放地址无效。");
         if (media.Scheme == "http") media = new UriBuilder(media) { Scheme = "https", Port = -1 }.Uri;
         var contentType = Services.Playback.HlsManifest.RecognizeResponse("https://media.invalid/" + Uri.EscapeDataString(name), null);
-        return new CloudPlayResult(media.AbsoluteUri, Headers(credential), contentType, CloudSubtitleFiles.Extension(name))
+        return new CloudPlayResult(media.AbsoluteUri, Headers(CloudMediaCredentials.CanSendCookie(Kind, media) ? credential : string.Empty),
+            contentType, CloudSubtitleFiles.Extension(name))
         {
             ExpiresAt = DateTimeOffset.UtcNow.AddHours(6)
         };

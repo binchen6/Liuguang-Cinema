@@ -21,20 +21,12 @@
     <PublishTrimmed>false</PublishTrimmed>
     <PublishSingleFile>false</PublishSingleFile>
     <SelfContained>true</SelfContained>
-  </PropertyGroup>
-  <Import Project="Secrets.Local.props" Condition="Exists('Secrets.Local.props')" />
-  <PropertyGroup>
-    <DanDanPlayAppId Condition="'$(DanDanPlayAppId)' == ''">$(DANDANPLAY_APP_ID)</DanDanPlayAppId>
-    <DanDanPlayAppSecret1 Condition="'$(DanDanPlayAppSecret1)' == ''">$(DANDANPLAY_APP_SECRET_1)</DanDanPlayAppSecret1>
-    <DanDanPlayAppSecret2 Condition="'$(DanDanPlayAppSecret2)' == ''">$(DANDANPLAY_APP_SECRET_2)</DanDanPlayAppSecret2>
+    <DanDanPlayRelayUrl Condition="'$(DanDanPlayRelayUrl)' == ''">$(DANDANPLAY_RELAY_URL)</DanDanPlayRelayUrl>
   </PropertyGroup>
   <ItemGroup>
     <Content Include="Assets\App.ico" CopyToOutputDirectory="PreserveNewest" />
-  </ItemGroup>
-  <ItemGroup>
-    <AssemblyMetadata Include="DanDanPlayAppId" Value="$(DanDanPlayAppId)" />
-    <AssemblyMetadata Include="DanDanPlayAppSecret1" Value="$(DanDanPlayAppSecret1)" />
-    <AssemblyMetadata Include="DanDanPlayAppSecret2" Value="$(DanDanPlayAppSecret2)" />
+    <InternalsVisibleTo Include="TV.ReleaseRegression" />
+    <AssemblyMetadata Include="DanDanPlayRelayUrl" Value="$(DanDanPlayRelayUrl)" Condition="'$(DanDanPlayRelayUrl)' != ''" />
   </ItemGroup>
   <ItemGroup>
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
@@ -48,6 +40,6 @@
     <PackageReference Include="SkiaSharp.Views.WinUI" Version="4.156.1" />
     <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="10.0.1" />
     <PackageReference Include="VideoLAN.LibVLC.Windows" Version="3.0.*" />
-    <PackageReference Include="AngleSharp" Version="1.2.*" />
+    <PackageReference Include="AngleSharp" Version="1.9.1" />
    </ItemGroup>
 </Project>

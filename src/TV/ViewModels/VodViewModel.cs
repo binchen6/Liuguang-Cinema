@@ -354,7 +354,8 @@ public sealed partial class VodViewModel : ObservableObject
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(token);
         // 首页候选站点可能较慢（比特首屏实测 >5s），启动路径给足时间，避免误判失败后回退豆瓣；
         // 真正的“快速可用”由上一次成功首页的本地缓存保证。
-        deadline.CancelAfter(timeout ?? TimeSpan.FromSeconds(12));
+        deadline.CancelAfter(timeout ?? TimeSpan.FromSeconds(
+            Services.Vod.Native.ChangZhangVodProvider.IsChangZhangApi(site.Api) ? 20 : 12));
         try { return await _services.Vod.GetHomeAsync(site, deadline.Token); }
         catch (Exception ex) when (!token.IsCancellationRequested)
         {

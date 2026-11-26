@@ -5,7 +5,6 @@ import com.github.catvod.crawler.Spider;
 import java.io.IOException;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.concurrent.TimeUnit;
 
 import okhttp3.Dns;
@@ -19,15 +18,36 @@ public class OkHttp {
     public static final String POST = "POST";
     public static final String GET = "GET";
 
-    private OkHttpClient client;
+    private static final OkHttpClient CLIENT = new OkHttpClient.Builder()
+        .dns(Dns.SYSTEM)
+        .connectTimeout(8, TimeUnit.SECONDS)
+        .readTimeout(15, TimeUnit.SECONDS)
+        .writeTimeout(15, TimeUnit.SECONDS)
+        .connectionPool(new okhttp3.ConnectionPool(32, 5, TimeUnit.MINUTES))
+        .addNetworkInterceptor(chain -> {
+            Request request = chain.request();
+            Request initial = chain.call().request();
+            if (initial.url().isHttps() && !request.url().isHttps())
+                throw new IOException("HTTPS redirect to an insecure destination");
+            if (!sameOrigin(initial, request)) {
+                if (request.body() != null) throw new IOException("Cross-origin request body");
+                Request.Builder scoped = request.newBuilder();
+                for (String name : request.headers().names()) {
+                    switch (name.toLowerCase(java.util.Locale.ROOT)) {
+                        case "host", "connection", "accept-encoding", "user-agent", "accept", "range" -> { }
+                        default -> scoped.removeHeader(name);
+                    }
+                }
+                request = scoped.build();
+            }
+            return chain.proceed(request);
+        })
+        .build();
+    private static final OkHttpClient NO_REDIRECTS = CLIENT.newBuilder().followRedirects(false).build();
 
-
-    private static class Loader {
-        static volatile OkHttp INSTANCE = new OkHttp();
-    }
-
-    private static OkHttp get() {
-        return Loader.INSTANCE;
+    private static boolean sameOrigin(Request left, Request right) {
+        return left.url().scheme().equals(right.url().scheme()) &&
+            left.url().host().equals(right.url().host()) && left.url().port() == right.url().port();
     }
 
     public static Response newCall(Request request) throws IOException {
@@ -75,7 +95,9 @@ public class OkHttp {
     }
 
     public static String getLocation(String url, Map<String, String> header) throws IOException {
-        return getLocation(client().newBuilder().followRedirects(false).followSslRedirects(false).build().newCall(new Request.Builder().url(url).headers(Headers.of(header)).build()).execute().headers().toMultimap());
+        try (Response response = NO_REDIRECTS.newCall(new Request.Builder().url(url).headers(Headers.of(header)).build()).execute()) {
+            return getLocation(response.headers().toMultimap());
+        }
     }
 
     public static String getLocation(Map<String, List<String>> headers) {
@@ -85,28 +107,7 @@ public class OkHttp {
         return null;
     }
 
-    private static OkHttpClient build() {
-        if (get().client != null) return get().client;
-        return get().client = getBuilder().build();
-    }
-
-    private static OkHttpClient.Builder getBuilder() {
-        return new OkHttpClient.Builder().dns(safeDns()).connectTimeout(8, TimeUnit.SECONDS).readTimeout(15, TimeUnit.SECONDS).writeTimeout(15, TimeUnit.SECONDS).retryOnConnectionFailure(true).connectionPool(new okhttp3.ConnectionPool(32, 5, TimeUnit.MINUTES)).hostnameVerifier((hostname, session) -> true).sslSocketFactory(new SSLCompat(), SSLCompat.TM);
-    }
-
     private static OkHttpClient client() {
-        try {
-            return Objects.requireNonNull(Spider.client());
-        } catch (Throwable e) {
-            return build();
-        }
-    }
-
-    private static Dns safeDns() {
-        try {
-            return Objects.requireNonNull(Spider.safeDns());
-        } catch (Throwable e) {
-            return Dns.SYSTEM;
-        }
+        return CLIENT;
     }
 }

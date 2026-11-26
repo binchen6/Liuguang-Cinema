@@ -101,8 +101,14 @@ public sealed class CloudDriveService : IDisposable
         var accelerate = !string.Equals(await _database.GetSettingAsync("playback.cloudAcceleration", cancellationToken).ConfigureAwait(false), "false", StringComparison.OrdinalIgnoreCase);
         var threads = accelerate ? await ReadIntAsync("playback.cloudThreads", 3, 1, 6, cancellationToken).ConfigureAwait(false) : 1;
         var chunk = await ReadIntAsync("playback.cloudChunkMb", 2, 1, 8, cancellationToken).ConfigureAwait(false);
+        Task<CloudPlayResult> RefreshAsync(CancellationToken token) => provider switch
+        {
+            CloudProviderKind.UC when result.AvailableVideoHeights is null => _providers[provider].PlayAsync(entry.File, "原画", token),
+            CloudProviderKind.UC when result.ResolvedQuality is { } actual => _providers[provider].PlayAsync(entry.File, actual, token),
+            _ => play(_providers[provider], entry.File, token)
+        };
         return new CloudPlayResult(_mediaProxy.Value.Register(result, provider, threads, chunk,
-            refresh: token => play(_providers[provider], entry.File, token)), new Dictionary<string, string>(),
+            refresh: RefreshAsync), new Dictionary<string, string>(),
             result.ContentType, SubtitleTracks: entry.Subtitles)
         {
             AvailableVideoHeights = result.AvailableVideoHeights,
@@ -197,7 +203,7 @@ public sealed class CloudDriveService : IDisposable
             }
             return new PlaybackLine { Name = line.Name, Episodes = episodes };
         }).ToArray();
-        var expanded = await Task.WhenAll(tasks).WaitAsync(cancellationToken).ConfigureAwait(false);
+        var expanded = await Task.WhenAll(tasks).ConfigureAwait(false);
         item.PlayFrom = string.Join("$$$", expanded.Select(line => line.Name));
         item.PlayUrl = string.Join("$$$", expanded.Select(line => string.Join('#', line.Episodes.Select(episode => $"{episode.Name}${episode.Url}"))));
         return item;
@@ -238,8 +244,7 @@ public sealed class CloudDriveService : IDisposable
             var valid = provider switch
             {
                 CloudProviderKind.Ali => await Login.VerifyAliTokenAsync(credential, cancellationToken).ConfigureAwait(false),
-                CloudProviderKind.Quark => await ((QuarkCloudProvider)_providers[provider]).VerifyCookieAsync(credential, cancellationToken).ConfigureAwait(false),
-                CloudProviderKind.UC => await Login.VerifyUcCookieAsync(credential, cancellationToken).ConfigureAwait(false),
+                CloudProviderKind.Quark or CloudProviderKind.UC => await ((QuarkCloudProvider)_providers[provider]).VerifyCookieAsync(cancellationToken).ConfigureAwait(false),
                 CloudProviderKind.Baidu => await Login.VerifyBaiduCookieAsync(credential, cancellationToken).ConfigureAwait(false),
                 _ => false
             };
@@ -258,11 +263,13 @@ public sealed class CloudDriveService : IDisposable
 
     public async Task SaveCredentialAsync(CloudProviderKind provider, string credential, CancellationToken cancellationToken = default)
     {
-        await _database.SetSettingAsync(CredentialKey(provider), SecretStore.Protect(credential), cancellationToken).ConfigureAwait(false);
-        if (provider == CloudProviderKind.Ali && _providers[CloudProviderKind.Ali] is AliCloudProvider ali)
-            ali.InvalidateAccountCache();
-        else if (provider is CloudProviderKind.Quark or CloudProviderKind.UC && _providers[provider] is QuarkCloudProvider quark)
-            quark.InvalidateAccountCache();
+        if (_providers[provider] is QuarkCloudProvider quark)
+            await quark.SaveCredentialAsync(credential, cancellationToken).ConfigureAwait(false);
+        else
+        {
+            await _database.SetSettingAsync(CredentialKey(provider), SecretStore.Protect(credential), cancellationToken).ConfigureAwait(false);
+            if (_providers[provider] is AliCloudProvider ali) ali.InvalidateAccountCache();
+        }
         AccountChanged?.Invoke(this, provider);
     }
 

@@ -18,9 +18,9 @@
 | **点播与直播** | 兼容常见 TVBox 单仓、多仓、Type 0/1/4 与 M3U/TXT 直播源；内置 **22 个原生 C# 站点适配器**并配合 Java CatVod 兼容层；支持分类筛选、选集、多线路、EPG 节目单、收藏与断点续播 |
 | **搜索与换源** | 支持多站并发搜索、本地历史/片库即时联想 + 防抖流式远端建议（不抢占中文 IME 焦点）、单站重试、应用内验证码/安全验证弹窗与同名片源切换 |
 | **播放器** | 基于 LibVLC，默认优先硬件解码（`:avcodec-hw=any`，不支持时自动回退软解）；支持倍速、画质、画面比例、多音轨/外挂字幕、片头片尾跳过、全屏、画中画与默认开启的播放期防息屏/防休眠；播放中无操作 3 秒且指针离开控件后自动隐藏控制层与鼠标 |
-| **弹幕与字幕** | 支持弹弹play 开放弹幕库（本地 16 MB 哈希匹配、在线片名规范化匹配与手动搜集）及 B 站弹幕，使用单调步进时钟减少回跳；支持字幕时间偏移（±60s）与 `0.80x–1.25x` 调速 |
+| **弹幕与字幕** | 支持弹弹play 开放弹幕库（默认服务和自定义 AppId/AppSecret，支持本地 16 MB 哈希及在线片名匹配）及 B 站弹幕；支持字幕时间偏移（±60s）与 `0.80x–1.25x` 调速 |
 | **AI 字幕（需自备 Key）** | 接入阿里云百炼 API（用户在设置中自行填入 API Key）：支持提取音轨生成字幕（`paraformer-v2` / `qwen3-asr-flash-filetrans`）、双语翻译（`qwen-mt-flash` / `qwen-mt-plus`）与 WASAPI 进程环回实时字幕（`qwen3-asr-flash-realtime`） |
-| **个人网盘** | 支持阿里云盘（含资源库/备份盘与设备会话签名）、夸克、UC、百度网盘登录与目录浏览；通过本地 `127.0.0.1` 代理和分块预读直接播放 |
+| **个人网盘** | 支持阿里云盘（含资源库/备份盘与设备会话签名）、夸克、UC、百度网盘登录与目录浏览；通过本地 `127.0.0.1` 代理和分块预读播放。UC 原画受限时会尝试账号可用的转码，并在播放页显示结果 |
 | **本地媒体与下载** | 支持本地目录递归扫描与变更监听、同名侧车字幕/弹幕自动挂载、Windows「打开方式」直达播放（跳过站点与爬虫初始化）；支持单集另存与批量/HLS 下载 |
 | **投屏接收与清理** | 支持局域网 DLNA/UPnP 发现与手机扫码选片，电脑端确认后播放；提供按分类扫描与显式勾选确认的缓存/临时文件清理 |
 | **安装与更新** | 提供 Inno Setup 安装包与免安装便携 ZIP；内置 GitHub Release 检查、国内镜像测速回退、分段下载、文件级差异增量更新与 SHA-256 校验 |
@@ -44,8 +44,8 @@
 > 社区开源发行版未附带商业 Authenticode 代码签名证书，在开启 Windows 11 **智能应用控制（Smart App Control）** 或 SmartScreen 的设备上可能出现提示或拦截，详见 [智能应用控制与签名说明](docs/smart-app-control.md)。下载后建议核对官方 SHA-256：
 
 ```powershell
-Get-FileHash .\TV-Setup-1.9.5-x64.exe -Algorithm SHA256
-Get-Content .\TV-Setup-1.9.5-x64.exe.sha256
+Get-FileHash .\TV-Setup-1.9.6-x64.exe -Algorithm SHA256
+Get-Content .\TV-Setup-1.9.6-x64.exe.sha256
 ```
 
 ---
@@ -68,7 +68,7 @@ Get-Content .\TV-Setup-1.9.5-x64.exe.sha256
 
 默认数据保存在 `%LOCALAPPDATA%\TV`（包含 `tv.db`、配置缓存 `config/last-good.json`、`cache` 及轮转日志 `diagnostic.log` / `last-error.log`）：
 
-- **无自建统计上报**：应用不向作者收集或上传观影记录与账号信息；访问第三方片源、网盘、豆瓣、B 站、弹弹play 或阿里云百炼时遵循各自服务条款。
+- **无自建统计上报**：应用不收集观影记录或网盘账号信息。使用默认弹弹play 服务时，流光影院的签名服务会转发匹配或查询所需的片名、文件指纹和弹幕编号。设置自定义凭据后，应用直连弹弹play。
 - **凭据加密与头隔离**：网盘 Cookie/Token、弹弹play 凭证与百炼 API Key 均通过当前 Windows 用户 **DPAPI** 加密存储；本地媒体代理仅监听 `127.0.0.1` 并在跨域重定向时剥离敏感请求头；诊断日志自动脱敏常见密钥字段。
 - **不修改系统网络设置**：应用内自定义 DNS 仅用于本进程 HTTP 请求。
 
@@ -123,7 +123,7 @@ installer/ & scripts/    Inno Setup 脚本、构建与验收脚本
 docs/                    设计规范、开发指南、站点验收与发行说明
 ```
 
-文档索引见 [文档中心](docs/README.md)：[功能介绍](docs/showcase.md) · [开发指南](docs/development.md) · [设计语言](docs/brand-design-system.md) · [设计契约](docs/design-guide.md) · [动效规范](docs/motion-spec.md) · [智能应用控制说明](docs/smart-app-control.md) · [站点验收](docs/site-verification.md) · [1.9.5 发行说明](docs/releases/release-1.9.5.md)。
+文档索引见 [文档中心](docs/README.md)：[功能介绍](docs/showcase.md) · [开发指南](docs/development.md) · [设计语言](docs/brand-design-system.md) · [设计契约](docs/design-guide.md) · [动效规范](docs/motion-spec.md) · [智能应用控制说明](docs/smart-app-control.md) · [站点验收](docs/site-verification.md) · [1.9.6 发行说明](docs/releases/release-1.9.6.md)。
 
 ---
 

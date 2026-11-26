@@ -10,21 +10,29 @@ using TV.Services.Spider;
 
 namespace TV.Services.Vod.Native;
 
-public sealed class ChangZhangVodProvider(SourceHttpClient http) : INativePlaybackProvider
+public sealed class ChangZhangVodProvider(SourceHttpClient http,
+    Func<Uri, string, CancellationToken, Task<string?>>? readRenderedPage = null) : INativePlaybackProvider
 {
     // The publisher lists this address at https://www.czzy.site/.
     private static readonly Uri Origin = new("https://www.4kcz.com/");
     private const string UserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/131.0.0.0 Safari/537.36";
+    private const string SearchInput = "form.w-search-form input[name=q], form.w-search-form input[name=s]";
+    private const string PlaybackFrame = ".videoplay iframe.viframe[src]";
+    private const string PlaybackReady = PlaybackFrame + ", video[src], video source[src]";
+    private long _browserModeUntil;
+
+    internal static bool IsChangZhangApi(string api) => api.Equals("csp_NewCzGuard", StringComparison.OrdinalIgnoreCase) ||
+        api.Equals("csp_NewCz", StringComparison.OrdinalIgnoreCase);
 
     public bool CanHandle(SourceSite site) => site.Type == 3 &&
-        site.Api.Equals("csp_NewCzGuard", StringComparison.OrdinalIgnoreCase) &&
+        IsChangZhangApi(site.Api) &&
         (site.Ext.ValueKind is JsonValueKind.Undefined or JsonValueKind.Null ||
          site.Ext.ValueKind == JsonValueKind.String && (string.IsNullOrWhiteSpace(site.Ext.GetString()) ||
              ResolvePage(site.Ext.GetString()) is not null));
 
     public async Task<CmsResponse> GetHomeAsync(SourceSite site, CancellationToken cancellationToken = default)
     {
-        var (document, effective) = await ReadPageAsync(site, Origin, cancellationToken).ConfigureAwait(false);
+        var (document, effective) = await ReadPageAsync(site, Origin, ".dytit a[href]", cancellationToken).ConfigureAwait(false);
         var categories = new List<VodCategory>();
         var seen = new HashSet<string>(StringComparer.Ordinal);
         var navigation = Header(document).QuerySelectorAll(".navlist > li > a[href]")
@@ -52,7 +60,7 @@ public sealed class ChangZhangVodProvider(SourceHttpClient http) : INativePlayba
         {
             Path = category.AbsolutePath.TrimEnd('/') + FormattableString.Invariant($"/page/{page}/")
         }.Uri;
-        var (document, effective) = await ReadPageAsync(site, address, cancellationToken).ConfigureAwait(false);
+        var (document, effective) = await ReadPageAsync(site, address, ".bt_img", cancellationToken).ConfigureAwait(false);
         return Catalog(site, document, effective, page);
     }
 
@@ -60,15 +68,15 @@ public sealed class ChangZhangVodProvider(SourceHttpClient http) : INativePlayba
     {
         var path = page <= 1 ? "/nimasile" : FormattableString.Invariant($"/nimasile/page/{page}/");
         var address = new Uri(Origin, path + "?q=" + Uri.EscapeDataString(keyword));
-        var (document, effective) = await ReadPageAsync(site, address, cancellationToken).ConfigureAwait(false);
-        if (Header(document).QuerySelector("form.w-search-form input[name=q]") is null)
+        var (document, effective) = await ReadPageAsync(site, address, SearchInput, cancellationToken).ConfigureAwait(false);
+        if (Header(document).QuerySelector(SearchInput) is null)
             throw new InvalidDataException("厂长原站未返回站内搜索页。");
         return Catalog(site, document, effective, page);
     }
 
     public async Task<VodItem> GetDetailAsync(SourceSite site, string id, CancellationToken cancellationToken = default)
     {
-        var (document, page) = await ReadPageAsync(site, RequirePage(id), cancellationToken).ConfigureAwait(false);
+        var (document, page) = await ReadPageAsync(site, RequirePage(id), ".dyxingq h1", cancellationToken).ConfigureAwait(false);
         var heading = document.QuerySelector(".dyxingq");
         var title = Text(heading?.QuerySelector("h1"));
         if (title.Length == 0) throw new InvalidDataException("厂长原站未返回该片详情。");
@@ -111,18 +119,15 @@ public sealed class ChangZhangVodProvider(SourceHttpClient http) : INativePlayba
 
     public async Task<SpiderPlayResult> ResolvePlayAsync(SourceSite site, string flag, string id, CancellationToken token)
     {
-        var (document, page) = await ReadPageAsync(site, RequirePage(id), token).ConfigureAwait(false);
-        var frame = HttpLink(page, document.QuerySelector(".videoplay iframe.viframe[src]")?.GetAttribute("src"));
+        var (document, page) = await ReadPageAsync(site, RequirePage(id), PlaybackReady, token).ConfigureAwait(false);
+        var frame = HttpLink(page, document.QuerySelector(PlaybackFrame)?.GetAttribute("src"));
         var video = HtmlPageMedia.ReadVideoElement(document, page);
         Uri? frameOrigin = null;
-        if (video is null && frame is not null && frame.IdnHost == "plaa.py1080p.com" &&
+        if (video is null && frame is not null && frame.IdnHost == "plaa.py1080p.com" && (frame.IsDefaultPort || frame.Port == 8181) &&
             frame.AbsolutePath == "/player/py.php")
         {
             var published = HttpUtility.ParseQueryString(frame.Query)["url"];
-            // The player can publish an HTTPS playlist on port 907.
-            if (Uri.TryCreate(published, UriKind.Absolute, out var media) && media.Scheme == "https" &&
-                media.UserInfo.Length == 0 && (media.IsDefaultPort || media.Port == 907) &&
-                media.IdnHost.EndsWith(".py1080p.com", StringComparison.OrdinalIgnoreCase) &&
+            if (Uri.TryCreate(published, UriKind.Absolute, out var media) && IsPublishedMedia(media) &&
                 PlayUrlResolver.IsDirectMediaUrl(media.AbsoluteUri))
             {
                 video = media;
@@ -141,19 +146,62 @@ public sealed class ChangZhangVodProvider(SourceHttpClient http) : INativePlayba
                 UseHttpProxy = true,
                 UnwrapPngHlsSegments = frameOrigin is not null && video.AbsolutePath.EndsWith(".m3u8", StringComparison.OrdinalIgnoreCase)
             }
-            : new SpiderPlayResult(page.AbsoluteUri, headers, 1, 0, ReplaceHeaders: true);
+            : BrowserPlayback(page);
     }
 
-    private async Task<(IDocument Document, Uri Effective)> ReadPageAsync(SourceSite site, Uri address, CancellationToken token)
+    private static SpiderPlayResult BrowserPlayback(Uri page) =>
+        new(page.AbsoluteUri, new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) { ["Referer"] = Origin.AbsoluteUri },
+            1, 0, ReplaceHeaders: true)
+        {
+            UseHttpProxy = true,
+            UnwrapPngHlsSegments = true,
+            BrowserMediaFilter = IsPublishedMedia,
+            BrowserFailureMessage = "厂长站点未返回可用视频。请尝试其他线路，或在浏览器检查原站播放状态。"
+        };
+
+    private static bool IsPublishedMedia(Uri uri) => uri.Scheme == "https" && uri.UserInfo.Length == 0 &&
+        (uri.IsDefaultPort && (uri.IdnHost == Origin.IdnHost || uri.IdnHost == "v4-kling.kechuangai.com") ||
+         (uri.IsDefaultPort || uri.Port == 907) && uri.IdnHost.EndsWith(".py1080p.com", StringComparison.OrdinalIgnoreCase));
+
+    private bool UseBrowserMode => readRenderedPage is not null && Environment.TickCount64 < Interlocked.Read(ref _browserModeUntil);
+
+    private async Task<(IDocument Document, Uri Effective)> ReadPageAsync(SourceSite site, Uri address, string readySelector, CancellationToken token)
     {
+        if (UseBrowserMode)
+            return (await ReadBrowserPageAsync(address, readySelector, token).ConfigureAwait(false), address);
         var headers = new Dictionary<string, string>(site.GetHeaders(), StringComparer.OrdinalIgnoreCase);
         headers.TryAdd("User-Agent", UserAgent);
         headers.TryAdd("Referer", Origin.AbsoluteUri);
-        var payload = await http.GetBytesAsync(address.AbsoluteUri, headers, maxBytes: 4 * 1024 * 1024,
-            cancellationToken: token, scopeRedirectHeaders: true).ConfigureAwait(false);
+        HttpPayload payload;
+        try
+        {
+            payload = await http.GetBytesAsync(address.AbsoluteUri, headers, maxBytes: 4 * 1024 * 1024,
+                cancellationToken: token, scopeRedirectHeaders: true,
+                requestTimeout: readRenderedPage is null ? null : TimeSpan.FromSeconds(5)).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (readRenderedPage is not null && !token.IsCancellationRequested &&
+            ex is HttpRequestException or OperationCanceledException)
+        {
+            return (await ReadBrowserPageAsync(address, readySelector, token).ConfigureAwait(false), address);
+        }
         if (!MediaRequestHeaders.SameOrigin(Origin, payload.FinalUri)) throw new InvalidDataException("厂长入口已跳转到其他域名。");
-        var document = await new HtmlParser().ParseDocumentAsync(SourceHttpClient.DecodeText(payload.Content), token).ConfigureAwait(false);
+        var parser = new HtmlParser();
+        IDocument document = await parser.ParseDocumentAsync(SourceHttpClient.DecodeText(payload.Content), token).ConfigureAwait(false);
+        if (document.QuerySelector("#slg-title") is not null)
+        {
+            Interlocked.Exchange(ref _browserModeUntil, Environment.TickCount64 + 15 * 60 * 1000);
+            if (document.QuerySelector(readySelector) is null)
+                document = await ReadBrowserPageAsync(payload.FinalUri, readySelector, token).ConfigureAwait(false);
+        }
         return (document, payload.FinalUri);
+    }
+
+    private async Task<IDocument> ReadBrowserPageAsync(Uri address, string selector, CancellationToken token)
+    {
+        var rendered = readRenderedPage is null ? null : await readRenderedPage(address, selector, token).ConfigureAwait(false);
+        if (string.IsNullOrWhiteSpace(rendered))
+            throw new InvalidDataException("厂长站点需要浏览器渲染，目前未能读取页面。请稍后重试。");
+        return await new HtmlParser().ParseDocumentAsync(rendered, token).ConfigureAwait(false);
     }
 
     private static CmsResponse Catalog(SourceSite site, IDocument document, Uri page, int pageNumber)
@@ -211,7 +259,7 @@ public sealed class ChangZhangVodProvider(SourceHttpClient http) : INativePlayba
     private static string ImageUrl(IElement? image, Uri page) =>
         (HttpLink(page, image?.GetAttribute("data-original")) ?? HttpLink(page, image?.GetAttribute("src")))?.AbsoluteUri ?? string.Empty;
 
-    private static string Text(IElement? element) => element?.TextContent.Trim() ?? string.Empty;
+    private static string Text(IElement? element) => element?.TextContent.Replace("\u200b", string.Empty, StringComparison.Ordinal).Trim() ?? string.Empty;
     private static string CleanValue(string value) => value.Trim() == "false" ? string.Empty : value.Trim();
     private static string Field(Dictionary<string, string> fields, string key) => CleanValue(fields.GetValueOrDefault(key, string.Empty));
     private static string EscapeLabel(string name) => name.Replace('$', '＄').Replace('#', '＃');

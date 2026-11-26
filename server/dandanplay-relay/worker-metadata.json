@@ -1,0 +1,25 @@
+{
+  "main_module": "worker.mjs",
+  "compatibility_date": "2026-11-26",
+  "keep_bindings": ["secret_text"],
+  "bindings": [
+    {
+      "type": "ratelimit",
+      "name": "CLIENT_LIMIT",
+      "namespace_id": "78219601",
+      "simple": { "limit": 36, "period": 60 }
+    },
+    {
+      "type": "ratelimit",
+      "name": "SERVICE_LIMIT",
+      "namespace_id": "78219602",
+      "simple": { "limit": 600, "period": 60 }
+    }
+  ],
+  "observability": {
+    "enabled": true,
+    "redact_query_string": true,
+    "logs": { "enabled": true, "invocation_logs": false },
+    "traces": { "enabled": false }
+  }
+}

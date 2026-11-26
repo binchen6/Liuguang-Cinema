@@ -17,6 +17,8 @@
 
 `engine/catvod/src` 还包含桌面 JSON IPC 桥接、Android API 兼容层和项目维护的站点修正。Maven 实际纳入的上游目录以 `engine/catvod/pom.xml` 为准，不能把整个 `third_party` 目录视为单一许可。
 
+流光影院维护了 AndroidCatVodSpider 网络层的桌面补丁，启用 JVM 默认的 TLS 证书验证，并限制跨域重定向携带的凭据。
+
 ## 公开配置与在线服务
 
 - 饭太硬公开 TVBox 配置由 `SourceConfigService.BuiltInEndpoints` 直接读取。应用实现缓存、主备刷新、配置合并、原生适配器和 Java 爬虫路由，不托管配置或视频内容。

@@ -16,6 +16,7 @@ public sealed partial class CloudDriveViewModel : ObservableObject
     private int _page;
     private bool _suppressAccount;
     private bool _searchResults;
+    private string _loadedQuery = string.Empty;
 
     public CloudDriveViewModel(AppServices services, Action<PlaybackRequest> play)
     {
@@ -110,7 +111,7 @@ public sealed partial class CloudDriveViewModel : ObservableObject
             EmptyText = Entries.Count == 0 ? "这个文件夹是空的" : string.Empty;
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested) { }
-        catch (CloudAuthenticationException ex)
+        catch (CloudAuthenticationException ex) when (!token.IsCancellationRequested)
         {
             RequiredLoginProvider = ex.Provider;
             Entries.Clear();
@@ -131,20 +132,23 @@ public sealed partial class CloudDriveViewModel : ObservableObject
     [RelayCommand]
     private async Task SearchAsync()
     {
-        if (SelectedAccount is not { } account || string.IsNullOrWhiteSpace(Query)) return;
+        var query = Query.Trim();
+        if (SelectedAccount is not { } account || query.Length == 0) return;
         var token = BeginLoad();
         IsLoading = true;
         Entries.Clear();
         StatusMessage = string.Empty;
         EmptyText = string.Empty;
         RequiredLoginProvider = null;
+        HasMore = false;
         try
         {
-            var listing = await _services.Cloud.SearchFolderAsync(account.Provider, Query.Trim(), 1, token);
+            var listing = await _services.Cloud.SearchFolderAsync(account.Provider, query, 1, token);
             token.ThrowIfCancellationRequested();
             Entries.Clear();
             foreach (var entry in listing.Items) Entries.Add(entry);
             _searchResults = true;
+            _loadedQuery = query;
             _page = 1;
             HasMore = listing.HasMore;
             CanGoUp = true;
@@ -152,7 +156,7 @@ public sealed partial class CloudDriveViewModel : ObservableObject
             EmptyText = Entries.Count == 0 ? "没有匹配的文件" : string.Empty;
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested) { }
-        catch (CloudAuthenticationException ex) { RequiredLoginProvider = ex.Provider; StatusMessage = ex.Message; }
+        catch (CloudAuthenticationException ex) when (!token.IsCancellationRequested) { RequiredLoginProvider = ex.Provider; StatusMessage = ex.Message; }
         catch (Exception ex) { if (!token.IsCancellationRequested) StatusMessage = ex.Message; }
         finally { if (!token.IsCancellationRequested) IsLoading = false; }
     }
@@ -167,7 +171,7 @@ public sealed partial class CloudDriveViewModel : ObservableObject
             IsLoading = true;
             try
             {
-                var listing = await _services.Cloud.SearchFolderAsync(account.Provider, Query.Trim(), _page + 1, token);
+                var listing = await _services.Cloud.SearchFolderAsync(account.Provider, _loadedQuery, _page + 1, token);
                 token.ThrowIfCancellationRequested();
                 foreach (var entry in listing.Items) Entries.Add(entry);
                 _page++;

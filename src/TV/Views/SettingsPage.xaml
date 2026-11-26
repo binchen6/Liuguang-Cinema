@@ -479,7 +479,7 @@
                                         </Grid.ColumnDefinitions>
                                         <TextBlock Text="AppId" Style="{StaticResource LabelText}" Width="{StaticResource SettingsFormLabelWidth}" VerticalAlignment="Center" />
                                         <TextBox Grid.Column="1" MinWidth="240" MaxWidth="360" HorizontalAlignment="Left"
-                                                 PlaceholderText="留空使用内置凭证"
+                                                 PlaceholderText="输入自己的 AppId"
                                                  Text="{Binding DanDanPlayAppIdInput, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
                                     </Grid>
                                     <Grid MinHeight="{StaticResource SettingsRowMinHeight}" ColumnSpacing="{StaticResource SpaceLarge}">
@@ -489,7 +489,7 @@
                                         </Grid.ColumnDefinitions>
                                         <TextBlock Text="AppSecret" Style="{StaticResource LabelText}" Width="{StaticResource SettingsFormLabelWidth}" VerticalAlignment="Center" />
                                         <PasswordBox Grid.Column="1" MinWidth="240" MaxWidth="360" HorizontalAlignment="Left"
-                                                     PlaceholderText="留空使用内置凭证"
+                                                     PlaceholderText="输入自己的 AppSecret"
                                                      Password="{Binding DanDanPlayAppSecretInput, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
                                     </Grid>
                                     <StackPanel Orientation="Horizontal" Spacing="8">

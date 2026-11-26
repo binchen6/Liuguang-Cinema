@@ -1,6 +1,8 @@
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.Web.WebView2.Core;
+using System.Text.Json;
+using TV.Services.Http;
 using TV.Services.Persistence;
 
 namespace TV.Services.Playback;
@@ -20,7 +22,7 @@ public sealed partial class SniffService
     private WebView2? _webView;
     private Task<bool>? _ready;
     private CachedMedia? _recent;
-    private sealed record CachedMedia(string Page, string? UserAgent, SniffedMedia Media, DateTimeOffset ExpiresAt);
+    private sealed record CachedMedia(string Page, string? UserAgent, Func<Uri, bool>? Filter, SniffedMedia Media, DateTimeOffset ExpiresAt);
 
     public SniffService(DispatcherQueue dispatcher) => _dispatcher = dispatcher;
 
@@ -30,6 +32,8 @@ public sealed partial class SniffService
     {
         var host = _host;
         _host = null;
+        _ready = null;
+        _recent = null;
         if (_webView is not { } webView) return;
         _webView = null;
         webView.Close();
@@ -50,17 +54,19 @@ public sealed partial class SniffService
         return view;
     }
 
-    internal async Task<SniffedMedia?> SniffAsync(string pageUrl, string? userAgent = null, CancellationToken cancellationToken = default)
+    internal async Task<SniffedMedia?> SniffAsync(string pageUrl, string? userAgent = null, CancellationToken cancellationToken = default,
+        Func<Uri, bool>? allowMedia = null)
     {
-        if (!Uri.TryCreate(pageUrl, UriKind.Absolute, out var page) || page.Scheme is not ("http" or "https")) return null;
+        if (!Uri.TryCreate(pageUrl, UriKind.Absolute, out var page) || !MediaRequestHeaders.IsHttpAddress(page)) return null;
         await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            if (_recent is { } last && last.Page == pageUrl && last.UserAgent == userAgent && last.ExpiresAt > DateTimeOffset.UtcNow)
+            if (_recent is { } last && last.Page == pageUrl && last.UserAgent == userAgent && last.Filter == allowMedia &&
+                last.ExpiresAt > DateTimeOffset.UtcNow)
                 return last.Media;
             if (!await EnsureReadyAsync().WaitAsync(cancellationToken).ConfigureAwait(false)) return null;
-            var result = await RunOnUi(token => SniffCoreAsync(pageUrl, userAgent, token), cancellationToken).ConfigureAwait(false);
-            if (result is not null) _recent = new CachedMedia(pageUrl, userAgent, result, DateTimeOffset.UtcNow.AddSeconds(45));
+            var result = await RunOnUi(token => SniffCoreAsync(pageUrl, userAgent, allowMedia, token), cancellationToken).ConfigureAwait(false);
+            if (result is not null) _recent = new CachedMedia(pageUrl, userAgent, allowMedia, result, DateTimeOffset.UtcNow.AddSeconds(45));
             Diagnostics.Log(result is null ? "嗅探未找到媒体" : "嗅探已找到媒体");
             return result;
         }
@@ -70,6 +76,72 @@ public sealed partial class SniffService
             return null;
         }
         finally { _gate.Release(); }
+    }
+
+    internal async Task<string?> ReadPageHtmlAsync(Uri page, string readySelector, CancellationToken cancellationToken)
+    {
+        if (!MediaRequestHeaders.IsHttpAddress(page)) return null;
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        deadline.CancelAfter(TimeSpan.FromSeconds(12));
+        try
+        {
+            await _gate.WaitAsync(deadline.Token).ConfigureAwait(false);
+            try
+            {
+                if (!await EnsureReadyAsync().WaitAsync(deadline.Token).ConfigureAwait(false)) return null;
+                return await RunOnUi(token => ReadRenderedHtmlAsync(page, readySelector, token), deadline.Token).ConfigureAwait(false);
+            }
+            finally { _gate.Release(); }
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested) { return null; }
+    }
+
+    private async Task<string?> ReadRenderedHtmlAsync(Uri page, string selector, CancellationToken token)
+    {
+        if (_webView?.CoreWebView2 is not { } core) return null;
+        var loaded = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        ulong? navigationId = null;
+        void Starting(CoreWebView2 _, CoreWebView2NavigationStartingEventArgs args)
+        {
+            if (!Uri.TryCreate(args.Uri, UriKind.Absolute, out var destination) || !MediaRequestHeaders.SameOrigin(page, destination))
+                args.Cancel = true;
+            else
+                navigationId = args.NavigationId;
+        }
+        void Loaded(CoreWebView2 _, CoreWebView2DOMContentLoadedEventArgs args)
+        {
+            if (navigationId == args.NavigationId) loaded.TrySetResult();
+        }
+        core.NavigationStarting += Starting;
+        core.DOMContentLoaded += Loaded;
+        try
+        {
+            token.ThrowIfCancellationRequested();
+            core.Navigate(page.AbsoluteUri);
+            await loaded.Task.WaitAsync(token);
+            var script = $$"""
+                (() => {
+                    if (!document.querySelector({{JsonSerializer.Serialize(selector)}})) return null;
+                    const page = document.documentElement.cloneNode(true);
+                    page.querySelectorAll('script,style,noscript').forEach(element => element.remove());
+                    const html = page.outerHTML;
+                    return html.length <= 2097152 ? html : null;
+                })()
+                """;
+            while (true)
+            {
+                var result = await core.ExecuteScriptAsync(script).AsTask().WaitAsync(token);
+                if (result != "null") return JsonSerializer.Deserialize<string>(result);
+                await Task.Delay(180, token);
+            }
+        }
+        finally
+        {
+            core.NavigationStarting -= Starting;
+            core.DOMContentLoaded -= Loaded;
+            try { core.Stop(); core.Navigate("about:blank"); }
+            catch (System.Runtime.InteropServices.COMException) { }
+        }
     }
 
     private Task<bool> EnsureReadyAsync() => _ready ??= RunOnUi<bool>(async _ =>
@@ -82,8 +154,16 @@ public sealed partial class SniffService
             if (_host is null) return false;
             await webView.EnsureCoreWebView2Async(environment);
             if (_host is null) return false;
-            webView.CoreWebView2.Settings.AreDefaultScriptDialogsEnabled = false;
-            webView.CoreWebView2.Settings.IsStatusBarEnabled = false;
+            var core = webView.CoreWebView2;
+            core.Settings.AreDefaultScriptDialogsEnabled = false;
+            core.Settings.IsStatusBarEnabled = false;
+            core.Settings.AreHostObjectsAllowed = false;
+            core.Settings.IsWebMessageEnabled = false;
+            core.Settings.AreDevToolsEnabled = false;
+            core.NewWindowRequested += (_, args) => args.Handled = true;
+            core.DownloadStarting += (_, args) => args.Cancel = true;
+            core.PermissionRequested += (_, args) => args.State = CoreWebView2PermissionState.Deny;
+            core.LaunchingExternalUriScheme += (_, args) => args.Cancel = true;
             return true;
         }
         catch (Exception ex)
@@ -127,7 +207,7 @@ public sealed partial class SniffService
         }
     }
 
-    private async Task<SniffedMedia?> SniffCoreAsync(string pageUrl, string? userAgent, CancellationToken cancellationToken)
+    private async Task<SniffedMedia?> SniffCoreAsync(string pageUrl, string? userAgent, Func<Uri, bool>? allowMedia, CancellationToken cancellationToken)
     {
         if (_webView?.CoreWebView2 is not { } core) return null;
         var found = new TaskCompletionSource<SniffedMedia?>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -138,6 +218,8 @@ public sealed partial class SniffService
             {
                 if (found.Task.IsCompleted || args.Response.StatusCode is not (200 or 206)) return;
                 var url = args.Request.Uri;
+                if (!Uri.TryCreate(url, UriKind.Absolute, out var address) || !MediaRequestHeaders.IsHttpAddress(address) ||
+                    allowMedia is not null && !allowMedia(address)) return;
                 var responseHeaders = args.Response.Headers;
                 var type = responseHeaders.Contains("Content-Type")
                     ? responseHeaders.GetHeader("Content-Type").Split(';', 2)[0].Trim().ToLowerInvariant() : null;

@@ -48,7 +48,7 @@ public sealed class PlaybackResolver(AppServices services)
                 cloud = forDownload ? await services.Cloud.ResolveAsync(request.Url, "原画", token)
                     : await services.Cloud.ResolveAsync(request.Url, cloudQuality, token);
             }
-            catch (InvalidOperationException ex) when (input?.Host is "quark" or "uc" && quality.Name == "自动" && cloudQuality.RequestsOriginal &&
+            catch (InvalidOperationException ex) when (!forDownload && input?.Host == "quark" && quality.Name == "自动" && cloudQuality.RequestsOriginal &&
                 ex.Message.StartsWith("原画地址获取失败", StringComparison.Ordinal))
             {
                 cloudQuality = quality;
@@ -59,7 +59,9 @@ public sealed class PlaybackResolver(AppServices services)
             request.AvailableQualities = cloud.AvailableQualities;
             request.ResolvedQuality = cloud.ResolvedQuality;
             request.Notice = cloud.Notice;
-            request.HasFixedVideoTrack = (cloudQuality.RequestsOriginal && (cloud.ResolvedQuality is null || cloud.ResolvedQuality.RequestsOriginal))
+            request.HasFixedVideoTrack = (cloud.ResolvedQuality?.RequestsOriginal == true ||
+                cloudQuality.RequestsOriginal && cloud.AvailableVideoHeights is not { Count: > 0 } &&
+                cloud.ResolvedQuality is null)
                 || input?.Host is "ali" or "baidu";
             if (cloud.AvailableVideoHeights is { Count: > 0 } heights)
             {
@@ -100,8 +102,8 @@ public sealed class PlaybackResolver(AppServices services)
             }
             if ((result.Parse == 1 || result.Jx == 1) && !PlayUrlResolver.IsDirectMediaUrl(request.Url))
             {
-                var userAgent = request.Headers.GetValueOrDefault("User-Agent");
-                var sniffed = result.Jx == 1 ? null : await services.Sniffer.SniffAsync(request.Url, userAgent, token);
+                var userAgent = result.BrowserFailureMessage is null ? request.Headers.GetValueOrDefault("User-Agent") : null;
+                var sniffed = result.Jx == 1 ? null : await services.Sniffer.SniffAsync(request.Url, userAgent, token, result.BrowserMediaFilter);
                 if (sniffed is not null)
                 {
                     if (Uri.TryCreate(result.Url, UriKind.Absolute, out var page))
@@ -119,6 +121,7 @@ public sealed class PlaybackResolver(AppServices services)
                 }
                 else
                 {
+                    if (result.BrowserFailureMessage is { } message) throw new NotSupportedException(message);
                     request.Url = await services.Resolver.ResolveAsync(result.Url, config!.Parses, request.Headers, token);
                     if (!PlayUrlResolver.IsDirectMediaUrl(request.Url) && !IsLoopback(request.Url))
                         throw new InvalidDataException("没有解析到视频地址，请切换线路。");

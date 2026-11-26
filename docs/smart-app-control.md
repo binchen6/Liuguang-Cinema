@@ -38,4 +38,4 @@ Windows 11 的 **智能应用控制（Smart App Control, SAC）** 运行在内�
 
 1. **优先核对发布页 SHA-256**，确认安装包完整未被篡改；
 2. **本机源码构建（推荐）**：按 [README](../README.md#从源码构建) 执行 `dotnet build` 或 `scripts/build-installer.ps1`，本机编译产物通常可直接运行；
-3. 如确认信任本项目开源代码，可在 **Windows 安全中心 → 应用和浏览器控制 → 智能应用控制设置** 中按自身策略调整（注意：Windows 11 关闭 SAC 后需重装系统方可重新开启，请谨慎决定）。
+3. 需要在所有开启 SAC 的设备上部署时，请使用带可信 Authenticode 签名的发行包。

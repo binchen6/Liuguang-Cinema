@@ -55,6 +55,9 @@ public static partial class Diagnostics
         if (string.IsNullOrEmpty(input)) return input;
         var text = BailianKeyPattern().Replace(input, "sk-***");
         text = BearerPattern().Replace(text, "Bearer ***");
+        text = CredentialHeaderPattern().Replace(text, "$1=***");
+        text = LoopbackMediaPattern().Replace(text, "[local media]");
+        text = UrlQueryPattern().Replace(text, "$1?***");
         text = SecretHeaderPattern().Replace(text, "$1=***");
         return text;
     }
@@ -84,6 +87,15 @@ public static partial class Diagnostics
     [GeneratedRegex(@"Bearer\s+[A-Za-z0-9._~+/=-]{8,}", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
     private static partial Regex BearerPattern();
 
-    [GeneratedRegex(@"(?i)(X-Signature|AppSecret|Cookie|refresh_token|access_token|apikey)\s*[:=]\s*[^\s;,&""']+")]
+    [GeneratedRegex(@"(?im)\b(Set-Cookie|Cookie|Authorization)\b[""']?\s*[:=][^\r\n]*")]
+    private static partial Regex CredentialHeaderPattern();
+
+    [GeneratedRegex(@"(?i)https?://(?:127\.0\.0\.1|localhost):\d+/(?:media|proxy)/[^\s""']+")]
+    private static partial Regex LoopbackMediaPattern();
+
+    [GeneratedRegex(@"(?i)((?:https?|cloud)://[^\s?""'<>]+)\?[^\s""'<>]+")]
+    private static partial Regex UrlQueryPattern();
+
+    [GeneratedRegex(@"(?i)\b(X-Signature|AppSecret|api[_-]?key|refresh_token|access_token|stoken|share_token|share_fid_token|bdstoken|__puus|BDUSS)\b[""']?\s*[:=]\s*[""']?[^\s;,&""']+")]
     private static partial Regex SecretHeaderPattern();
 }

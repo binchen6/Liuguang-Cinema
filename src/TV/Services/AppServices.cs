@@ -62,7 +62,8 @@ public sealed class AppServices : IDisposable
         CloudLogin = new CloudLoginCoordinator(Cloud, Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread());
         var bilibili = new BilibiliVodProvider(http, Cloud, bilibiliAccount);
         _bilibili = new Lazy<BilibiliVodProvider>(() => bilibili);
-        NativeVod = NativeVodProviderRouter.CreateDefault(http, Cloud, bilibili);
+        Sniffer = new SniffService(Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread());
+        NativeVod = NativeVodProviderRouter.CreateDefault(http, Cloud, bilibili, Sniffer);
         Vod = new VodClientRouter(Cms, new SpiderVodClient(SpiderRuntime), NativeVod);
         Live = new LiveService(http);
         Epg = new EpgService(http);
@@ -70,7 +71,6 @@ public sealed class AppServices : IDisposable
         Images = new ImageCacheService(Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread(), dns);
         Updates = new AppUpdateService(http, dns, Database);
         Resolver = new PlayUrlResolver(http);
-        Sniffer = new SniffService(Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread());
         Playback = new PlaybackResolver(this);
         SourceRecovery = new SourceRecoveryService(this);
         Downloads = new VideoDownloadService(dns);

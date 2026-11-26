@@ -11,7 +11,6 @@ public sealed class SourceHttpClient : IDisposable
 {
     public const string DefaultUserAgent = "okhttp/3.12.11";
     private readonly HttpClient _client;
-    private readonly Lazy<HttpClient> _mediaClient;
     private readonly DnsResolverService _dns;
     private readonly bool _ownsDns;
     private readonly SiteSessionStore? _sessions;
@@ -22,17 +21,15 @@ public sealed class SourceHttpClient : IDisposable
         _ownsDns = dns is null;
         _sessions = sessions;
         Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
-        _client = CreateClient(true);
-        _mediaClient = new Lazy<HttpClient>(() => CreateClient(false));
+        _client = CreateClient();
     }
 
     public SiteSessionStore? Sessions => _sessions;
 
-    private HttpClient CreateClient(bool allowRedirects) => new(new SocketsHttpHandler
+    private HttpClient CreateClient() => new(new SocketsHttpHandler
         {
             AutomaticDecompression = DecompressionMethods.All,
-            AllowAutoRedirect = allowRedirects,
-            MaxAutomaticRedirections = 8,
+            AllowAutoRedirect = false,
             ConnectTimeout = TimeSpan.FromSeconds(10),
             PooledConnectionLifetime = TimeSpan.FromMinutes(10),
             PooledConnectionIdleTimeout = TimeSpan.FromMinutes(2),
@@ -55,9 +52,7 @@ public sealed class SourceHttpClient : IDisposable
 
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeout.CancelAfter(requestTimeout ?? TimeSpan.FromSeconds(20));
-        using var response = scopeRedirectHeaders
-            ? await SendMediaAsync(HttpMethod.Get, uri, headers, timeout.Token).ConfigureAwait(false)
-            : await SendWithSessionAsync(_client, HttpMethod.Get, uri, headers, null, timeout.Token).ConfigureAwait(false);
+        using var response = await SendFollowingAsync(HttpMethod.Get, uri, headers, null, scopeRedirectHeaders, timeout.Token).ConfigureAwait(false);
         response.EnsureSuccessStatusCode();
         return await ReadPayloadAsync(response, uri, maxBytes, timeout.Token).ConfigureAwait(false);
     }
@@ -79,9 +74,7 @@ public sealed class SourceHttpClient : IDisposable
 
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeout.CancelAfter(requestTimeout ?? TimeSpan.FromSeconds(20));
-        using var response = scopeRedirectHeaders
-            ? await SendMediaAsync(HttpMethod.Get, uri, headers, timeout.Token).ConfigureAwait(false)
-            : await SendWithSessionAsync(_client, HttpMethod.Get, uri, headers, null, timeout.Token).ConfigureAwait(false);
+        using var response = await SendFollowingAsync(HttpMethod.Get, uri, headers, null, scopeRedirectHeaders, timeout.Token).ConfigureAwait(false);
         var setCookies = ReadSetCookies(response);
         var hasCf = response.Headers.TryGetValues("cf-mitigated", out var cfValues) &&
             cfValues.Any(v => v.Contains("challenge", StringComparison.OrdinalIgnoreCase));
@@ -106,8 +99,9 @@ public sealed class SourceHttpClient : IDisposable
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeout.CancelAfter(TimeSpan.FromSeconds(20));
         using var content = new FormUrlEncodedContent(formFields);
-        var client = followRedirects ? _client : _mediaClient.Value;
-        using var response = await SendWithSessionAsync(client, HttpMethod.Post, uri, headers, content, timeout.Token).ConfigureAwait(false);
+        using var response = followRedirects
+            ? await SendFollowingAsync(HttpMethod.Post, uri, headers, content, false, timeout.Token).ConfigureAwait(false)
+            : await SendWithSessionAsync(_client, HttpMethod.Post, uri, headers, content, timeout.Token).ConfigureAwait(false);
         var setCookies = ReadSetCookies(response);
         var hasCf = response.Headers.TryGetValues("cf-mitigated", out var cfValues) &&
             cfValues.Any(v => v.Contains("challenge", StringComparison.OrdinalIgnoreCase));
@@ -132,7 +126,7 @@ public sealed class SourceHttpClient : IDisposable
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeout.CancelAfter(requestTimeout ?? TimeSpan.FromSeconds(20));
         using var content = new StringContent(jsonBody, Encoding.UTF8, "application/json");
-        using var response = await SendWithSessionAsync(_client, HttpMethod.Post, uri, headers, content, timeout.Token).ConfigureAwait(false);
+        using var response = await SendFollowingAsync(HttpMethod.Post, uri, headers, content, false, timeout.Token).ConfigureAwait(false);
         var setCookies = ReadSetCookies(response);
         var hasCf = response.Headers.TryGetValues("cf-mitigated", out var cfValues) &&
             cfValues.Any(v => v.Contains("challenge", StringComparison.OrdinalIgnoreCase));
@@ -166,38 +160,70 @@ public sealed class SourceHttpClient : IDisposable
         timeout.CancelAfter(TimeSpan.FromSeconds(4));
         try
         {
-            using var response = await SendMediaAsync(HttpMethod.Head, uri, headers, timeout.Token).ConfigureAwait(false);
+            using var response = await SendFollowingAsync(HttpMethod.Head, uri, headers, null, true, timeout.Token).ConfigureAwait(false);
             return response.IsSuccessStatusCode ? response.Content.Headers.ContentType?.MediaType : null;
         }
         catch (HttpRequestException) { return null; }
         catch (OperationCanceledException) when (!token.IsCancellationRequested) { return null; }
     }
 
-    private async Task<HttpResponseMessage> SendMediaAsync(HttpMethod method, Uri origin, IReadOnlyDictionary<string, string>? headers, CancellationToken token)
+    internal async Task<HttpPayload> GetTrustedBytesAsync(Uri uri, IReadOnlyDictionary<string, string>? headers, int maxBytes,
+        Func<Uri, bool> allowDestination, CancellationToken token)
     {
+        using var response = await SendFollowingAsync(HttpMethod.Get, uri, headers, null, true, token, allowDestination).ConfigureAwait(false);
+        response.EnsureSuccessStatusCode();
+        return await ReadPayloadAsync(response, uri, maxBytes, token).ConfigureAwait(false);
+    }
+
+    internal async Task<HttpExchangeResult> SendTrustedApiAsync(Uri uri, IReadOnlyDictionary<string, string> headers,
+        string? jsonBody, int maxBytes, TimeSpan requestTimeout, CancellationToken token, Func<Uri, bool>? allowRedirect = null)
+    {
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(token);
+        timeout.CancelAfter(requestTimeout);
+        using var body = jsonBody is null ? null : new StringContent(jsonBody, Encoding.UTF8, "application/json");
+        using var response = await SendFollowingAsync(body is null ? HttpMethod.Get : HttpMethod.Post, uri, headers, body,
+            true, timeout.Token, destination => MediaRequestHeaders.SameOrigin(uri, destination) ||
+                allowRedirect?.Invoke(destination) == true).ConfigureAwait(false);
+        var payload = await ReadPayloadAsync(response, uri, maxBytes, timeout.Token).ConfigureAwait(false);
+        return new HttpExchangeResult(payload, response.StatusCode, [], false);
+    }
+
+    private async Task<HttpResponseMessage> SendFollowingAsync(HttpMethod method, Uri origin,
+        IReadOnlyDictionary<string, string>? headers, HttpContent? content, bool scopeReferer, CancellationToken token,
+        Func<Uri, bool>? allowDestination = null)
+    {
+        if (!MediaRequestHeaders.IsHttpAddress(origin)) throw new HttpRequestException("请求地址无效。");
         var target = origin;
         for (var count = 0; ; count++)
         {
+            if (allowDestination is not null && !allowDestination(target))
+                throw new HttpRequestException("HTTP 请求跳转到了未受信任的地址。");
+            var sameOrigin = MediaRequestHeaders.SameOrigin(origin, target);
             var scoped = headers is null ? null : MediaRequestHeaders.ForTarget(headers, origin, target);
-            var response = await SendWithSessionAsync(_mediaClient.Value, method, target, scoped, null, token,
-                addDefaultReferer: MediaRequestHeaders.SameOrigin(origin, target)).ConfigureAwait(false);
-            if ((int)response.StatusCode is not (301 or 302 or 303 or 307 or 308) || response.Headers.Location is null)
+            var response = await SendWithSessionAsync(_client, method, target, scoped, content, token,
+                addDefaultReferer: !scopeReferer || sameOrigin, allowSession: sameOrigin && allowDestination is null).ConfigureAwait(false);
+            if (!MediaRequestHeaders.IsRedirect(response.StatusCode) || response.Headers.Location is not { } location)
                 return response;
             using (response)
             {
-                if (count >= 7 || !Uri.TryCreate(target, response.Headers.Location, out var next) || next.Scheme is not ("http" or "https") ||
-                    next.UserInfo.Length > 0 || target.Scheme == "https" && next.Scheme != "https")
-                    throw new HttpRequestException("媒体重定向无效。");
+                if (count >= 7) throw new HttpRequestException("HTTP 重定向次数过多。");
+                var next = MediaRequestHeaders.RedirectTarget(target, location);
+                var nextMethod = MediaRequestHeaders.RedirectMethod(method, response.StatusCode);
+                if (nextMethod != method) content = null;
+                if (content is not null && !MediaRequestHeaders.SameOrigin(target, next))
+                    throw new HttpRequestException("HTTP 请求正文不能跨域重定向。");
+                method = nextMethod;
                 target = next;
             }
         }
     }
 
     private async Task<HttpResponseMessage> SendWithSessionAsync(HttpClient client, HttpMethod method, Uri uri,
-        IReadOnlyDictionary<string, string>? headers, HttpContent? content, CancellationToken token, bool addDefaultReferer = true)
+        IReadOnlyDictionary<string, string>? headers, HttpContent? content, CancellationToken token,
+        bool addDefaultReferer = true, bool allowSession = true)
     {
         var effectiveHeaders = headers;
-        if (_sessions is not null)
+        if (allowSession && _sessions is not null)
         {
             var hasExplicitCookie = headers is not null && headers.Keys.Any(k => k.Equals("Cookie", StringComparison.OrdinalIgnoreCase));
             if (!hasExplicitCookie)
@@ -235,7 +261,8 @@ public sealed class SourceHttpClient : IDisposable
             }
         }
 
-        return await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, token).ConfigureAwait(false);
+        try { return await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, token).ConfigureAwait(false); }
+        finally { request.Content = null; }
     }
 
     public async Task<string> GetStringAsync(
@@ -263,7 +290,6 @@ public sealed class SourceHttpClient : IDisposable
     public void Dispose()
     {
         _client.Dispose();
-        if (_mediaClient.IsValueCreated) _mediaClient.Value.Dispose();
         if (_ownsDns) _dns.Dispose();
     }
 }

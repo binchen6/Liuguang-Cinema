@@ -449,7 +449,7 @@ if ($IncrementalBaseZip -and (Test-Path -LiteralPath $IncrementalBaseZip)) {
         $patchName = "TV-Update-$version-from-$previousVersion-x64"
         $patchInstaller = Join-Path $release "$patchName.exe"
         $updateIss = Join-Path $root 'installer/TV-Update.iss'
-        $patchIsccArgs = @("/DMyAppVersion=$version", "/DPublishRoot=$patchPublish", "/O$release", "/F$patchName") + $deleteArgs + $isccSignArgs + @($updateIss)
+        $patchIsccArgs = @("/DMyAppVersion=$version", "/DMyBaseVersion=$previousVersion", "/DPublishRoot=$patchPublish", "/O$release", "/F$patchName") + $deleteArgs + $isccSignArgs + @($updateIss)
         & $iscc @patchIsccArgs
         if ($LASTEXITCODE -ne 0) { throw "Incremental Inno Setup failed with exit code $LASTEXITCODE" }
         Assert-ReleaseIntegrity $patchInstaller

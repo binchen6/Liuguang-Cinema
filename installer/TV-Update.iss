@@ -2,6 +2,9 @@
 #ifndef MyAppVersion
   #define MyAppVersion "1.9.1"
 #endif
+#ifndef MyBaseVersion
+  #define MyBaseVersion ""
+#endif
 #ifndef PublishRoot
   #define PublishRoot "..\artifacts\update-patch"
 #endif
@@ -67,30 +70,30 @@ Source: "{#PublishRoot}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdir
 
 [Registry]
 ; 与完整安装包保持文件关联及图标路径完全同步（不设置 uninsdelete，避免破坏原卸载记录）
-Root: HKCU; Subkey: "Software\Classes\TV.Video"; ValueType: string; ValueData: "流光影院视频"
-Root: HKCU; Subkey: "Software\Classes\TV.Video\DefaultIcon"; ValueType: string; ValueData: "{app}\{#MyAppExeName},0"
-Root: HKCU; Subkey: "Software\Classes\TV.Video\shell\open\command"; ValueType: string; ValueData: """{app}\{#MyAppExeName}"" ""%1"""
-Root: HKCU; Subkey: "Software\Classes\.mp4\OpenWithProgids"; ValueType: string; ValueName: "TV.Video"; ValueData: ""
-Root: HKCU; Subkey: "Software\Classes\.m4v\OpenWithProgids"; ValueType: string; ValueName: "TV.Video"; ValueData: ""
-Root: HKCU; Subkey: "Software\Classes\.mkv\OpenWithProgids"; ValueType: string; ValueName: "TV.Video"; ValueData: ""
-Root: HKCU; Subkey: "Software\Classes\.webm\OpenWithProgids"; ValueType: string; ValueName: "TV.Video"; ValueData: ""
-Root: HKCU; Subkey: "Software\Classes\.avi\OpenWithProgids"; ValueType: string; ValueName: "TV.Video"; ValueData: ""
-Root: HKCU; Subkey: "Software\Classes\.mov\OpenWithProgids"; ValueType: string; ValueName: "TV.Video"; ValueData: ""
-Root: HKCU; Subkey: "Software\Classes\.ts\OpenWithProgids"; ValueType: string; ValueName: "TV.Video"; ValueData: ""
-Root: HKCU; Subkey: "Software\Classes\.m2ts\OpenWithProgids"; ValueType: string; ValueName: "TV.Video"; ValueData: ""
-Root: HKCU; Subkey: "Software\Classes\.mts\OpenWithProgids"; ValueType: string; ValueName: "TV.Video"; ValueData: ""
-Root: HKCU; Subkey: "Software\Classes\.flv\OpenWithProgids"; ValueType: string; ValueName: "TV.Video"; ValueData: ""
-Root: HKCU; Subkey: "Software\Classes\.f4v\OpenWithProgids"; ValueType: string; ValueName: "TV.Video"; ValueData: ""
-Root: HKCU; Subkey: "Software\Classes\.wmv\OpenWithProgids"; ValueType: string; ValueName: "TV.Video"; ValueData: ""
-Root: HKCU; Subkey: "Software\Classes\.asf\OpenWithProgids"; ValueType: string; ValueName: "TV.Video"; ValueData: ""
-Root: HKCU; Subkey: "Software\Classes\.mpg\OpenWithProgids"; ValueType: string; ValueName: "TV.Video"; ValueData: ""
-Root: HKCU; Subkey: "Software\Classes\.mpeg\OpenWithProgids"; ValueType: string; ValueName: "TV.Video"; ValueData: ""
-Root: HKCU; Subkey: "Software\Classes\.vob\OpenWithProgids"; ValueType: string; ValueName: "TV.Video"; ValueData: ""
-Root: HKCU; Subkey: "Software\Classes\.3gp\OpenWithProgids"; ValueType: string; ValueName: "TV.Video"; ValueData: ""
-Root: HKCU; Subkey: "Software\Classes\.3g2\OpenWithProgids"; ValueType: string; ValueName: "TV.Video"; ValueData: ""
-Root: HKCU; Subkey: "Software\Classes\.rm\OpenWithProgids"; ValueType: string; ValueName: "TV.Video"; ValueData: ""
-Root: HKCU; Subkey: "Software\Classes\.rmvb\OpenWithProgids"; ValueType: string; ValueName: "TV.Video"; ValueData: ""
-Root: HKCU; Subkey: "Software\Classes\.ogv\OpenWithProgids"; ValueType: string; ValueName: "TV.Video"; ValueData: ""
+Root: HKCU; Subkey: "Software\Classes\TV.Video"; ValueType: string; ValueData: "流光影院视频"; Check: RegisteredInstallTarget
+Root: HKCU; Subkey: "Software\Classes\TV.Video\DefaultIcon"; ValueType: string; ValueData: "{app}\{#MyAppExeName},0"; Check: RegisteredInstallTarget
+Root: HKCU; Subkey: "Software\Classes\TV.Video\shell\open\command"; ValueType: string; ValueData: """{app}\{#MyAppExeName}"" ""%1"""; Check: RegisteredInstallTarget
+Root: HKCU; Subkey: "Software\Classes\.mp4\OpenWithProgids"; ValueType: string; ValueName: "TV.Video"; ValueData: ""; Check: RegisteredInstallTarget
+Root: HKCU; Subkey: "Software\Classes\.m4v\OpenWithProgids"; ValueType: string; ValueName: "TV.Video"; ValueData: ""; Check: RegisteredInstallTarget
+Root: HKCU; Subkey: "Software\Classes\.mkv\OpenWithProgids"; ValueType: string; ValueName: "TV.Video"; ValueData: ""; Check: RegisteredInstallTarget
+Root: HKCU; Subkey: "Software\Classes\.webm\OpenWithProgids"; ValueType: string; ValueName: "TV.Video"; ValueData: ""; Check: RegisteredInstallTarget
+Root: HKCU; Subkey: "Software\Classes\.avi\OpenWithProgids"; ValueType: string; ValueName: "TV.Video"; ValueData: ""; Check: RegisteredInstallTarget
+Root: HKCU; Subkey: "Software\Classes\.mov\OpenWithProgids"; ValueType: string; ValueName: "TV.Video"; ValueData: ""; Check: RegisteredInstallTarget
+Root: HKCU; Subkey: "Software\Classes\.ts\OpenWithProgids"; ValueType: string; ValueName: "TV.Video"; ValueData: ""; Check: RegisteredInstallTarget
+Root: HKCU; Subkey: "Software\Classes\.m2ts\OpenWithProgids"; ValueType: string; ValueName: "TV.Video"; ValueData: ""; Check: RegisteredInstallTarget
+Root: HKCU; Subkey: "Software\Classes\.mts\OpenWithProgids"; ValueType: string; ValueName: "TV.Video"; ValueData: ""; Check: RegisteredInstallTarget
+Root: HKCU; Subkey: "Software\Classes\.flv\OpenWithProgids"; ValueType: string; ValueName: "TV.Video"; ValueData: ""; Check: RegisteredInstallTarget
+Root: HKCU; Subkey: "Software\Classes\.f4v\OpenWithProgids"; ValueType: string; ValueName: "TV.Video"; ValueData: ""; Check: RegisteredInstallTarget
+Root: HKCU; Subkey: "Software\Classes\.wmv\OpenWithProgids"; ValueType: string; ValueName: "TV.Video"; ValueData: ""; Check: RegisteredInstallTarget
+Root: HKCU; Subkey: "Software\Classes\.asf\OpenWithProgids"; ValueType: string; ValueName: "TV.Video"; ValueData: ""; Check: RegisteredInstallTarget
+Root: HKCU; Subkey: "Software\Classes\.mpg\OpenWithProgids"; ValueType: string; ValueName: "TV.Video"; ValueData: ""; Check: RegisteredInstallTarget
+Root: HKCU; Subkey: "Software\Classes\.mpeg\OpenWithProgids"; ValueType: string; ValueName: "TV.Video"; ValueData: ""; Check: RegisteredInstallTarget
+Root: HKCU; Subkey: "Software\Classes\.vob\OpenWithProgids"; ValueType: string; ValueName: "TV.Video"; ValueData: ""; Check: RegisteredInstallTarget
+Root: HKCU; Subkey: "Software\Classes\.3gp\OpenWithProgids"; ValueType: string; ValueName: "TV.Video"; ValueData: ""; Check: RegisteredInstallTarget
+Root: HKCU; Subkey: "Software\Classes\.3g2\OpenWithProgids"; ValueType: string; ValueName: "TV.Video"; ValueData: ""; Check: RegisteredInstallTarget
+Root: HKCU; Subkey: "Software\Classes\.rm\OpenWithProgids"; ValueType: string; ValueName: "TV.Video"; ValueData: ""; Check: RegisteredInstallTarget
+Root: HKCU; Subkey: "Software\Classes\.rmvb\OpenWithProgids"; ValueType: string; ValueName: "TV.Video"; ValueData: ""; Check: RegisteredInstallTarget
+Root: HKCU; Subkey: "Software\Classes\.ogv\OpenWithProgids"; ValueType: string; ValueName: "TV.Video"; ValueData: ""; Check: RegisteredInstallTarget
 
 [Icons]
 ; 仅重写已存在的开始菜单 / 桌面快捷方式以强制刷新软件图标，绝不擅自创建用户未勾选的快捷方式
@@ -128,14 +131,23 @@ procedure SHChangeNotify(EventId: LongInt; Flags: LongWord; Item1, Item2: LongWo
 procedure SHChangeNotifyPath(EventId: LongInt; Flags: LongWord; const Item1: String; Item2: LongWord);
   external 'SHChangeNotify@shell32.dll stdcall';
 
+function RegisteredInstallTarget: Boolean;
+var
+  InstalledPath: String;
+begin
+  Result := RegQueryStringValue(HKCU, 'Software\Microsoft\Windows\CurrentVersion\Uninstall\{#MyAppIdRaw}_is1',
+    'InstallLocation', InstalledPath) and
+    (CompareText(AddBackslash(InstalledPath), AddBackslash(ExpandConstant('{app}'))) = 0);
+end;
+
 function GroupShortcutExists: Boolean;
 begin
-  Result := FileExists(ExpandConstant('{group}\{#MyAppName}.lnk'));
+  Result := RegisteredInstallTarget and FileExists(ExpandConstant('{group}\{#MyAppName}.lnk'));
 end;
 
 function DesktopShortcutExists: Boolean;
 begin
-  Result := FileExists(ExpandConstant('{autodesktop}\{#MyAppName}.lnk'));
+  Result := RegisteredInstallTarget and FileExists(ExpandConstant('{autodesktop}\{#MyAppName}.lnk'));
 end;
 
 procedure UpdateExistingUninstallMetadata;
@@ -144,7 +156,7 @@ var
   DotPos, MajorNum, MinorNum: Integer;
 begin
   KeyPath := 'Software\Microsoft\Windows\CurrentVersion\Uninstall\{#MyAppIdRaw}_is1';
-  if not RegKeyExists(HKCU, KeyPath) then exit;
+  if not RegisteredInstallTarget then exit;
 
   VersionStr := '{#MyAppVersion}';
   RegWriteStringValue(HKCU, KeyPath, 'DisplayName', '{#MyAppName} ' + VersionStr);
@@ -220,13 +232,23 @@ end;
 
 function CheckInstallDirectory: String;
 var
-  Directory, ProbePath: String;
+  Directory, ProbePath, InstalledVersion: String;
   Handle: THandle;
   ErrorCode: Integer;
 begin
   Result := '';
   Directory := ExpandConstant('{app}');
-  if not DirExists(Directory) then exit;
+  if not GetVersionNumbersString(AddBackslash(Directory) + 'TV.dll', InstalledVersion) then
+  begin
+    Result := '此目录未安装流光影院。请使用完整安装包。';
+    exit;
+  end;
+  if ('{#MyBaseVersion}' <> '') and (InstalledVersion <> '{#MyBaseVersion}.0') and
+    (InstalledVersion <> '{#MyAppVersion}.0') then
+  begin
+    Result := '此增量包适用于流光影院 {#MyBaseVersion}。当前版本是 ' + InstalledVersion + '。请使用完整安装包。';
+    exit;
+  end;
 
   ProbePath := AddBackslash(Directory) + 'tv-update-check-' + ExtractFileName(ExpandConstant('{tmp}'));
   Handle := CreateFileW(ProbePath, GenericWrite or DeleteAccess, 0, 0, CreateNew, DeleteOnClose, 0);

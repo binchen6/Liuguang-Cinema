@@ -4,6 +4,7 @@ using System.Globalization;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using TV.Services.Http;
@@ -52,15 +53,16 @@ public sealed partial class AppUpdateService : IDisposable
     private readonly DatabaseService _database;
     private readonly HttpClient _downloads;
     private readonly SemaphoreSlim _checkGate = new(1, 1);
-    private readonly string _endpoint;
+    private readonly Uri _endpoint;
     private readonly bool _allowLoopback;
 
     public AppUpdateService(SourceHttpClient http, DnsResolverService dns, DatabaseService database)
     {
         _http = http;
         _database = database;
-        _endpoint = Environment.GetEnvironmentVariable("TV_UPDATE_API_URL") is { Length: > 0 } endpoint ? endpoint : LatestApi;
-        _allowLoopback = Uri.TryCreate(_endpoint, UriKind.Absolute, out var endpointUri) && endpointUri.IsLoopback;
+        _allowLoopback = Uri.TryCreate(Environment.GetEnvironmentVariable("TV_UPDATE_API_URL"), UriKind.Absolute, out var endpoint) &&
+            endpoint.IsLoopback && MediaRequestHeaders.IsHttpAddress(endpoint);
+        _endpoint = _allowLoopback ? endpoint! : new Uri(LatestApi);
         var handler = new SocketsHttpHandler
         {
             AllowAutoRedirect = true,
@@ -106,7 +108,8 @@ public sealed partial class AppUpdateService : IDisposable
                 deadline.CancelAfter(TimeSpan.FromSeconds(15));
                 try
                 {
-                    json = await _http.GetStringAsync(_endpoint, headers, deadline.Token).ConfigureAwait(false);
+                    var payload = await _http.GetTrustedBytesAsync(_endpoint, headers, 4 * 1024 * 1024, IsMetadataDestination, deadline.Token).ConfigureAwait(false);
+                    json = Encoding.UTF8.GetString(payload.Content);
                     lastError = null;
                     break;
                 }
@@ -125,7 +128,7 @@ public sealed partial class AppUpdateService : IDisposable
             {
                 release = ParseRelease(json);
             }
-            else if (_endpoint.Equals(LatestApi, StringComparison.OrdinalIgnoreCase))
+            else if (!_allowLoopback)
             {
                 Diagnostics.Log($"GitHub API 检查失败 ({lastError.Message})，自动切换 GitHub Release 网页源检查");
                 release = await CheckViaGitHubWebAsync(token).ConfigureAwait(false);
@@ -150,8 +153,8 @@ public sealed partial class AppUpdateService : IDisposable
         };
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(token);
         deadline.CancelAfter(TimeSpan.FromSeconds(15));
-        var latestJson = await _http.GetStringAsync(LatestWeb, jsonHeaders, deadline.Token).ConfigureAwait(false);
-        using var doc = JsonDocument.Parse(latestJson, new JsonDocumentOptions { MaxDepth = 16 });
+        var latest = await _http.GetTrustedBytesAsync(new Uri(LatestWeb), jsonHeaders, 4 * 1024 * 1024, IsMetadataDestination, deadline.Token).ConfigureAwait(false);
+        using var doc = JsonDocument.Parse(latest.Content, new JsonDocumentOptions { MaxDepth = 16 });
         var tag = ReadString(doc.RootElement, "tag_name");
         var versionText = tag.StartsWith('v') || tag.StartsWith('V') ? tag[1..] : tag;
         if (!Version.TryParse(versionText, out var version) || version.Major < 0 || version.Minor < 0)
@@ -164,7 +167,8 @@ public sealed partial class AppUpdateService : IDisposable
             ["User-Agent"] = "Liuguang-Cinema/" + CurrentVersion,
             ["Accept"] = "text/html"
         };
-        var html = await _http.GetStringAsync(expandedUrl, htmlHeaders, deadline.Token).ConfigureAwait(false);
+        var expanded = await _http.GetTrustedBytesAsync(new Uri(expandedUrl), htmlHeaders, 4 * 1024 * 1024, IsMetadataDestination, deadline.Token).ConfigureAwait(false);
+        var html = Encoding.UTF8.GetString(expanded.Content);
         var assets = ParseExpandedAssetsHtml(html, tag);
         if (assets.Count == 0)
             throw new InvalidDataException("GitHub Release 网页源未找到可用安装包。");
@@ -185,11 +189,14 @@ public sealed partial class AppUpdateService : IDisposable
         for (var i = 0; i < matches.Count; i++)
         {
             var relPath = matches[i].Groups[1].Value;
-            if (!relPath.StartsWith($"/{Repository}/releases/download/", StringComparison.OrdinalIgnoreCase)) continue;
+            if (!relPath.StartsWith($"/{Repository}/releases/download/{Uri.EscapeDataString(tag)}/", StringComparison.OrdinalIgnoreCase)) continue;
             var name = Uri.UnescapeDataString(relPath[(relPath.LastIndexOf('/') + 1)..]);
             if (string.IsNullOrWhiteSpace(name)) continue;
             var sliceStart = matches[i].Index;
-            var sliceEnd = i + 1 < matches.Count ? matches[i + 1].Index : Math.Min(html.Length, sliceStart + 2500);
+            var sliceEnd = Math.Min(html.Length, sliceStart + 2500);
+            if (i + 1 < matches.Count) sliceEnd = Math.Min(sliceEnd, matches[i + 1].Index);
+            var listItemEnd = html.IndexOf("</li>", sliceStart, sliceEnd - sliceStart, StringComparison.OrdinalIgnoreCase);
+            if (listItemEnd >= 0) sliceEnd = listItemEnd;
             var slice = html[sliceStart..sliceEnd];
 
             string? digest = null;
@@ -295,7 +302,7 @@ public sealed partial class AppUpdateService : IDisposable
         if (expected is null && package.ChecksumUrl is not null)
         {
             ValidateAssetUrl(package.ChecksumUrl);
-            expected = await FetchChecksumAsync(package.ChecksumUrl, token).ConfigureAwait(false);
+            expected = await FetchChecksumAsync(package.ChecksumUrl, package.Asset.Name, token).ConfigureAwait(false);
         }
         if (!IsHash(expected)) throw new InvalidDataException("安装包缺少有效的 SHA-256。");
 
@@ -315,19 +322,15 @@ public sealed partial class AppUpdateService : IDisposable
         var planPath = partial + ".plan";
         var (usedMirror, resolvedSize) = await DownloadAssetSmartAsync(package.Asset, partial, planPath, progress, token).ConfigureAwait(false);
         var expectedSize = resolvedSize > 0 ? resolvedSize : package.Asset.Size;
-        if (!File.Exists(partial) || (!package.Asset.SizeApproximate && new FileInfo(partial).Length != expectedSize) ||
-            (resolvedSize > 0 && new FileInfo(partial).Length != resolvedSize))
-        {
-            CleanupPartialFiles(partial, planPath);
-            throw new InvalidDataException("下载大小与 GitHub 发行版记录不一致。");
-        }
-        if (!await HashMatchesAsync(partial, expected!, token).ConfigureAwait(false))
+        var sizeMatches = File.Exists(partial) &&
+            (package.Asset.SizeApproximate && resolvedSize <= 0 || new FileInfo(partial).Length == expectedSize);
+        if (!sizeMatches || !await HashMatchesAsync(partial, expected!, token).ConfigureAwait(false))
         {
             CleanupPartialFiles(partial, planPath);
             if (usedMirror)
             {
-                Diagnostics.Log("镜像加速下载 SHA-256 校验不匹配，已删除并自动切换 GitHub 官方直连重试");
-                var directAsset = resolvedSize > 0 ? package.Asset with { Size = resolvedSize, SizeApproximate = false } : package.Asset;
+                Diagnostics.Log("镜像下载完整性校验失败，切换 GitHub 官方直连重试");
+                var directAsset = package.Asset;
                 await DownloadWithResumeAsync(directAsset, package.Asset.DownloadUrl, "GitHub 官方直连", partial, progress, token).ConfigureAwait(false);
                 if (!File.Exists(partial) ||
                     (!directAsset.SizeApproximate && new FileInfo(partial).Length != directAsset.Size) ||
@@ -347,29 +350,15 @@ public sealed partial class AppUpdateService : IDisposable
         return new DownloadedUpdate(destination, package);
     }
 
-    private async Task<string> FetchChecksumAsync(string checksumUrl, CancellationToken token)
+    private async Task<string> FetchChecksumAsync(string checksumUrl, string assetName, CancellationToken token)
     {
-        var urls = new List<string> { checksumUrl };
-        if (!_allowLoopback && IsOfficialGitHubAssetUrl(checksumUrl))
-        {
-            foreach (var (_, prefix) in ChinaMirrors.Take(3))
-                urls.Insert(0, prefix + checksumUrl);
-        }
-        Exception? last = null;
-        foreach (var url in urls)
-        {
-            try
-            {
-                using var checksumDeadline = CancellationTokenSource.CreateLinkedTokenSource(token);
-                checksumDeadline.CancelAfter(TimeSpan.FromSeconds(8));
-                var text = await _http.GetStringAsync(url, cancellationToken: checksumDeadline.Token).ConfigureAwait(false);
-                var match = HashPattern().Match(text);
-                if (match.Success) return match.Value;
-            }
-            catch (OperationCanceledException) when (token.IsCancellationRequested) { throw; }
-            catch (Exception ex) { last = ex; }
-        }
-        throw last ?? new InvalidDataException("SHA-256 校验文件格式无效。");
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(token);
+        deadline.CancelAfter(TimeSpan.FromSeconds(12));
+        var payload = await _http.GetTrustedBytesAsync(new Uri(checksumUrl), null, 4096, IsChecksumDestination, deadline.Token).ConfigureAwait(false);
+        var match = HashPattern().Match(Encoding.UTF8.GetString(payload.Content).Trim().TrimStart('\uFEFF'));
+        if (match.Success && (!match.Groups[2].Success || match.Groups[2].Value.Equals(assetName, StringComparison.OrdinalIgnoreCase)))
+            return match.Groups[1].Value;
+        throw new InvalidDataException("GitHub 发布的 SHA-256 校验文件格式无效。");
     }
 
     /// <summary>
@@ -442,7 +431,7 @@ public sealed partial class AppUpdateService : IDisposable
         using var probeCts = CancellationTokenSource.CreateLinkedTokenSource(token);
         probeCts.CancelAfter(TimeSpan.FromSeconds(5));
         var results = new ConcurrentBag<DownloadRoute>();
-        var firstSuccessUtc = DateTimeOffset.MinValue;
+        long firstSuccessTimestamp = 0;
         var successCount = 0;
 
         var tasks = candidates.Select(async c =>
@@ -451,9 +440,9 @@ public sealed partial class AppUpdateService : IDisposable
             if (route is null) return;
             results.Add(route);
             var count = Interlocked.Increment(ref successCount);
-            if (count == 1) firstSuccessUtc = DateTimeOffset.UtcNow;
+            Interlocked.CompareExchange(ref firstSuccessTimestamp, Stopwatch.GetTimestamp(), 0);
             // Once we have 3 working routes (or 2 fast routes after 0.9s), stop waiting on slow mirrors
-            if (count >= 3 || (count >= 2 && DateTimeOffset.UtcNow - firstSuccessUtc > TimeSpan.FromMilliseconds(900)))
+            if (count >= 3 || (count >= 2 && Stopwatch.GetElapsedTime(Interlocked.Read(ref firstSuccessTimestamp)) > TimeSpan.FromMilliseconds(900)))
             {
                 try { probeCts.Cancel(); } catch { }
             }
@@ -742,18 +731,29 @@ public sealed partial class AppUpdateService : IDisposable
         await target.FlushAsync(token).ConfigureAwait(false);
     }
 
+    private bool IsMetadataDestination(Uri uri) => _allowLoopback
+        ? MediaRequestHeaders.SameOrigin(uri, _endpoint)
+        : IsGitHubHttps(uri) && (uri.IdnHost == "api.github.com"
+            ? uri.AbsolutePath.Equals($"/repos/{Repository}/releases/latest", StringComparison.OrdinalIgnoreCase)
+            : uri.IdnHost == "github.com" && uri.AbsolutePath.StartsWith($"/{Repository}/releases/", StringComparison.OrdinalIgnoreCase));
+
+    private bool IsChecksumDestination(Uri uri) => _allowLoopback
+        ? MediaRequestHeaders.SameOrigin(uri, _endpoint)
+        : IsGitHubHttps(uri) && (IsOfficialGitHubAssetUri(uri) || uri.IdnHost is "release-assets.githubusercontent.com" or "objects.githubusercontent.com");
+
+    private static bool IsGitHubHttps(Uri uri) => uri.Scheme == Uri.UriSchemeHttps && uri.IsDefaultPort && uri.UserInfo.Length == 0;
+
+    private static bool IsOfficialGitHubAssetUri(Uri uri) => IsGitHubHttps(uri) && uri.IdnHost == "github.com" &&
+        uri.AbsolutePath.StartsWith($"/{Repository}/releases/download/", StringComparison.OrdinalIgnoreCase);
+
     private static bool IsOfficialGitHubAssetUrl(string value) =>
-        Uri.TryCreate(value, UriKind.Absolute, out var uri) &&
-        uri.Scheme == Uri.UriSchemeHttps &&
-        uri.Host.Equals("github.com", StringComparison.OrdinalIgnoreCase) &&
-        uri.AbsolutePath.StartsWith($"/{Repository}/releases/download/", StringComparison.OrdinalIgnoreCase) &&
-        uri.UserInfo.Length == 0;
+        Uri.TryCreate(value, UriKind.Absolute, out var uri) && IsOfficialGitHubAssetUri(uri);
 
     private void ValidateAssetUrl(string value)
     {
         if (!Uri.TryCreate(value, UriKind.Absolute, out var uri)) throw new InvalidDataException("下载地址无效。");
         var production = IsOfficialGitHubAssetUrl(value);
-        if (!production && !(_allowLoopback && uri.IsLoopback && uri.Scheme is "http" or "https"))
+        if (!production && !(_allowLoopback && MediaRequestHeaders.SameOrigin(uri, _endpoint) && MediaRequestHeaders.IsHttpAddress(uri)))
             throw new InvalidDataException("更新下载地址不属于官方 GitHub Release。");
     }
 
@@ -808,7 +808,7 @@ public sealed partial class AppUpdateService : IDisposable
 
     public void Dispose() => _downloads.Dispose();
 
-    [GeneratedRegex(@"(?i)(?<![0-9a-f])[0-9a-f]{64}(?![0-9a-f])", RegexOptions.CultureInvariant)]
+    [GeneratedRegex(@"\A([0-9a-f]{64})(?:[ \t]+\*?([^\r\n]+))?\z", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
     private static partial Regex HashPattern();
 
     [GeneratedRegex(@"href=""(/[^""]+/releases/download/[^""]+)""", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]

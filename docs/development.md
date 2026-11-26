@@ -58,7 +58,7 @@ $env:TV_DATA_ROOT = Join-Path $PWD 'artifacts/tmp/dev-profile'
 ## 4. 密钥与开源安全约定
 
 - **仓库严禁提交任何明文 API Key、AppSecret、Cookie、Token 或本机绝对路径**。
-- **弹弹play 开放弹幕库凭证**：本地构建可复制 `src/TV/Secrets.Local.props.example` 为 `src/TV/Secrets.Local.props`（已加入 `.gitignore`），或通过环境变量 `DANDANPLAY_APP_ID` / `DANDANPLAY_APP_SECRET_1` / `DANDANPLAY_APP_SECRET_2` 注入；终端用户也可在「设置 → 弹幕与 AI」配置自定义凭证（DPAPI 加密落库）。
+- **弹弹play 开放弹幕库凭证**的默认 AppId 和 AppSecret 存放于签名服务的加密绑定。客户端构建只接收 HTTPS 服务端地址 `DANDANPLAY_RELAY_URL`。用户可在「设置 → 弹幕与 AI」提供自定义凭据，AppSecret 使用当前 Windows 用户的 DPAPI 加密。
 - **阿里云百炼 API Key**：不随源码或安装包内置，由用户在设置页跳转百炼控制台自助生成后填入，仅以当前 Windows 用户 DPAPI 加密存储于 `tv.db`。
 - **日志脱敏**：`Diagnostics.Log` 自动掩码 `sk-*`、`Bearer *`、`X-Signature`、`AppSecret`、`Cookie`、`token` 等敏感字段。
 
@@ -103,10 +103,20 @@ pwsh -NoProfile -File .\scripts\Test-InstallerLaunchSpeed.ps1 -InstallerPath .\a
 
 ## 7. 回归与验收
 
-提交改动前至少运行 Release 编译及对应模块的协议回归；完整桌面回归：
+Release x64 编译后可运行独立协议回归。桌面回归使用本机的 Python、UIA 依赖和隔离测试夹具。
 
 ```powershell
-& .\scripts\run-site-regressions.ps1 -Python (Get-Command py).Source -OutputDirectory 'artifacts/qa-current'
+pwsh -NoProfile -File ./scripts/run-release-regressions.ps1
+& .\scripts\run-site-regressions.ps1 -Python (Get-Command python).Source -OutputDirectory 'artifacts/qa-current'
 ```
 
-传统桌面脚本会激活窗口，须在空闲桌面串行运行；布局与后台检查优先采用无全局键鼠输入的 UIA 模式。站点探测命令与验收层级见 [站点适配与验收](site-verification.md)。
+桌面回归可以通过 `-AppPath` 指定发布包中的程序。窗口对照需要通过 `-WindowBaseline` 提供旧版本程序。传统桌面脚本会激活窗口，须在空闲桌面串行运行。布局与后台检查优先使用 UIA 模式。站点探测命令与验收层级见 [站点适配与验收](site-verification.md)。
+
+## 8. 默认弹幕服务
+
+签名服务源码与部署元数据位于 `server/dandanplay-relay/`。服务只转发对 `api.dandanplay.net` 的剧集搜索、弹幕查询和文件匹配。弹幕查询可跟随同一集到 `cas2.dandanplay.net` 的官方跳转，签名请求头只发给 API 域名。Worker 分别限制客户端和服务的请求频率，关闭请求日志和链路跟踪。
+
+- 更新 Worker 时使用 Cloudflare 的 [模块上传接口](https://developers.cloudflare.com/workers/configuration/multipart-upload-metadata/)。以 multipart 字段 `metadata` 上传 `worker-metadata.json`，再上传同名 `worker.mjs` 模块。现有加密绑定会随更新保留。
+- 使用 Cloudflare 的 Worker 加密绑定设置 `DANDANPLAY_APP_ID`、`DANDANPLAY_APP_SECRET` 和可选的 `DANDANPLAY_BACKUP_SECRET`。旧版 1.9.5 曾包含默认密钥，轮换时在开放平台撤销旧值并更新对应绑定。
+- 将已验证的 HTTPS 服务根地址设置为 GitHub Actions 变量 `DANDANPLAY_RELAY_URL`，本地打包使用同名环境变量。
+- 本地测试运行 `node --test server/dandanplay-relay/worker.test.mjs`。发布包可运行 `scripts/run-release-regressions.ps1 -AppDirectory <发布目录> -VerifyDefaultService`，同时验证自定义 DPAPI 凭据和真实默认服务。

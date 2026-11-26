@@ -4,10 +4,13 @@
 
 ---
 
-## 1. 当前验证基线：1.9.5
+## 1. 当前验证基线 1.9.6
 
-- **构建状态**：`dotnet build src/TV/TV.csproj -c Release -p:Platform=x64 -p:RuntimeIdentifier=win-x64 --no-restore` 0 错误（现有 231 条分析器/AOT 兼容警告，无新增错误）。
-- **内置公开配置适配现状（50 个点播/工具项 + 5 个直播源）**：
+- **构建状态**为 Windows x64 Release 与 CatVod Java 打包成功。NuGet 锁定还原通过。
+- **厂长本版抽样**在 Windows 客户端读取 58 张首页卡片和新版选集页。样本第二条 1080P 线路解码后持续播放了 35 秒。样本第一条线路当次未提供可用媒体。
+- **UC 网盘本版回归**覆盖原画可用、提示视频拦截、会员拒绝、低一档回退、会话过期和请求提示。测试使用隔离的协议样本，真实媒体能否播放取决于账号和资源授权。
+- **弹弹play本版抽样**通过默认签名服务完成新版剧集搜索、文件匹配与弹幕下载。
+- **内置公开配置历史样本**覆盖 50 个点播或工具项和 5 个直播源：
   - **45 项已接入原生 C#（22 个站点适配器）或 Java CatVod 兼容层**：
     - 1.9.4 将 `❤️AI剧┃弹幕`（`csp_AiDjGuard`，原 Java 适配器指向失效域名 `zzdj.cc`）迁移为原生 `ShortDramaVodProvider`（首页 2 分类 20 条、分类 1398 页、5 组搜索关键词全中、直链后台解码 4307 ms / 254 帧）；
     - 修复 `🎈盘搜┃四盘`（`ZPan`）与 `🦋易搜┃四盘`（`JPan`）因固定 20 秒超时截断与默认 UA 卡死导致的搜索失败（实网「流浪地球」返回 38 条、「庆余年」返回 5 条，上游冷查偶发超时仍受第三方服务影响）；
@@ -25,6 +28,7 @@
 
 | 版本 | 主要验证项（详见对应 [发行说明](releases/)） |
 | --- | --- |
+| **1.9.6** | 厂长新版浏览器渲染与备用线路桌面解码、UC 画质回退与请求提示、弹弹play默认签名服务、跨域凭据隔离、`1.9.5 → 1.9.6` 增量升级逐文件校验 |
 | **1.9.5** | 阿里云盘分享目录与转存原画修复、UC 网盘 `ut` 设备令牌与提示视频识别/回退、弹弹play/DNS 超时取消治理、`CloudRegression`（34 项）/`LocalMediaRegression`（24 项）/`UpdateRegression`（13 项）与实网探测、及 `1.9.4 → 1.9.5` 增量升级校验 |
 | **1.9.4** | 播放器鼠标快路径与跨环境兼容、`AI剧`/`盘搜`/`奥特` 搜索修复与实网解码抽样、4 项核心 UIA 回归与 `1.9.3 → 1.9.4` 增量升级校验 |
 | **1.9.3** | 统一横竖导航（单选残留与切回「最新影片」胶囊修复）、全站弹层单滚动条治理、浅色主题调整、WinUI 原生透明光标隐藏与 `1.9.2 → 1.9.3` 962 文件逐字节校验 |
@@ -75,6 +79,13 @@ py scripts/update-site-matrix.py artifacts/probe-current/probe.jsonl
 ```
 
 执行约定：使用独立 `TV_DATA_ROOT`、音量置 0、独立安装 `AppId`（不覆盖正式安装）；桌面回归脚本会激活窗口，须在空闲桌面串行运行；严禁将带凭据的仓库地址、Cookie、Token 或私人视频写入共享日志。
+
+协议回归使用 Release 应用目录。官方发行构建可以加 `-VerifyDefaultService` 实测默认弹幕搜索和下载。
+
+```powershell
+& .\scripts\run-release-regressions.ps1 -AppDirectory 'artifacts/publish-example' -VerifyDefaultService
+node --test server/dandanplay-relay/worker.test.mjs
+```
 
 ---
 

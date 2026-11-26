@@ -6,6 +6,7 @@ using LibVLCSharp.Shared;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
 using TV.Models;
+using TV.Services.Cloud;
 using TV.Services;
 using TV.Services.AI;
 using TV.Services.Playback;
@@ -341,12 +342,16 @@ public sealed partial class PlayerViewModel : ObservableObject
             DanmakuChanged?.Invoke(this, media.Danmaku);
             _timer.Start();
         }
-        catch (OperationCanceledException) { }
-        catch (CloudAuthenticationException ex) when (!token.IsCancellationRequested)
+        catch (OperationCanceledException) when (token.IsCancellationRequested) { }
+        catch (CloudAuthenticationException ex) when (IsCurrentLoad(generation, token))
         {
             RequiredLoginProvider = ex.Provider;
             StatusMessage = $"{CloudAccountInfo.DisplayName(ex.Provider)}需要登录后才能播放。登录成功将继续当前影片。";
             Diagnostics.Log($"Cloud authentication required: {ex.Provider}");
+        }
+        catch (UcPlaybackRestrictionException ex) when (IsCurrentLoad(generation, token))
+        {
+            StatusMessage = ex.Message;
         }
         catch (Exception ex)
         {
@@ -1381,10 +1386,16 @@ public sealed partial class PlayerViewModel : ObservableObject
                     await _services.Player.PlayAsync(refreshed, token);
                     if (!IsCurrentLoad(generation, token) || !ReferenceEquals(_request, request)) return;
                     _resolvedMedia = refreshed;
+                    if (!string.IsNullOrWhiteSpace(refreshed.Notice)) QualityMessage = refreshed.Notice;
                     ReleaseMedia(previous, refreshed);
                     DanmakuChanged?.Invoke(this, refreshed.Danmaku);
                     _timer.Start();
                     StatusMessage = "正在使用刷新后的媒体地址恢复播放…";
+                    return;
+                }
+                catch (UcPlaybackRestrictionException ex) when (IsCurrentLoad(generation, token))
+                {
+                    StatusMessage = ex.Message;
                     return;
                 }
                 catch (Exception ex) when (!token.IsCancellationRequested)

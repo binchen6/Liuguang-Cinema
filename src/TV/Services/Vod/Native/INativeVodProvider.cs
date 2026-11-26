@@ -35,13 +35,14 @@ public sealed class NativeVodProviderRouter
     public static NativeVodProviderRouter CreateDefault(
         Http.SourceHttpClient http,
         Cloud.CloudDriveService cloud,
-        BilibiliVodProvider bilibili) =>
+        BilibiliVodProvider bilibili,
+        Playback.SniffService? browser = null) =>
         new([
             new WoggNativeProvider(http, cloud),
             new HttpSpiderProvider(http),
             new HtmlVodProvider(http),
             bilibili,
-            new ChangZhangVodProvider(http),
+            new ChangZhangVodProvider(http, browser is null ? null : browser.ReadPageHtmlAsync),
             new DoubanVodProvider(http),
             new YgpVodProvider(http),
             new Xb6vVodProvider(http),

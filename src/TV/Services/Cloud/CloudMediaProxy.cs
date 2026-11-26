@@ -48,16 +48,19 @@ public sealed partial class CloudMediaProxy : IDisposable
     private const long MaxHlsSegmentCacheBytes = 24 * 1024 * 1024;
     private const int MaxSinglePrefetchedSegmentBytes = 8 * 1024 * 1024;
     private const int MaxProxySessions = 4096;
+    private const int MaxRequestHeaderBytes = 32 * 1024;
 
     private readonly TcpListener _listener = new(IPAddress.Loopback, 0);
     private readonly ConcurrentDictionary<string, Session> _sessions = new();
     private readonly ConcurrentDictionary<CloudProviderKind, SemaphoreSlim> _gates = new();
     private readonly SemaphoreSlim _mediaRangeGate = new(6);
+    private readonly SemaphoreSlim _connections = new(64);
     private readonly ConcurrentDictionary<string, Task<PrefetchedSegment?>> _segmentPrefetches = new(StringComparer.Ordinal);
     private long _segmentCacheBytes;
     private readonly CancellationTokenSource _cts = new();
     private readonly HttpClient _http;
     private long _nextSweepAt;
+    private readonly string _authority;
 
     public CloudMediaProxy(DnsResolverService? dns = null)
     {
@@ -75,7 +78,8 @@ public sealed partial class CloudMediaProxy : IDisposable
         if (dns is not null) handler.ConnectCallback = dns.ConnectAsync;
         _http = new HttpClient(handler);
         _listener.Start();
-        BaseUrl = $"http://127.0.0.1:{((IPEndPoint)_listener.LocalEndpoint).Port}/";
+        _authority = $"127.0.0.1:{((IPEndPoint)_listener.LocalEndpoint).Port}";
+        BaseUrl = $"http://{_authority}/";
         _ = AcceptLoopAsync();
     }
 
@@ -85,6 +89,8 @@ public sealed partial class CloudMediaProxy : IDisposable
     public string Register(CloudPlayResult result, CloudProviderKind? provider, int threads, int chunkSize, string? manifest = null,
         Func<CancellationToken, Task<CloudPlayResult>>? refresh = null)
     {
+        if (!Uri.TryCreate(result.Url, UriKind.Absolute, out var origin) || !MediaRequestHeaders.IsHttpAddress(origin))
+            throw new InvalidDataException("媒体地址必须使用 HTTP 或 HTTPS。");
         var now = DateTimeOffset.UtcNow;
         var ticks = Environment.TickCount64;
         var nextSweep = Interlocked.Read(ref _nextSweepAt);
@@ -102,14 +108,14 @@ public sealed partial class CloudMediaProxy : IDisposable
         _sessions[id] = new Session(result, provider, Math.Clamp(threads, 1, 6), Math.Clamp(chunkSize, 1, 8) * 1024 * 1024, now.AddHours(4), manifest, refresh);
         var extension = DashManifest.IsPlaylist(result.Url, result.ContentType) ? ".mpd" :
             manifest is not null || HlsManifest.IsPlaylist(result.Url, result.ContentType)
-                ? ".m3u8" : result.FileExtension ?? Path.GetExtension(new Uri(result.Url).AbsolutePath);
+                ? ".m3u8" : result.FileExtension ?? Path.GetExtension(origin.AbsolutePath);
         if (extension.Length > 8 || extension.Any(ch => ch != '.' && !char.IsAsciiLetterOrDigit(ch))) extension = string.Empty;
         return BaseUrl + "media/" + id + extension;
     }
 
     public void ReleaseAddress(string? address)
     {
-        if (!Uri.TryCreate(address, UriKind.Absolute, out var uri) || !uri.IsLoopback) return;
+        if (!Uri.TryCreate(address, UriKind.Absolute, out var uri) || uri.Authority != _authority) return;
         var id = uri.AbsolutePath.Split('/', StringSplitOptions.RemoveEmptyEntries).LastOrDefault()?.Split('.', 2)[0];
         if (!string.IsNullOrWhiteSpace(id)) ReleaseSession(id);
     }
@@ -132,6 +138,11 @@ public sealed partial class CloudMediaProxy : IDisposable
             try
             {
                 var client = await _listener.AcceptTcpClientAsync(_cts.Token).ConfigureAwait(false);
+                if (!_connections.Wait(0))
+                {
+                    client.Dispose();
+                    continue;
+                }
                 client.NoDelay = true;
                 _ = HandleAsync(client);
             }
@@ -150,11 +161,19 @@ public sealed partial class CloudMediaProxy : IDisposable
                 using var headerTimeout = CancellationTokenSource.CreateLinkedTokenSource(_cts.Token);
                 headerTimeout.CancelAfter(TimeSpan.FromSeconds(10));
                 var header = await ReadHeaderAsync(stream, headerTimeout.Token).ConfigureAwait(false);
+                if (header is null) return;
                 var lines = header.Split("\r\n", StringSplitOptions.RemoveEmptyEntries);
                 if (lines.Length == 0) return;
                 var requestParts = lines[0].Split(' ');
-                if (requestParts.Length < 2 || requestParts[0] is not ("GET" or "HEAD")) return;
-                var id = (requestParts[1].Split('/').LastOrDefault() ?? string.Empty).Split('.', 2)[0];
+                if (requestParts.Length != 3 || requestParts[0] is not ("GET" or "HEAD") ||
+                    !requestParts[1].StartsWith("/media/", StringComparison.Ordinal)) return;
+                var incoming = ParseHeaders(lines);
+                if (!string.Equals(incoming.GetValueOrDefault("Host"), _authority, StringComparison.Ordinal))
+                {
+                    await WriteResponseHeadAsync(stream, 403, "Forbidden", "text/plain", 0).ConfigureAwait(false);
+                    return;
+                }
+                var id = requestParts[1][7..].Split('.', 2)[0];
                 if (!_sessions.TryGetValue(id, out var session))
                 {
                     await WriteResponseHeadAsync(stream, 404, "Not Found", "text/plain", 0).ConfigureAwait(false);
@@ -170,7 +189,6 @@ public sealed partial class CloudMediaProxy : IDisposable
                     return;
                 }
 
-                var incoming = ParseHeaders(lines);
                 var head = requestParts[0] == "HEAD";
                 var isPngWrappedSegment = session.Result.UnwrapPngHlsSegments && session.Result.FileExtension == ".ts";
                 var range = isPngWrappedSegment || HlsManifest.IsPlaylist(session.Result.Url, session.Result.ContentType)
@@ -356,6 +374,7 @@ public sealed partial class CloudMediaProxy : IDisposable
             }
             catch (Exception ex) when (ex is IOException or SocketException or OperationCanceledException or ObjectDisposedException) { }
             catch (Exception ex) { Diagnostics.Log($"Cloud proxy failed: {ex.GetType().Name}"); }
+            finally { _connections.Release(); }
         }
     }
 
@@ -589,8 +608,8 @@ public sealed partial class CloudMediaProxy : IDisposable
         string Resolve(string value, bool isPngWrappedSegment = false, bool trackSegment = false)
         {
             if (string.IsNullOrWhiteSpace(value) || value.StartsWith("data:", StringComparison.OrdinalIgnoreCase)) return value;
-            var uri = new Uri(baseUri, value);
-            if (uri.Scheme is not ("http" or "https") || uri.UserInfo.Length > 0) return value;
+            if (!Uri.TryCreate(baseUri, value, out var uri) || !MediaRequestHeaders.IsHttpAddress(uri))
+                throw new InvalidDataException("播放列表中包含无效的媒体地址。");
             if (!Uri.TryCreate(value, UriKind.Absolute, out _) && MediaRequestHeaders.SameOrigin(baseUri, uri) &&
                 string.IsNullOrEmpty(uri.Query) && !string.IsNullOrEmpty(baseUri.Query))
                 uri = new UriBuilder(uri) { Query = baseUri.Query }.Uri;
@@ -641,19 +660,24 @@ public sealed partial class CloudMediaProxy : IDisposable
         return string.Join('\n', lines);
     }
 
-    private static async Task<string> ReadHeaderAsync(NetworkStream stream, CancellationToken token)
+    private static async Task<string?> ReadHeaderAsync(NetworkStream stream, CancellationToken token)
     {
-        var buffer = new byte[1024];
-        using var memory = new MemoryStream();
-        while (memory.Length < 32768)
+        var buffer = ArrayPool<byte>.Shared.Rent(MaxRequestHeaderBytes);
+        try
         {
-            var read = await stream.ReadAsync(buffer, token).ConfigureAwait(false);
-            if (read == 0) break;
-            memory.Write(buffer, 0, read);
-            var text = Encoding.Latin1.GetString(memory.GetBuffer(), 0, (int)memory.Length);
-            if (text.Contains("\r\n\r\n", StringComparison.Ordinal)) return text.Split("\r\n\r\n")[0];
+            var used = 0;
+            while (used < MaxRequestHeaderBytes)
+            {
+                var read = await stream.ReadAsync(buffer.AsMemory(used, MaxRequestHeaderBytes - used), token).ConfigureAwait(false);
+                if (read == 0) break;
+                var searchStart = Math.Max(0, used - 3);
+                used += read;
+                var end = buffer.AsSpan(searchStart, used - searchStart).IndexOf("\r\n\r\n"u8);
+                if (end >= 0) return Encoding.Latin1.GetString(buffer, 0, searchStart + end);
+            }
+            return null;
         }
-        return Encoding.Latin1.GetString(memory.ToArray());
+        finally { ArrayPool<byte>.Shared.Return(buffer, clearArray: true); }
     }
 
     private static Dictionary<string, string> ParseHeaders(string[] lines)
@@ -687,7 +711,7 @@ public sealed partial class CloudMediaProxy : IDisposable
 
     private static async Task WriteResponseHeadAsync(Stream stream, int status, string reason, string type, long length, Dictionary<string, string>? headers = null)
     {
-        var builder = new StringBuilder($"HTTP/1.1 {status} {Sanitize(reason)}\r\nContent-Type: {Sanitize(type)}\r\nAccept-Ranges: bytes\r\nConnection: close\r\n");
+        var builder = new StringBuilder($"HTTP/1.1 {status} {Sanitize(reason)}\r\nContent-Type: {Sanitize(type)}\r\nAccept-Ranges: bytes\r\nCache-Control: no-store\r\nX-Content-Type-Options: nosniff\r\nConnection: close\r\n");
         if (length >= 0) builder.Append("Content-Length: ").Append(length).Append("\r\n");
         if (headers is not null) foreach (var pair in headers) builder.Append(pair.Key).Append(": ").Append(Sanitize(pair.Value)).Append("\r\n");
         builder.Append("\r\n");

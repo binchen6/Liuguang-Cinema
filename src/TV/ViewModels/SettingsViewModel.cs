@@ -208,8 +208,8 @@ public sealed partial class SettingsViewModel : ObservableObject
     {
         if (await _services.DanDanPlay.HasCustomCredentialsAsync())
             DanDanPlayStatus = "已启用自定义弹弹play 开放平台凭证（DPAPI 加密保存）";
-        else if (_services.DanDanPlay.HasBuiltInCredentials)
-            DanDanPlayStatus = "已接入内置弹弹play 开放弹幕库（支持主备密钥自动切换）";
+        else if (_services.DanDanPlay.HasDefaultService)
+            DanDanPlayStatus = "已启用默认弹幕服务。可使用自定义凭据直连弹弹play。";
         else
             DanDanPlayStatus = "尚未配置凭证；请在下方填入自定义 AppId / AppSecret";
     }
@@ -321,7 +321,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         DanDanPlayAppIdInput = string.Empty;
         DanDanPlayAppSecretInput = string.Empty;
         await RefreshDanDanPlayStatusAsync();
-        StatusMessage = "已清除自定义弹弹play 凭证。";
+        StatusMessage = _services.DanDanPlay.HasDefaultService ? "已清除自定义凭据，并恢复默认弹幕服务。" : "已清除自定义弹弹play 凭证。";
     }
 
     partial void OnBailianRegionIndexChanged(int value) =>

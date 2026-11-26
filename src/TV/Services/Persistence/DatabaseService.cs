@@ -87,6 +87,37 @@ public sealed class DatabaseService
         finally { _writeLock.Release(); }
     }
 
+    internal async Task<(string? First, string? Second)> GetSettingPairAsync(string firstKey, string secondKey, CancellationToken token)
+    {
+        await InitializeAsync(token).ConfigureAwait(false);
+        await _writeLock.WaitAsync(token).ConfigureAwait(false);
+        try { return (_settings.GetValueOrDefault(firstKey), _settings.GetValueOrDefault(secondKey)); }
+        finally { _writeLock.Release(); }
+    }
+
+    internal async Task SetSettingPairAsync((string Key, string Value) first, (string Key, string Value) second, CancellationToken token)
+    {
+        await InitializeAsync(token).ConfigureAwait(false);
+        await _writeLock.WaitAsync(token).ConfigureAwait(false);
+        try
+        {
+            await using var connection = await OpenAsync(token).ConfigureAwait(false);
+            await using var command = connection.CreateCommand();
+            command.CommandText = """
+                INSERT INTO settings(key,value) VALUES($firstKey,$firstValue),($secondKey,$secondValue)
+                ON CONFLICT(key) DO UPDATE SET value=excluded.value
+                """;
+            command.Parameters.AddWithValue("$firstKey", first.Key);
+            command.Parameters.AddWithValue("$firstValue", first.Value);
+            command.Parameters.AddWithValue("$secondKey", second.Key);
+            command.Parameters.AddWithValue("$secondValue", second.Value);
+            await command.ExecuteNonQueryAsync(token).ConfigureAwait(false);
+            _settings[first.Key] = first.Value;
+            _settings[second.Key] = second.Value;
+        }
+        finally { _writeLock.Release(); }
+    }
+
     public async Task<List<HistoryEntry>> GetHistoryAsync(CancellationToken cancellationToken = default)
     {
         await InitializeAsync(cancellationToken).ConfigureAwait(false);

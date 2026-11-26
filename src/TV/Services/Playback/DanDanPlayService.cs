@@ -12,31 +12,6 @@ using TV.Services.Vod;
 
 namespace TV.Services.Playback;
 
-internal static class DanDanPlayBuildConfig
-{
-    internal static readonly string AppId = Read("DanDanPlayAppId");
-    internal static readonly string AppSecret1 = Read("DanDanPlayAppSecret1");
-    internal static readonly string AppSecret2 = Read("DanDanPlayAppSecret2");
-
-    private static string Read(string key)
-    {
-        foreach (var attr in typeof(DanDanPlayBuildConfig).Assembly.GetCustomAttributes<AssemblyMetadataAttribute>())
-        {
-            if (string.Equals(attr.Key, key, StringComparison.Ordinal) && !string.IsNullOrWhiteSpace(attr.Value))
-            {
-                var raw = attr.Value.Trim();
-                if (raw.StartsWith("b64:", StringComparison.Ordinal))
-                {
-                    try { return Encoding.UTF8.GetString(Convert.FromBase64String(raw[4..])); }
-                    catch { return string.Empty; }
-                }
-                return raw;
-            }
-        }
-        return string.Empty;
-    }
-}
-
 public sealed record DanDanPlayEpisode(long EpisodeId, string AnimeTitle, string EpisodeTitle, string TypeDescription = "")
 {
     public string DisplayName => string.IsNullOrWhiteSpace(EpisodeTitle)
@@ -60,46 +35,47 @@ public sealed partial class DanDanPlayService
 
     private readonly SourceHttpClient _http;
     private readonly DatabaseService _database;
+    private readonly Uri? _defaultRelay;
     private readonly ConcurrentDictionary<string, (DanDanPlayEpisode Episode, DateTimeOffset Expires)> _matchCache = new(StringComparer.OrdinalIgnoreCase);
-    private readonly ConcurrentDictionary<long, (DanmakuEntry[] Comments, DateTimeOffset Expires)> _commentCache = new();
-    private volatile bool _useBackupSecret;
+    private readonly ConcurrentDictionary<(long Episode, bool WithRelated, int Conversion), (DanmakuEntry[] Comments, DateTimeOffset Expires)> _commentCache = new();
 
     public DanDanPlayService(SourceHttpClient http, DatabaseService database)
+        : this(http, database, ReadDefaultRelay())
+    {
+    }
+
+    internal DanDanPlayService(SourceHttpClient http, DatabaseService database, Uri? defaultRelay)
     {
         _http = http;
         _database = database;
+        _defaultRelay = defaultRelay;
     }
 
-    public async Task<bool> HasCredentialsAsync(CancellationToken token = default)
-    {
-        var creds = await ResolveCredentialsAsync(token).ConfigureAwait(false);
-        return !string.IsNullOrWhiteSpace(creds.AppId) && creds.Secrets.Count > 0;
-    }
+    public bool HasDefaultService => _defaultRelay is not null;
+
+    public async Task<bool> HasCredentialsAsync(CancellationToken token = default) =>
+        HasDefaultService || await HasCustomCredentialsAsync(token).ConfigureAwait(false);
 
     public async Task<bool> HasCustomCredentialsAsync(CancellationToken token = default)
     {
-        var customId = (await _database.GetSettingAsync(SettingAppId, token).ConfigureAwait(false))?.Trim();
-        var customSecret = SecretStore.Unprotect(await _database.GetSettingAsync(SettingAppSecret, token).ConfigureAwait(false));
-        return !string.IsNullOrWhiteSpace(customId) && !string.IsNullOrWhiteSpace(customSecret);
+        var (appId, secret) = await ReadCredentialsAsync(token).ConfigureAwait(false);
+        return appId.Length > 0 && secret.Length > 0;
     }
 
-    public bool HasBuiltInCredentials =>
-        !string.IsNullOrWhiteSpace(DanDanPlayBuildConfig.AppId) &&
-        (!string.IsNullOrWhiteSpace(DanDanPlayBuildConfig.AppSecret1) || !string.IsNullOrWhiteSpace(DanDanPlayBuildConfig.AppSecret2));
-
-    public async Task SaveCustomCredentialsAsync(string appId, string appSecret, CancellationToken token = default)
+    private static Uri? ReadDefaultRelay()
     {
-        await _database.SetSettingAsync(SettingAppId, appId.Trim(), token).ConfigureAwait(false);
-        await _database.SetSettingAsync(SettingAppSecret, SecretStore.Protect(appSecret), token).ConfigureAwait(false);
-        _useBackupSecret = false;
+        var address = typeof(DanDanPlayService).Assembly.GetCustomAttributes<AssemblyMetadataAttribute>()
+            .FirstOrDefault(attribute => attribute.Key == "DanDanPlayRelayUrl")?.Value;
+        return Uri.TryCreate(address, UriKind.Absolute, out var uri) && uri.Scheme == Uri.UriSchemeHttps &&
+            uri.IsDefaultPort && uri.UserInfo.Length == 0 && uri.PathAndQuery == "/" && uri.Fragment.Length == 0 && !uri.IsLoopback
+            ? uri : null;
     }
 
-    public async Task ClearCustomCredentialsAsync(CancellationToken token = default)
-    {
-        await _database.SetSettingAsync(SettingAppId, string.Empty, token).ConfigureAwait(false);
-        await _database.SetSettingAsync(SettingAppSecret, string.Empty, token).ConfigureAwait(false);
-        _useBackupSecret = false;
-    }
+    public Task SaveCustomCredentialsAsync(string appId, string appSecret, CancellationToken token = default) =>
+        _database.SetSettingPairAsync((SettingAppId, appId.Trim()), (SettingAppSecret, SecretStore.Protect(appSecret)), token);
+
+    public Task ClearCustomCredentialsAsync(CancellationToken token = default) =>
+        _database.SetSettingPairAsync((SettingAppId, string.Empty), (SettingAppSecret, string.Empty), token);
 
     /// <summary>
     /// Computes X-Signature = Base64(SHA256(AppId + Timestamp + Path + AppSecret)) per DanDanPlay Open API v2 spec.
@@ -312,11 +288,12 @@ public sealed partial class DanDanPlayService
     public async Task<DanmakuEntry[]> GetCommentsAsync(long episodeId, bool withRelated = true, int chConvert = 1, CancellationToken token = default)
     {
         if (episodeId <= 0) throw new ArgumentOutOfRangeException(nameof(episodeId));
-        if (_commentCache.TryGetValue(episodeId, out var cached) && cached.Expires > DateTimeOffset.UtcNow)
+        var convert = Math.Clamp(chConvert, 0, 2);
+        var cacheKey = (episodeId, withRelated, convert);
+        if (_commentCache.TryGetValue(cacheKey, out var cached) && cached.Expires > DateTimeOffset.UtcNow)
             return cached.Comments;
 
         var path = $"/api/v2/comment/{episodeId.ToString(CultureInfo.InvariantCulture)}";
-        var convert = Math.Clamp(chConvert, 0, 2);
         var url = $"{ApiBaseUrl}{path}?withRelated={(withRelated ? "true" : "false")}&chConvert={convert}";
         string json;
         try
@@ -330,6 +307,7 @@ public sealed partial class DanDanPlayService
             Diagnostics.Log($"DanDanPlay withRelated=true failed ({ex.GetType().Name}), falling back to direct comments");
             var directUrl = $"{ApiBaseUrl}{path}?withRelated=false&chConvert={convert}";
             json = await SendSignedAsync(HttpMethod.Get, path, directUrl, bodyJson: null, token, CommentRequestTimeout).ConfigureAwait(false);
+            cacheKey = (episodeId, false, convert);
         }
         var comments = DanmakuService.ParseContent(json);
 
@@ -342,7 +320,7 @@ public sealed partial class DanDanPlayService
                 foreach (var pair in _commentCache.OrderBy(p => p.Value.Expires).Take(_commentCache.Count - 31))
                     _commentCache.TryRemove(pair.Key, out _);
         }
-        _commentCache[episodeId] = (comments, DateTimeOffset.UtcNow.AddHours(2));
+        _commentCache[cacheKey] = (comments, DateTimeOffset.UtcNow.AddHours(2));
         return comments;
     }
 
@@ -353,12 +331,19 @@ public sealed partial class DanDanPlayService
         try
         {
             string json;
-            if (!string.IsNullOrWhiteSpace(appIdOverride) && !string.IsNullOrWhiteSpace(appSecretOverride))
+            if (!string.IsNullOrWhiteSpace(appSecretOverride))
             {
+                if (string.IsNullOrWhiteSpace(appIdOverride)) return (false, "请填写与 AppSecret 对应的 AppId。");
                 json = await SendWithSingleCredentialAsync(HttpMethod.Get, path, url, null, appIdOverride.Trim(), appSecretOverride.Trim(), token).ConfigureAwait(false);
             }
             else
             {
+                if (!string.IsNullOrWhiteSpace(appIdOverride))
+                {
+                    var (savedId, _) = await ReadCredentialsAsync(token).ConfigureAwait(false);
+                    if (!string.Equals(savedId, appIdOverride.Trim(), StringComparison.Ordinal))
+                        return (false, "请填写与新的 AppId 对应的 AppSecret。");
+                }
                 json = await SendSignedAsync(HttpMethod.Get, path, url, null, token).ConfigureAwait(false);
             }
             using var doc = JsonDocument.Parse(json);
@@ -792,41 +777,29 @@ public sealed partial class DanDanPlayService
         CancellationToken token,
         TimeSpan? requestTimeout = null)
     {
-        var (appId, secrets) = await ResolveCredentialsAsync(token).ConfigureAwait(false);
-        if (string.IsNullOrWhiteSpace(appId) || secrets.Count == 0)
+        var (appId, secret) = await ReadCredentialsAsync(token).ConfigureAwait(false);
+        var custom = appId.Length > 0 && secret.Length > 0;
+        if (!custom && _defaultRelay is null)
             throw new InvalidOperationException("尚未配置弹弹play 开放平台 AppId/AppSecret，请在“设置 → 弹幕与 AI”中填入凭证。");
 
         var timeout = requestTimeout ?? SearchRequestTimeout;
-        var startIdx = _useBackupSecret && secrets.Count > 1 ? 1 : 0;
-        Exception? lastError = null;
-        for (var attempt = 0; attempt < secrets.Count; attempt++)
+        Task<string> SendAsync() => custom
+            ? SendWithSingleCredentialAsync(method, apiPath, url, bodyJson, appId, secret, token, timeout)
+            : SendApiAsync(new Uri(_defaultRelay!, new Uri(url).PathAndQuery), method == HttpMethod.Post ? bodyJson ?? "{}" : null,
+                new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) { ["User-Agent"] = "LiuguangCinema/1.9 (DanDanPlay Relay)" },
+                timeout, fromRelay: true, token);
+        try
         {
-            var idx = (startIdx + attempt) % secrets.Count;
-            for (var retry = 0; retry < 2; retry++)
-            {
-                try
-                {
-                    var result = await SendWithSingleCredentialAsync(method, apiPath, url, bodyJson, appId, secrets[idx], token, timeout).ConfigureAwait(false);
-                    if (idx == 1) _useBackupSecret = true;
-                    else if (idx == 0) _useBackupSecret = false;
-                    return result;
-                }
-                catch (HttpRequestException ex) when (ex.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden && attempt + 1 < secrets.Count)
-                {
-                    Diagnostics.Log($"DanDanPlay secret #{idx + 1} rejected ({(int?)ex.StatusCode}), failing over to backup secret");
-                    lastError = ex;
-                    break;
-                }
-                catch (Exception ex) when (retry == 0 && !token.IsCancellationRequested &&
-                    (ex is TimeoutException || (ex is HttpRequestException hre && (hre.StatusCode is null || (int)hre.StatusCode >= 500 || hre.StatusCode == HttpStatusCode.TooManyRequests))))
-                {
-                    Diagnostics.Log($"DanDanPlay transient failure on {apiPath} ({ex.GetType().Name}), retrying once");
-                    lastError = ex;
-                    await Task.Delay(400, token).ConfigureAwait(false);
-                }
-            }
+            return await SendAsync().ConfigureAwait(false);
         }
-        throw lastError ?? new HttpRequestException("弹弹play API 鉴权失败。");
+        catch (Exception ex) when (!token.IsCancellationRequested &&
+            (ex is TimeoutException || ex is HttpRequestException http &&
+                (http.StatusCode is null || (int)http.StatusCode >= 500)))
+        {
+            Diagnostics.Log($"DanDanPlay transient failure on {apiPath} ({ex.GetType().Name}), retrying once");
+            await Task.Delay(400, token).ConfigureAwait(false);
+            return await SendAsync().ConfigureAwait(false);
+        }
     }
 
     private async Task<string> SendWithSingleCredentialAsync(
@@ -850,13 +823,23 @@ public sealed partial class DanDanPlayService
             ["X-Signature"] = signature
         };
 
-        var timeout = requestTimeout ?? SearchRequestTimeout;
+        return await SendApiAsync(new Uri(url), method == HttpMethod.Post ? bodyJson ?? "{}" : null, headers,
+            requestTimeout ?? SearchRequestTimeout, fromRelay: false, token).ConfigureAwait(false);
+    }
+
+    private async Task<string> SendApiAsync(Uri uri, string? bodyJson, IReadOnlyDictionary<string, string> headers,
+        TimeSpan timeout, bool fromRelay, CancellationToken token)
+    {
         HttpExchangeResult exchange;
         try
         {
-            exchange = method == HttpMethod.Post
-                ? await _http.PostJsonAsync(url, bodyJson ?? "{}", headers, maxBytes: 12 * 1024 * 1024, cancellationToken: token, requestTimeout: timeout).ConfigureAwait(false)
-                : await _http.GetExchangeAsync(url, headers, maxBytes: 12 * 1024 * 1024, cancellationToken: token, requestTimeout: timeout).ConfigureAwait(false);
+            Func<Uri, bool>? allowCommentDelivery = !fromRelay && uri.AbsolutePath.StartsWith("/api/v2/comment/", StringComparison.Ordinal)
+                ? target => target.Scheme == "https" && target.IsDefaultPort && target.IdnHost == "cas2.dandanplay.net" &&
+                    target.AbsolutePath == "/api" + uri.AbsolutePath["/api/v2".Length..] &&
+                    target.Query.Length <= 4096 && target.Fragment.Length == 0
+                : null;
+            exchange = await _http.SendTrustedApiAsync(uri, headers, bodyJson, 12 * 1024 * 1024, timeout, token,
+                allowCommentDelivery).ConfigureAwait(false);
         }
         catch (OperationCanceledException ex) when (!token.IsCancellationRequested)
         {
@@ -867,23 +850,17 @@ public sealed partial class DanDanPlayService
             throw new HttpRequestException($"弹弹play API 鉴权失败（HTTP {(int)exchange.StatusCode}），请检查密钥配置或系统时间是否准确。", null, exchange.StatusCode);
 
         if ((int)exchange.StatusCode < 200 || (int)exchange.StatusCode >= 300)
-            throw new HttpRequestException($"弹弹play 服务返回 HTTP {(int)exchange.StatusCode}。", null, exchange.StatusCode);
+            throw new HttpRequestException(fromRelay
+                ? $"默认弹幕服务暂不可用（HTTP {(int)exchange.StatusCode}），请稍后重试或使用自定义凭据。"
+                : $"弹弹play 服务返回 HTTP {(int)exchange.StatusCode}。", null, exchange.StatusCode);
 
         return SourceHttpClient.DecodeText(exchange.Payload.Content);
     }
 
-    private async Task<(string AppId, List<string> Secrets)> ResolveCredentialsAsync(CancellationToken token)
+    private async Task<(string AppId, string Secret)> ReadCredentialsAsync(CancellationToken token)
     {
-        var customId = (await _database.GetSettingAsync(SettingAppId, token).ConfigureAwait(false))?.Trim();
-        var customSecret = SecretStore.Unprotect(await _database.GetSettingAsync(SettingAppSecret, token).ConfigureAwait(false));
-        if (!string.IsNullOrWhiteSpace(customId) && !string.IsNullOrWhiteSpace(customSecret))
-            return (customId, [customSecret]);
-
-        var builtInId = DanDanPlayBuildConfig.AppId;
-        var secrets = new List<string>(2);
-        if (!string.IsNullOrWhiteSpace(DanDanPlayBuildConfig.AppSecret1)) secrets.Add(DanDanPlayBuildConfig.AppSecret1);
-        if (!string.IsNullOrWhiteSpace(DanDanPlayBuildConfig.AppSecret2)) secrets.Add(DanDanPlayBuildConfig.AppSecret2);
-        return (builtInId, secrets);
+        var (appId, protectedSecret) = await _database.GetSettingPairAsync(SettingAppId, SettingAppSecret, token).ConfigureAwait(false);
+        return (appId?.Trim() ?? string.Empty, SecretStore.Unprotect(protectedSecret).Trim());
     }
 
     private void CacheMatch(string key, DanDanPlayEpisode episode)

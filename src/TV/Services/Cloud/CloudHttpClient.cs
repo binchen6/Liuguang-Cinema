@@ -10,12 +10,26 @@ public sealed record CloudRawResult(HttpStatusCode StatusCode, byte[] Content, s
 {
     public Uri? RedirectLocation { get; init; }
 }
+internal readonly record struct CloudMediaProbe(HttpStatusCode? StatusCode, long? TotalLength, string? FileName, string? ErrorText, string? ContentType);
 
 public sealed class CloudHttpClient : IDisposable
 {
+    internal const string DefaultUserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/132.0.0.0 Safari/537.36";
     private readonly HttpClient _client;
+    private readonly bool _allowAutoRedirect;
 
     public CloudHttpClient(DnsResolverService? dns = null, bool allowAutoRedirect = true)
+        : this(CreateHandler(dns), allowAutoRedirect)
+    {
+    }
+
+    internal CloudHttpClient(HttpMessageHandler handler, bool allowAutoRedirect)
+    {
+        _client = new HttpClient(handler);
+        _allowAutoRedirect = allowAutoRedirect;
+    }
+
+    private static SocketsHttpHandler CreateHandler(DnsResolverService? dns)
     {
         var handler = new SocketsHttpHandler
         {
@@ -24,10 +38,10 @@ public sealed class CloudHttpClient : IDisposable
             PooledConnectionLifetime = TimeSpan.FromMinutes(10),
             MaxConnectionsPerServer = 8,
             UseCookies = false,
-            AllowAutoRedirect = allowAutoRedirect
+            AllowAutoRedirect = false
         };
         if (dns is not null) handler.ConnectCallback = dns.ConnectAsync;
-        _client = new HttpClient(handler);
+        return handler;
     }
 
     public void Dispose() => _client.Dispose();
@@ -40,21 +54,13 @@ public sealed class CloudHttpClient : IDisposable
         IEnumerable<KeyValuePair<string, string>>? form = null,
         CancellationToken cancellationToken = default)
     {
-        using var request = new HttpRequestMessage(method, url);
-        request.Headers.TryAddWithoutValidation("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/132.0.0.0 Safari/537.36");
-        request.Headers.TryAddWithoutValidation("Accept", "application/json, text/plain, */*");
-        if (headers is not null)
-            foreach (var (name, value) in headers)
-            {
-                request.Headers.Remove(name);
-                request.Headers.TryAddWithoutValidation(name, value);
-            }
-        if (json is not null) request.Content = new StringContent(JsonSerializer.Serialize(json), Encoding.UTF8, "application/json");
-        else if (form is not null) request.Content = new FormUrlEncodedContent(form);
-
+        var origin = new Uri(url, UriKind.Absolute);
+        using HttpContent? body = json is not null ? new StringContent(JsonSerializer.Serialize(json), Encoding.UTF8, "application/json") :
+            form is not null ? new FormUrlEncodedContent(form) : null;
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeout.CancelAfter(TimeSpan.FromSeconds(25));
-        using var response = await _client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, timeout.Token).ConfigureAwait(false);
+        var (message, finalUri) = await SendHeadersAsync(method, origin, headers, body, null, timeout.Token).ConfigureAwait(false);
+        using var response = message;
         await response.Content.LoadIntoBufferAsync(16 * 1024 * 1024, timeout.Token).ConfigureAwait(false);
         var text = await response.Content.ReadAsStringAsync(timeout.Token).ConfigureAwait(false);
         JsonElement payload = default;
@@ -68,8 +74,7 @@ public sealed class CloudHttpClient : IDisposable
             catch (JsonException) when (!response.IsSuccessStatusCode) { }
             catch (JsonException ex) { throw new InvalidDataException($"网盘返回了非 JSON 内容（HTTP {(int)response.StatusCode}）。", ex); }
         }
-        var cookies = response.Headers.TryGetValues("Set-Cookie", out var values) ? values.ToArray() : [];
-        return new CloudHttpResult(response.StatusCode, payload, cookies);
+        return new CloudHttpResult(response.StatusCode, payload, ReadCookies(response, origin, finalUri));
     }
 
     public Task<CloudHttpResult> PostJsonAsync(string url, object json, IReadOnlyDictionary<string, string>? headers = null, CancellationToken cancellationToken = default) =>
@@ -86,67 +91,101 @@ public sealed class CloudHttpClient : IDisposable
         IEnumerable<KeyValuePair<string, string>>? form = null,
         CancellationToken cancellationToken = default)
     {
-        using var request = new HttpRequestMessage(method, url);
-        request.Headers.TryAddWithoutValidation("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/132.0.0.0 Safari/537.36");
-        if (headers is not null)
-            foreach (var (name, value) in headers)
-            {
-                request.Headers.Remove(name);
-                request.Headers.TryAddWithoutValidation(name, value);
-            }
-        if (form is not null) request.Content = new FormUrlEncodedContent(form);
+        var origin = new Uri(url, UriKind.Absolute);
+        using var body = form is not null ? new FormUrlEncodedContent(form) : null;
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeout.CancelAfter(TimeSpan.FromSeconds(25));
-        using var response = await _client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, timeout.Token).ConfigureAwait(false);
+        var (message, finalUri) = await SendHeadersAsync(method, origin, headers, body, null, timeout.Token).ConfigureAwait(false);
+        using var response = message;
         await response.Content.LoadIntoBufferAsync(16 * 1024 * 1024, timeout.Token).ConfigureAwait(false);
         var bytes = await response.Content.ReadAsByteArrayAsync(timeout.Token).ConfigureAwait(false);
-        var cookies = response.Headers.TryGetValues("Set-Cookie", out var values) ? values.ToArray() : [];
-        return new CloudRawResult(response.StatusCode, bytes, Encoding.UTF8.GetString(bytes),
-            response.RequestMessage?.RequestUri ?? new Uri(url), cookies)
+        return new CloudRawResult(response.StatusCode, bytes, Encoding.UTF8.GetString(bytes), finalUri, ReadCookies(response, origin, finalUri))
         {
             RedirectLocation = response.Headers.Location
         };
     }
 
     /// <summary>
-    /// Issues a lightweight 1-byte Range probe to inspect the actual upstream file size and
-    /// Content-Disposition without downloading the payload. Returns (null, null) if probing fails.
+    /// Inspect media headers and a bounded prefix of any text error page without buffering the media.
     /// </summary>
-    public async Task<(long? TotalLength, string? ContentDisposition)> ProbeRangeLengthAsync(
+    internal async Task<CloudMediaProbe> ProbeMediaAsync(
         string url,
         IReadOnlyDictionary<string, string>? headers = null,
         CancellationToken cancellationToken = default)
     {
         try
         {
-            using var request = new HttpRequestMessage(HttpMethod.Get, url);
-            request.Headers.TryAddWithoutValidation("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/132.0.0.0 Safari/537.36");
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            timeout.CancelAfter(TimeSpan.FromSeconds(4));
+            var (message, _) = await SendHeadersAsync(HttpMethod.Get, new Uri(url, UriKind.Absolute), headers, null, "bytes=0-0", timeout.Token).ConfigureAwait(false);
+            using var response = message;
+            var totalLength = response.IsSuccessStatusCode ? response.Content.Headers.ContentRange?.Length : null;
+            if (totalLength is null && response.StatusCode == HttpStatusCode.OK && response.Content.Headers.ContentEncoding.Count == 0)
+                totalLength = response.Content.Headers.ContentLength;
+            var disposition = response.Content.Headers.ContentDisposition?.FileNameStar
+                ?? response.Content.Headers.ContentDisposition?.FileName;
+            var contentType = response.Content.Headers.ContentType?.MediaType;
+            string? errorText = null;
+            if (response.StatusCode != HttpStatusCode.Forbidden && contentType is "text/html" or "application/json" or "text/plain")
+            {
+                await using var stream = await response.Content.ReadAsStreamAsync(timeout.Token).ConfigureAwait(false);
+                var prefix = new byte[4096];
+                var read = await stream.ReadAtLeastAsync(prefix, prefix.Length, false, timeout.Token).ConfigureAwait(false);
+                errorText = SourceHttpClient.DecodeText(prefix.AsSpan(0, read).ToArray());
+            }
+            return new CloudMediaProbe(response.StatusCode, totalLength, disposition, errorText, contentType);
+        }
+        catch (Exception ex) when (!cancellationToken.IsCancellationRequested &&
+            ex is HttpRequestException or IOException or OperationCanceledException)
+        {
+            Diagnostics.Log($"网盘媒体探测跳过: {ex.GetType().Name}");
+            return default;
+        }
+    }
+
+    private static string[] ReadCookies(HttpResponseMessage response, Uri origin, Uri finalUri) =>
+        MediaRequestHeaders.SameOrigin(origin, finalUri) && response.Headers.TryGetValues("Set-Cookie", out var values)
+            ? values.ToArray() : [];
+
+    private async Task<(HttpResponseMessage Response, Uri FinalUri)> SendHeadersAsync(HttpMethod method, Uri origin,
+        IReadOnlyDictionary<string, string>? headers, HttpContent? content, string? range, CancellationToken token)
+    {
+        if (!MediaRequestHeaders.IsHttpAddress(origin)) throw new HttpRequestException("网盘地址无效。");
+        var uri = origin;
+        for (var count = 0; ; count++)
+        {
+            using var request = new HttpRequestMessage(method, uri) { Content = content };
+            request.Headers.TryAddWithoutValidation("User-Agent", DefaultUserAgent);
+            request.Headers.TryAddWithoutValidation("Accept", "application/json, text/plain, */*");
             if (headers is not null)
-                foreach (var (name, value) in headers)
+            {
+                foreach (var (name, value) in MediaRequestHeaders.ForTarget(headers, origin, uri))
                 {
                     if (name.Equals("Host", StringComparison.OrdinalIgnoreCase) || name.Equals("Range", StringComparison.OrdinalIgnoreCase)) continue;
                     request.Headers.Remove(name);
                     request.Headers.TryAddWithoutValidation(name, value);
                 }
-            request.Headers.TryAddWithoutValidation("Range", "bytes=0-0");
-
-            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            timeout.CancelAfter(TimeSpan.FromSeconds(4));
-            using var response = await _client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, timeout.Token).ConfigureAwait(false);
-            if (!response.IsSuccessStatusCode) return (null, null);
-
-            long? totalLength = response.Content.Headers.ContentRange?.Length;
-            if (totalLength is null && response.StatusCode == HttpStatusCode.OK)
-                totalLength = response.Content.Headers.ContentLength;
-            var disposition = response.Content.Headers.ContentDisposition?.FileNameStar
-                ?? response.Content.Headers.ContentDisposition?.FileName
-                ?? (response.Content.Headers.TryGetValues("Content-Disposition", out var raw) ? string.Join(';', raw) : null);
-            return (totalLength, disposition);
-        }
-        catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
-        {
-            Diagnostics.Log($"网盘媒体探测跳过: {ex.GetType().Name}");
-            return (null, null);
+            }
+            if (range is not null) request.Headers.TryAddWithoutValidation("Range", range);
+            HttpResponseMessage response;
+            try
+            {
+                response = await _client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, token).ConfigureAwait(false);
+            }
+            finally { request.Content = null; } // The caller owns the body across same-origin redirects.
+            if (!_allowAutoRedirect || !MediaRequestHeaders.IsRedirect(response.StatusCode) || response.Headers.Location is not { } location)
+                return (response, uri);
+            using (response)
+            {
+                if (count >= 7) throw new HttpRequestException("网盘重定向次数过多。");
+                var target = MediaRequestHeaders.RedirectTarget(uri, location);
+                var nextMethod = MediaRequestHeaders.RedirectMethod(method, response.StatusCode);
+                if (nextMethod != method) content = null;
+                if (content is not null && !MediaRequestHeaders.SameOrigin(uri, target))
+                    throw new HttpRequestException("网盘请求正文不能跨域重定向。");
+                method = nextMethod;
+                uri = target;
+            }
         }
     }
 }

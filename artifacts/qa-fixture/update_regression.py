@@ -72,7 +72,7 @@ def main():
                 hwnd = q.wait_for(lambda: q.find_window(process.pid), "update window")
                 ui(hwnd, "发现新版本")
                 ui(hwnd, "流光影院更新验收")
-                ui(hwnd, "更新内容")
+                ui(hwnd, "CHANGELOG · 更新内容")
                 download = json.loads(ui(hwnd, "下载安装", "bounds"))
                 dialog = json.loads(ui(hwnd, "应用更新", "bounds"))
                 assert dialog["visible"] and dialog["w"] >= 500 and dialog["h"] >= 400, dialog
