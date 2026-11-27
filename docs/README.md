@@ -18,7 +18,8 @@
 
 ## 版本发行说明
 
-- [1.9.6](releases/release-1.9.6.md) 修复 UC 原画与转码切换、厂长浏览器渲染兼容、云盘分页和增量安装，并强化更新校验、网络凭据隔离与 CatVod 运行依赖。
+- [1.9.7](releases/release-1.9.7.md)：通用安卓 TVBox 站点自动适配（外部 DEX/JAR 动态转译、Jint drpy2/CatVod-JS、AppYsV2/AList、Python 爬虫与 `NativeSiteToolkit` 公共抽取）、点播页与设置页多仓库切换隔离、拖拽进度条无回弹与零暂停重复优化、国内直连多平台弹弹play 签名中继与 CDN 直连省流模式、以及死代码清理。
+- [1.9.6](releases/release-1.9.6.md)：修复 UC 原画与转码切换、厂长浏览器渲染兼容、云盘分页和增量安装，并强化更新校验、网络凭据隔离与 CatVod 运行依赖。
 
 - [1.9.5](releases/release-1.9.5.md)：修复阿里云盘分享目录获取失败（修正 `/v2/share_link/get_share_token`、`/adrive/v2/file/list_by_share` 与 `type` 字段解析）及分享原画播放（替代已返回 HTTP 410 的旧直链接口，改为转存至个人盘取直链并支持预览回退）；深度优化 UC 网盘原画播放（引入持久化每账号设备标识与 AES-128-CBC `ut` 参数、官方桌面 UA、请求期 Cookie 快照、约 14 MB 会员/客户端提示视频探测与设备轮换重试及自动转码兜底）；根治弹幕匹配 `The operation was canceled.` 报错（修复自定义 DoH DNS 超时穿透与故障缓存污染、精简弹弹play 查询轮次并新增瞬态超时重试与直连回退、自动回退原站/B 站弹幕并统一友好中文提示）；顺带修复图片缓存超时日志刷屏、`PanSearch` 超时未回退 `panso.vip` 及多处超时取消守卫。
 - [1.9.4](releases/release-1.9.4.md)：消除播放器高回报率鼠标移动卡顿（节流快路径、去移动期 `SetCursorPos`、移除 `SwapChainPanel` 实时 `ThemeShadow`）、提升多环境兼容（LibVLC `:avcodec-hw=any`、多显/老系统 API 兜底）、修复 `AI剧`/`盘搜`/`奥特` 搜索并排除空 `XPath` 占位项、支持明文 URL `csp_T4`、清理死代码并精简事实化核对全站文档。

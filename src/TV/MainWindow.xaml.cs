@@ -365,7 +365,6 @@ public sealed partial class MainWindow : Window
     private void OnSettingsClick(object sender, RoutedEventArgs e) => ViewModel.NavigateCommand.Execute("settings");
     private void OnSearchNavClick(object sender, RoutedEventArgs e) => OpenSearch();
 
-    private bool _narrowPane;
     private void UpdatePaneLayout()
     {
         if (ShellRoot.XamlRoot is null) return;
@@ -382,7 +381,6 @@ public sealed partial class MainWindow : Window
             return;
         }
         var narrow = ShellRoot.ActualWidth < 920;
-        _narrowPane = narrow;
         if (narrow)
         {
             PaneColumn.Width = new GridLength(76);
@@ -514,7 +512,6 @@ public sealed partial class MainWindow : Window
     }
 
     private void OnTitleBarSizeChanged(object sender, SizeChangedEventArgs e) => ScheduleTitleBarInput();
-    private void OnTitleControlsLayoutUpdated(object? sender, object e) => ScheduleTitleBarInput();
 
     private void ScheduleTitleBarInput()
     {

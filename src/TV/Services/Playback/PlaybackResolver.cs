@@ -24,7 +24,8 @@ public sealed class PlaybackResolver(AppServices services)
             return request;
         }
         var config = services.Config.Current;
-        var site = config?.Sites.FirstOrDefault(item => item.Key == request.SiteKey);
+        var site = services.Config.FindSite(request.SiteKey);
+        var parses = services.Config.FindParsesForSite(request.SiteKey);
         var flag = request.Lines.ElementAtOrDefault(request.LineIndex)?.Name ?? string.Empty;
         string? contentType = null;
         var useHttpProxy = false;
@@ -122,7 +123,7 @@ public sealed class PlaybackResolver(AppServices services)
                 else
                 {
                     if (result.BrowserFailureMessage is { } message) throw new NotSupportedException(message);
-                    request.Url = await services.Resolver.ResolveAsync(result.Url, config!.Parses, request.Headers, token);
+                    request.Url = await services.Resolver.ResolveAsync(result.Url, parses, request.Headers, token);
                     if (!PlayUrlResolver.IsDirectMediaUrl(request.Url) && !IsLoopback(request.Url))
                         throw new InvalidDataException("没有解析到视频地址，请切换线路。");
                     request.Headers.TryAdd("Referer", result.Url);
@@ -130,9 +131,9 @@ public sealed class PlaybackResolver(AppServices services)
                 }
             }
         }
-        else if (request.Kind == PlaybackKind.Vod && config is not null)
+        else if (request.Kind == PlaybackKind.Vod && parses.Count > 0)
         {
-            request.Url = await services.Resolver.ResolveAsync(request.Url, config.Parses, request.Headers, token);
+            request.Url = await services.Resolver.ResolveAsync(request.Url, parses, request.Headers, token);
         }
 
         if (!request.UsesProviderVideoHeights)

@@ -17,11 +17,11 @@ internal static class UcPlaybackRestriction
             value.Contains("vip_required", StringComparison.OrdinalIgnoreCase) ||
             value.Contains("membership required", StringComparison.OrdinalIgnoreCase) ||
             value.Contains("会员", StringComparison.Ordinal) &&
-                (value.Contains("开通", StringComparison.Ordinal) || value.Contains("仅", StringComparison.Ordinal) || value.Contains("需要", StringComparison.Ordinal) ||
+                (value.Contains("开通", StringComparison.Ordinal) || value.Contains('仅') || value.Contains("需要", StringComparison.Ordinal) ||
                  value.Contains("权益", StringComparison.Ordinal) || value.Contains("限制", StringComparison.Ordinal)) ||
             value.Contains("浏览器", StringComparison.Ordinal) &&
                 (value.Contains("当前浏览器", StringComparison.Ordinal) || value.Contains("UC", StringComparison.OrdinalIgnoreCase)) &&
-                (value.Contains("播放", StringComparison.Ordinal) || value.Contains("仅", StringComparison.Ordinal));
+                (value.Contains("播放", StringComparison.Ordinal) || value.Contains('仅'));
     }
 
     internal static bool IsRestricted(CloudMediaProbe probe, string fileName, long? expectedSize = null)

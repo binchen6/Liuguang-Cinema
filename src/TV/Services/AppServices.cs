@@ -64,7 +64,7 @@ public sealed class AppServices : IDisposable
         _bilibili = new Lazy<BilibiliVodProvider>(() => bilibili);
         Sniffer = new SniffService(Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread());
         NativeVod = NativeVodProviderRouter.CreateDefault(http, Cloud, bilibili, Sniffer);
-        Vod = new VodClientRouter(Cms, new SpiderVodClient(SpiderRuntime), NativeVod);
+        Vod = new VodClientRouter(Cms, new SpiderVodClient(SpiderRuntime), NativeVod, new JsSpiderClient(http), new PySpiderClient(http));
         Live = new LiveService(http);
         Epg = new EpgService(http);
         Douban = new DoubanService(http, Database);

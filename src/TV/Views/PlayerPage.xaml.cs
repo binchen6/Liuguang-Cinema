@@ -302,6 +302,7 @@ public sealed partial class PlayerPage : Page
         {
             SeekSlider.AddHandler(UIElement.PointerPressedEvent, _seekPressedHandler, handledEventsToo: true);
             SeekSlider.AddHandler(UIElement.PointerReleasedEvent, _seekReleasedHandler, handledEventsToo: true);
+            SeekSlider.AddHandler(UIElement.PointerCanceledEvent, _seekReleasedHandler, handledEventsToo: true);
             SeekSlider.AddHandler(UIElement.PointerCaptureLostEvent, _seekReleasedHandler, handledEventsToo: true);
             _seekHandlersWired = true;
         }
@@ -405,6 +406,7 @@ public sealed partial class PlayerPage : Page
         {
             SeekSlider.RemoveHandler(UIElement.PointerPressedEvent, _seekPressedHandler);
             SeekSlider.RemoveHandler(UIElement.PointerReleasedEvent, _seekReleasedHandler);
+            SeekSlider.RemoveHandler(UIElement.PointerCanceledEvent, _seekReleasedHandler);
             SeekSlider.RemoveHandler(UIElement.PointerCaptureLostEvent, _seekReleasedHandler);
             _seekHandlersWired = false;
         }
@@ -2266,6 +2268,7 @@ public sealed partial class PlayerPage : Page
         _seekDragging = true;
         _hideTimer.Stop();
         ViewModel.BeginSeek();
+        UpdateSeekPreview(e.GetCurrentPoint(SeekSlider).Position.X, SeekSlider.Value, fromPointer: true);
     }
 
     private void OnSeekReleased(object sender, PointerRoutedEventArgs e)
@@ -2273,16 +2276,50 @@ public sealed partial class PlayerPage : Page
         if (!_seekDragging) return;
         _seekDragging = false;
         ViewModel.EndSeek(SeekSlider.Value);
+        SeekPreviewPill.Opacity = 0;
         ShowControls();
+    }
+
+    private void OnSeekTrackPointerMoved(object sender, PointerRoutedEventArgs e)
+    {
+        if (ViewModel.DurationMs <= 0 || SeekSlider.ActualWidth <= 1) return;
+        var x = e.GetCurrentPoint(SeekSlider).Position.X;
+        var previewMs = _seekDragging
+            ? SeekSlider.Value
+            : Math.Clamp(x / SeekSlider.ActualWidth, 0d, 1d) * ViewModel.DurationMs;
+        UpdateSeekPreview(x, previewMs, fromPointer: true);
+    }
+
+    private void OnSeekTrackPointerExited(object sender, PointerRoutedEventArgs e)
+    {
+        if (!_seekDragging) SeekPreviewPill.Opacity = 0;
     }
 
     private void OnSeekValueChanged(object sender, RangeBaseValueChangedEventArgs e)
     {
         if (!_seekDragging) return;
-        var span = TimeSpan.FromMilliseconds(Math.Max(0, e.NewValue));
-        ViewModel.PositionText = span.TotalHours >= 1
+        ViewModel.PreviewSeek(e.NewValue);
+        if (ViewModel.DurationMs > 0 && SeekSlider.ActualWidth > 1)
+        {
+            var ratio = Math.Clamp(e.NewValue / ViewModel.DurationMs, 0d, 1d);
+            UpdateSeekPreview(ratio * SeekSlider.ActualWidth, e.NewValue, fromPointer: false);
+        }
+    }
+
+    private void UpdateSeekPreview(double x, double milliseconds, bool fromPointer)
+    {
+        if (ViewModel.DurationMs <= 0 || SeekSlider.ActualWidth <= 1) return;
+        var span = TimeSpan.FromMilliseconds(Math.Max(0, milliseconds));
+        var formatted = span.TotalHours >= 1
             ? span.ToString(@"h\:mm\:ss", System.Globalization.CultureInfo.InvariantCulture)
             : span.ToString(@"mm\:ss", System.Globalization.CultureInfo.InvariantCulture);
+        if (!string.Equals(SeekPreviewText.Text, formatted, StringComparison.Ordinal))
+            SeekPreviewText.Text = formatted;
+        var pillWidth = SeekPreviewPill.ActualWidth > 0 ? SeekPreviewPill.ActualWidth : 56d;
+        var targetX = Math.Clamp(x - pillWidth / 2d, 0d, Math.Max(0d, SeekSlider.ActualWidth - pillWidth));
+        SeekPreviewTransform.X = targetX;
+        if (SeekPreviewPill.Opacity < 0.99) SeekPreviewPill.Opacity = 1;
+        if (_seekDragging && fromPointer) ViewModel.PreviewSeek(milliseconds);
     }
 
     private void StepRate(int delta)

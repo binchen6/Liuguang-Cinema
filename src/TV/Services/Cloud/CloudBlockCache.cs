@@ -9,9 +9,8 @@ namespace TV.Services.Cloud;
 
 /// <summary>
 /// Shared, bounded, progressive-streaming block cache for a single cloud media session.
-/// Allows multiple LibVLC HTTP Range connections and seeks to share downloaded blocks,
-/// yields bytes immediately as they stream in (no waiting for full block completion),
-/// and continuously prefetches ahead of the playback cursor.
+/// Features seek-aware demand priority and epoch-based cancellation of stale lookahead prefetches
+/// so seeking immediately frees upstream concurrency slots for the new playback position.
 /// </summary>
 internal sealed class CloudBlockCache : IDisposable
 {
@@ -26,15 +25,17 @@ internal sealed class CloudBlockCache : IDisposable
         public byte[] Buffer { get; }
         public int ExpectedLength { get; }
         public long BlockIndex { get; }
+        public bool IsPrefetch { get; }
         public long LastAccessTick;
         private int _written;
         private bool _completed;
         private Exception? _error;
 
-        public ProgressiveBlock(long blockIndex, int expectedLength)
+        public ProgressiveBlock(long blockIndex, int expectedLength, bool isPrefetch = false)
         {
             BlockIndex = blockIndex;
             ExpectedLength = expectedLength;
+            IsPrefetch = isPrefetch;
             Buffer = GC.AllocateUninitializedArray<byte>(expectedLength);
             LastAccessTick = Environment.TickCount64;
         }
@@ -134,6 +135,11 @@ internal sealed class CloudBlockCache : IDisposable
     private readonly ConcurrentDictionary<long, ProgressiveBlock> _blocks = new();
     private readonly SemaphoreSlim _refreshLock = new(1, 1);
     private readonly object _adaptSync = new();
+    private readonly object _prefetchSync = new();
+
+    private CancellationTokenSource _prefetchCts;
+    private long _lastDemandBlock = -1;
+    private int _prefetchCancellations;
 
     private Uri _originUri;
     private Uri _resolvedUri;
@@ -176,6 +182,7 @@ internal sealed class CloudBlockCache : IDisposable
         _activeThreads = _maxThreads;
         _providerGate = providerGate;
         _lifetime = CancellationTokenSource.CreateLinkedTokenSource(parentToken);
+        _prefetchCts = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token);
         _refresh = refresh;
         _onUpstreamUpdated = onUpstreamUpdated;
     }
@@ -184,11 +191,8 @@ internal sealed class CloudBlockCache : IDisposable
     public string ContentType => _contentType;
     public EntityTagHeaderValue? EntityTag => _entityTag;
     public int BlockSize => _blockSize;
+    internal int PrefetchCancellations => Volatile.Read(ref _prefetchCancellations);
 
-    /// <summary>
-    /// Seeds block 0 (or any block whose aligned range matches an already-opened initial upstream stream)
-    /// so the very first HTTP connection incurs zero duplicate requests.
-    /// </summary>
     public void SeedFromStream(long blockIndex, Stream initialStream, int expectedLength, IDisposable responseOwner)
     {
         if (Volatile.Read(ref _disposed) != 0 || expectedLength <= 0)
@@ -196,7 +200,7 @@ internal sealed class CloudBlockCache : IDisposable
             responseOwner.Dispose();
             return;
         }
-        var block = new ProgressiveBlock(blockIndex, expectedLength);
+        var block = new ProgressiveBlock(blockIndex, expectedLength, isPrefetch: false);
         if (!_blocks.TryAdd(blockIndex, block))
         {
             responseOwner.Dispose();
@@ -224,8 +228,38 @@ internal sealed class CloudBlockCache : IDisposable
     public Stream OpenRangeStream(long start, long endInclusive) =>
         new RangeReaderStream(this, start, endInclusive);
 
-    private ProgressiveBlock GetOrStartBlock(long blockIndex)
+    internal void NotifyDemandBlock(long blockIndex)
     {
+        var previous = Interlocked.Exchange(ref _lastDemandBlock, blockIndex);
+        if (previous >= 0 && Math.Abs(blockIndex - previous) > 3)
+            CancelStalePrefetches();
+    }
+
+    private void CancelStalePrefetches()
+    {
+        CancellationTokenSource oldCts;
+        lock (_prefetchSync)
+        {
+            if (Volatile.Read(ref _disposed) != 0) return;
+            oldCts = _prefetchCts;
+            _prefetchCts = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token);
+        }
+        Interlocked.Increment(ref _prefetchCancellations);
+        try { oldCts.Cancel(); }
+        catch (ObjectDisposedException) { }
+        finally { oldCts.Dispose(); }
+    }
+
+    private CancellationToken CurrentPrefetchToken()
+    {
+        lock (_prefetchSync)
+            return _prefetchCts.Token;
+    }
+
+    private ProgressiveBlock GetOrStartBlock(long blockIndex, bool isDemand)
+    {
+        if (isDemand) NotifyDemandBlock(blockIndex);
+
         if (_blocks.TryGetValue(blockIndex, out var existing))
         {
             if (existing.Error is null)
@@ -238,12 +272,13 @@ internal sealed class CloudBlockCache : IDisposable
 
         var blockStart = blockIndex * _blockSize;
         var expected = (int)Math.Min(_blockSize, _totalLength - blockStart);
-        var created = new ProgressiveBlock(blockIndex, expected);
+        var created = new ProgressiveBlock(blockIndex, expected, isPrefetch: !isDemand);
         var actual = _blocks.GetOrAdd(blockIndex, created);
         if (ReferenceEquals(actual, created))
         {
             EvictIfNeeded(blockIndex);
-            _ = FetchBlockAsync(blockIndex, created);
+            var fetchToken = isDemand ? _lifetime.Token : CurrentPrefetchToken();
+            _ = FetchBlockAsync(blockIndex, created, isDemand, fetchToken);
         }
         return actual;
     }
@@ -251,14 +286,15 @@ internal sealed class CloudBlockCache : IDisposable
     private void ScheduleLookahead(long currentBlockIndex, long maxBlockIndex)
     {
         if (Volatile.Read(ref _disposed) != 0) return;
-        // Always keep at least 2 blocks prefetched ahead even if concurrency throttles to 1
         var lookahead = Math.Clamp(_activeThreads + 1, 2, 6);
         for (var i = 1; i <= lookahead; i++)
         {
             var target = currentBlockIndex + i;
             if (target > maxBlockIndex) break;
-            if (!_blocks.ContainsKey(target))
-                _ = GetOrStartBlock(target);
+            if (_blocks.ContainsKey(target)) continue;
+            // Reserve at least 1 slot in _providerGate for instant interactive seek demands
+            if (_providerGate.CurrentCount <= 1 && i > 1) break;
+            _ = GetOrStartBlock(target, isDemand: false);
         }
     }
 
@@ -280,9 +316,8 @@ internal sealed class CloudBlockCache : IDisposable
             _blocks.TryRemove(new KeyValuePair<long, ProgressiveBlock>(candidate.BlockIndex, candidate));
     }
 
-    private async Task FetchBlockAsync(long blockIndex, ProgressiveBlock block)
+    private async Task FetchBlockAsync(long blockIndex, ProgressiveBlock block, bool isDemand, CancellationToken token)
     {
-        var token = _lifetime.Token;
         var blockStart = blockIndex * _blockSize;
         var blockEnd = blockStart + block.ExpectedLength - 1;
 
@@ -291,10 +326,12 @@ internal sealed class CloudBlockCache : IDisposable
         {
             await _providerGate.WaitAsync(token).ConfigureAwait(false);
             acquired = true;
-            for (var attempt = 0; attempt < 4; attempt++)
+            var maxAttempts = isDemand ? 4 : 2;
+            for (var attempt = 0; attempt < maxAttempts; attempt++)
             {
                 try
                 {
+                    token.ThrowIfCancellationRequested();
                     var sw = Stopwatch.StartNew();
                     var currentUri = _resolvedUri;
                     var currentHeaders = _headers;
@@ -318,7 +355,6 @@ internal sealed class CloudBlockCache : IDisposable
 
                     using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, headerDeadline.Token).ConfigureAwait(false);
 
-                    // Handle redirect on CDN URL if needed
                     if ((int)response.StatusCode is 301 or 302 or 303 or 307 or 308 && response.Headers.Location is { } location)
                     {
                         if (Uri.TryCreate(currentUri, location, out var nextUri) && nextUri.Scheme is "http" or "https" && nextUri.UserInfo.Length == 0)
@@ -362,7 +398,7 @@ internal sealed class CloudBlockCache : IDisposable
                     block.Complete();
                     return;
                 }
-                catch (Exception ex) when (attempt < 3 && !token.IsCancellationRequested &&
+                catch (Exception ex) when (attempt + 1 < maxAttempts && !token.IsCancellationRequested &&
                     ex is IOException or HttpRequestException or OperationCanceledException)
                 {
                     await Task.Delay(350 * (1 << attempt), token).ConfigureAwait(false);
@@ -381,7 +417,7 @@ internal sealed class CloudBlockCache : IDisposable
         }
     }
 
-    private async Task PumpStreamIntoBlockAsync(Stream source, ProgressiveBlock block, CancellationToken token)
+    private static async Task PumpStreamIntoBlockAsync(Stream source, ProgressiveBlock block, CancellationToken token)
     {
         var temp = System.Buffers.ArrayPool<byte>.Shared.Rent(64 * 1024);
         try
@@ -412,7 +448,6 @@ internal sealed class CloudBlockCache : IDisposable
         await _refreshLock.WaitAsync(token).ConfigureAwait(false);
         try
         {
-            // Another worker already refreshed while we waited
             if (_resolvedUri != failedUri) return;
             var refreshed = await _refresh!(token).ConfigureAwait(false);
             var nextUri = new Uri(refreshed.Url);
@@ -460,6 +495,11 @@ internal sealed class CloudBlockCache : IDisposable
     public void Dispose()
     {
         if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
+        lock (_prefetchSync)
+        {
+            try { _prefetchCts.Cancel(); } catch { }
+            _prefetchCts.Dispose();
+        }
         _lifetime.Cancel();
         _lifetime.Dispose();
         _blocks.Clear();
@@ -483,16 +523,29 @@ internal sealed class CloudBlockCache : IDisposable
             var remainingInRange = _endExclusive - _position;
             var slice = buffer.Length > remainingInRange ? buffer[..(int)remainingInRange] : buffer;
 
+            // Start/verify demand block FIRST so any stale prefetches are cancelled before scheduling new lookahead
+            var block = cache.GetOrStartBlock(blockIndex, isDemand: true);
+
             if (blockIndex != _lastLookaheadBlock)
             {
                 _lastLookaheadBlock = blockIndex;
                 cache.ScheduleLookahead(blockIndex, _maxBlockIndex);
             }
 
-            var block = cache.GetOrStartBlock(blockIndex);
-            var read = await block.ReadAsync(offsetInBlock, slice, cancellationToken).ConfigureAwait(false);
-            _position += read;
-            return read;
+            try
+            {
+                var read = await block.ReadAsync(offsetInBlock, slice, cancellationToken).ConfigureAwait(false);
+                _position += read;
+                return read;
+            }
+            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested && block.IsPrefetch)
+            {
+                // The block was a speculative prefetch cancelled by a concurrent seek; retry cleanly as a demand block
+                block = cache.GetOrStartBlock(blockIndex, isDemand: true);
+                var read = await block.ReadAsync(offsetInBlock, slice, cancellationToken).ConfigureAwait(false);
+                _position += read;
+                return read;
+            }
         }
 
         public override Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken) =>

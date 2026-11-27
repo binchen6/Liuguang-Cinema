@@ -31,6 +31,7 @@ public sealed class SpiderRuntime : IDisposable
             ["api"] = site.Api,
             ["key"] = site.Key,
             ["action"] = action,
+            ["jar"] = site.EffectiveJar,
             ["ext"] = site.Ext.ValueKind switch
             {
                 JsonValueKind.String => site.Ext.GetString() ?? string.Empty,
@@ -39,6 +40,8 @@ public sealed class SpiderRuntime : IDisposable
             }
         };
         request["ext"] = await ApplyCloudCredentialsAsync(site, request["ext"] as string ?? string.Empty).ConfigureAwait(false);
+        if (!string.IsNullOrWhiteSpace(site.EffectiveJar))
+            await SyncExternalSpiderCloudFilesAsync().ConfigureAwait(false);
         var id = Interlocked.Increment(ref _requestId);
         request["requestId"] = id;
         var completion = new TaskCompletionSource<JsonElement>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -93,15 +96,20 @@ public sealed class SpiderRuntime : IDisposable
                     var root = document.RootElement;
                     if (root.ValueKind != JsonValueKind.Object || !root.TryGetProperty("requestId", out var idElement)) continue;
                     long id;
-                    if (idElement.ValueKind == JsonValueKind.Number) idElement.TryGetInt64(out id);
-                    else if (idElement.ValueKind == JsonValueKind.String) long.TryParse(idElement.GetString(), out id);
+                    if (idElement.ValueKind == JsonValueKind.Number && idElement.TryGetInt64(out id)) { }
+                    else if (idElement.ValueKind == JsonValueKind.String && long.TryParse(idElement.GetString(), out id)) { }
                     else continue;
                     if (!_pending.TryGetValue(id, out var pending) || !ReferenceEquals(pending.Process, process) ||
                         !_pending.TryRemove(id, out _)) continue;
                     if (root.TryGetProperty("success", out var success) && success.ValueKind == JsonValueKind.True)
                         pending.Completion.TrySetResult(root.TryGetProperty("data", out var data) ? data.Clone() : default);
                     else
+                    {
+                        var detail = root.TryGetProperty("error", out var errEl) ? errEl.GetString() : null;
+                        if (!string.IsNullOrWhiteSpace(detail))
+                            Diagnostics.Log($"Spider error (req {id}): {detail}");
                         pending.Completion.TrySetException(new InvalidOperationException("站点适配器请求失败。"));
+                    }
                 }
             }
             throw new InvalidOperationException("爬虫进程已退出。");
@@ -142,6 +150,34 @@ public sealed class SpiderRuntime : IDisposable
         return currentExt;
     }
 
+    private long _lastCloudSyncTick;
+
+    private async Task SyncExternalSpiderCloudFilesAsync()
+    {
+        var now = Environment.TickCount64;
+        if (now - Volatile.Read(ref _lastCloudSyncTick) < 30_000) return;
+        Volatile.Write(ref _lastCloudSyncTick, now);
+        try
+        {
+            var quark = SecretStore.Unprotect(await _database.GetSettingAsync("cloud.quarkCookie").ConfigureAwait(false));
+            var uc = SecretStore.Unprotect(await _database.GetSettingAsync("cloud.ucCookie").ConfigureAwait(false));
+            var ali = SecretStore.Unprotect(await _database.GetSettingAsync("cloud.aliToken").ConfigureAwait(false));
+            var dirs = new[]
+            {
+                Path.Combine(AppPaths.Root, "spider", "TV"),
+                Path.Combine(AppPaths.Root, "spider", "sdcard", "TV")
+            };
+            foreach (var dir in dirs)
+            {
+                Directory.CreateDirectory(dir);
+                if (quark.Length > 0) await File.WriteAllTextAsync(Path.Combine(dir, ".quarkcookie"), quark, Encoding.UTF8).ConfigureAwait(false);
+                if (uc.Length > 0) await File.WriteAllTextAsync(Path.Combine(dir, ".uccookie"), uc, Encoding.UTF8).ConfigureAwait(false);
+                if (ali.Length > 0) await File.WriteAllTextAsync(Path.Combine(dir, ".alitoken"), ali, Encoding.UTF8).ConfigureAwait(false);
+            }
+        }
+        catch { }
+    }
+
     private void EnsureStarted()
     {
         if (_process is { HasExited: false }) return;
@@ -166,7 +202,9 @@ public sealed class SpiderRuntime : IDisposable
         start.Environment.Remove("_JAVA_OPTIONS");
         start.Environment.Remove("JAVA_TOOL_OPTIONS");
         start.Environment.Remove("JDK_JAVA_OPTIONS");
-        foreach (var argument in new[] { "-Xms16m", "-Xmx256m", "-XX:MaxMetaspaceSize=128m", "-XX:+UseSerialGC", "-XX:TieredStopAtLevel=1", "-Dfile.encoding=UTF-8", "-jar", jar }) start.ArgumentList.Add(argument);
+        var spiderDataDir = Path.Combine(AppPaths.Root, "spider");
+        Directory.CreateDirectory(spiderDataDir);
+        foreach (var argument in new[] { "-Xms16m", "-Xmx384m", "-XX:MaxMetaspaceSize=160m", "-XX:+UseSerialGC", "-XX:TieredStopAtLevel=1", "-Dfile.encoding=UTF-8", $"-Dtv.spider.dataDir={spiderDataDir}", "-jar", jar }) start.ArgumentList.Add(argument);
         var process = Process.Start(start) ?? throw new InvalidOperationException("无法启动爬虫运行时。");
         process.BeginErrorReadLine();
         _process = process;

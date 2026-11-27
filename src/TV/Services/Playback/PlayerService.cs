@@ -11,7 +11,7 @@ internal sealed record PlaybackTrackSelection(PlaybackTrack? Audio, PlaybackTrac
 public sealed record PlayerSnapshot(VLCState State, bool IsPlaying, long TimeMs, long LengthMs, bool CanSeek,
     float BufferingPercent, IReadOnlyList<PlaybackTrack> AudioTracks, IReadOnlyList<PlaybackTrack> SubtitleTracks,
     int AudioTrack, int SubtitleTrack, VideoFormat? VideoFormat, float Rate,
-    long CapturedAtTimestamp = 0, string MediaInfo = "");
+    long CapturedAtTimestamp = 0, string MediaInfo = "", long SeekGeneration = 0);
 
 public sealed class PlayerService : IDisposable
 {
@@ -48,6 +48,8 @@ public sealed class PlayerService : IDisposable
     private int _controlPumpScheduled;
     private int _pendingPauseState = -1; // -1 none, 0 play, 1 pause
     private long _pendingImmediateSeekMs = -1;
+    private long _seekGeneration;
+    private long _appliedSeekGeneration;
     private int _pendingVolume = -1;
     private float _pendingRate = -1f;
     private long _pendingSubtitleDelayMs = long.MinValue;
@@ -179,8 +181,8 @@ public sealed class PlayerService : IDisposable
     public MediaPlayer MediaPlayer => EnsurePlayerCore();
     public PlaybackRequest? CurrentRequest { get; private set; }
     public float BufferingPercent { get; private set; } = 100;
-    public int NetworkCachingMs { get; set; } = 3600;
-    public int LiveCachingMs { get; set; } = 1800;
+    public int NetworkCachingMs { get; set; } = 2000;
+    public int LiveCachingMs { get; set; } = 1500;
     public bool HardwareDecoding { get; set; } = true;
     internal bool HasHdrSurface { get; private set; }
     internal bool IsVideoOutputReady => _videoOutputReady;
@@ -215,23 +217,32 @@ public sealed class PlayerService : IDisposable
         var media = new Media(libVLC, request.Url, FromType.FromLocation);
         _currentMedia = media;
         var isLocalFile = Uri.TryCreate(request.Url, UriKind.Absolute, out var parsed) && parsed.IsFile;
+        var isLoopbackProxy = parsed is { IsLoopback: true };
         try
         {
             player.EnableHardwareDecoding = HardwareDecoding;
-            // Use "any" when hardware decoding is enabled so LibVLC prefers D3D11VA on modern Windows 10/11 GPUs
-            // and automatically falls back to DXVA2 / software decode on older GPUs, VMs, or RDP without black-screening.
             media.AddOption(HardwareDecoding ? ":avcodec-hw=any" : ":avcodec-hw=none");
-            // Cap avcodec decode threads: hardware decode needs minimal frame buffers (2), software decode bounded (2..6).
             var decodeThreads = HardwareDecoding ? 2 : DecoderThreads;
             media.AddOption($":avcodec-threads={decodeThreads}");
             if (isLocalFile)
             {
                 media.AddOption(":file-caching=300");
             }
+            else if (isLoopbackProxy)
+            {
+                // Local loopback proxy already buffers aggressively in RAM via CloudBlockCache / HLS prefetcher;
+                // keeping LibVLC network-caching lean (650ms) cuts post-seek rebuffer latency by 3-4 seconds!
+                media.AddOption(request.Kind == PlaybackKind.Live ? $":live-caching={Math.Min(LiveCachingMs, 1000)}" : ":network-caching=650");
+                media.AddOption(":file-caching=300");
+                media.AddOption(":clock-jitter=0");
+                media.AddOption(":http-reconnect=true");
+                media.AddOption(":adaptive-use-access=true");
+            }
             else
             {
                 media.AddOption(request.Kind == PlaybackKind.Live ? $":live-caching={LiveCachingMs}" : $":network-caching={NetworkCachingMs}");
-                media.AddOption(":file-caching=500");
+                media.AddOption(":file-caching=400");
+                media.AddOption(":clock-jitter=0");
                 media.AddOption(":http-reconnect=true");
                 media.AddOption(":http-forward-cookies=true");
                 media.AddOption(":adaptive-use-access=true");
@@ -284,7 +295,7 @@ public sealed class PlayerService : IDisposable
         var subtitles = readTracks ? DescribeTracks(_mediaPlayer.SpuDescription) : _snapshot.SubtitleTracks;
         _snapshot = new PlayerSnapshot(state, _mediaPlayer.IsPlaying, Math.Max(0, _mediaPlayer.Time), Math.Max(0, _mediaPlayer.Length),
             _mediaPlayer.IsSeekable, BufferingPercent, audio, subtitles, _mediaPlayer.AudioTrack, _mediaPlayer.Spu, video, _mediaPlayer.Rate,
-            Stopwatch.GetTimestamp(), _mediaInfo);
+            Stopwatch.GetTimestamp(), _mediaInfo, Volatile.Read(ref _appliedSeekGeneration));
         return _snapshot;
     }, token);
 
@@ -336,10 +347,12 @@ public sealed class PlayerService : IDisposable
         return new string(chars).Trim();
     }
 
-    public void Seek(long positionMs)
+    public long Seek(long positionMs)
     {
+        var gen = Interlocked.Increment(ref _seekGeneration);
         lock (_controlSync) _pendingImmediateSeekMs = Math.Max(0, positionMs);
         ScheduleControlPump();
+        return gen;
     }
 
     private void ClearPendingControls()
@@ -406,18 +419,20 @@ public sealed class PlayerService : IDisposable
                 {
                     if (_disposed || IsStopping || _mediaPlayer is null) break;
 
-                    // 1. Highest priority: deterministic play / pause
+                    // 1. Highest priority: deterministic play / pause (never invoke redundant Play() during Buffering/Opening!)
                     if (pauseState >= 0 && _currentMedia is not null)
                     {
                         var shouldPause = pauseState == 1;
+                        var currentState = _mediaPlayer.State;
                         if (shouldPause)
                         {
-                            _mediaPlayer.SetPause(true);
+                            if (currentState != VLCState.Paused) _mediaPlayer.SetPause(true);
                         }
                         else
                         {
-                            if (_mediaPlayer.State == VLCState.Paused) _mediaPlayer.SetPause(false);
-                            else _mediaPlayer.Play();
+                            if (currentState == VLCState.Paused) _mediaPlayer.SetPause(false);
+                            else if (currentState is not (VLCState.Playing or VLCState.Buffering or VLCState.Opening))
+                                _mediaPlayer.Play();
                         }
                         _snapshot = _snapshot with
                         {
@@ -428,20 +443,28 @@ public sealed class PlayerService : IDisposable
                         PlaybackChanged?.Invoke(this, EventArgs.Empty);
                     }
 
-                    // 2. Seek
+                    // 2. Seek (coalesced to latest target, stamped with monotonic generation)
                     if (seekMs >= 0)
                     {
+                        var appliedGen = Volatile.Read(ref _seekGeneration);
                         if (_mediaPlayer.Length > 0 && _mediaPlayer.IsSeekable)
                         {
                             _pendingSeekPosition = null;
                             var target = Math.Clamp(seekMs, 0, _mediaPlayer.Length);
                             _mediaPlayer.Time = target;
                             _positionApplied = true;
-                            _snapshot = _snapshot with { TimeMs = target, CapturedAtTimestamp = Stopwatch.GetTimestamp() };
+                            Volatile.Write(ref _appliedSeekGeneration, appliedGen);
+                            _snapshot = _snapshot with
+                            {
+                                TimeMs = target,
+                                SeekGeneration = appliedGen,
+                                CapturedAtTimestamp = Stopwatch.GetTimestamp()
+                            };
                         }
                         else if (CurrentRequest?.Kind == PlaybackKind.Vod)
                         {
                             _pendingSeekPosition = seekMs;
+                            Volatile.Write(ref _appliedSeekGeneration, appliedGen);
                         }
                     }
 
@@ -597,8 +620,6 @@ public sealed class PlayerService : IDisposable
         lock (_controlSync) _pendingVolume = _volume;
         ScheduleControlPump();
     }
-
-    internal void SetBufferingPause(bool paused) => SetPause(paused);
 
     internal void SetVideoGeometry(string? aspectRatio, string? cropGeometry)
     {

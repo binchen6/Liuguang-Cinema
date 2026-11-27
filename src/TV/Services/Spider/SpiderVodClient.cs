@@ -220,8 +220,8 @@ public sealed class SpiderVodClient
 
     private static SourceSite WithApi(SourceSite site, string api) => new()
     {
-        Key = site.Key, Name = site.Name, Type = 3, Api = api, Ext = site.Ext, Header = site.Header,
-        Searchable = site.Searchable, Changeable = site.Changeable, QuickSearch = site.QuickSearch, Timeout = site.Timeout
+        Key = site.Key, Name = site.Name, Type = 3, Api = api, Ext = site.Ext, Jar = site.Jar, RepositorySpider = site.RepositorySpider,
+        Header = site.Header, Searchable = site.Searchable, Changeable = site.Changeable, QuickSearch = site.QuickSearch, Timeout = site.Timeout
     };
 
     private static string StringValue(JsonElement data, string name)

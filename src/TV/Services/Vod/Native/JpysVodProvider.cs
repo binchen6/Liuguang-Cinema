@@ -14,7 +14,7 @@ namespace TV.Services.Vod.Native;
 public sealed class JpysVodProvider(SourceHttpClient http) : INativePlaybackProvider
 {
     private const string SignKey = "cb808529bae6b6be45ecfab29a4889bc";
-    private const string BrowserUa = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36";
+    private const string BrowserUa = NativeSiteToolkit.BrowserUserAgent;
 
     private static readonly Uri[] Origins =
     [
@@ -278,19 +278,9 @@ public sealed class JpysVodProvider(SourceHttpClient http) : INativePlaybackProv
         return new CmsResponse { List = items, Page = page, PageCount = totalPage, Total = total };
     }
 
-    private static string ReadString(JsonElement obj, string prop)
-    {
-        if (!obj.TryGetProperty(prop, out var el)) return string.Empty;
-        return el.ValueKind switch
-        {
-            JsonValueKind.String => el.GetString()?.Trim() ?? string.Empty,
-            JsonValueKind.Number => el.GetRawText(),
-            _ => string.Empty
-        };
-    }
+    private static string ReadString(JsonElement obj, string prop) => NativeSiteToolkit.ReadJsonString(obj, prop);
 
-    private static string FirstNonEmpty(params string[] values) =>
-        values.FirstOrDefault(v => !string.IsNullOrWhiteSpace(v)) ?? string.Empty;
+    private static string FirstNonEmpty(params string[] values) => NativeSiteToolkit.FirstNonEmpty(values);
 
-    private static string SanitizeLabel(string s) => s.Replace("$", "＄").Replace("#", "＃").Trim();
+    private static string SanitizeLabel(string s) => NativeSiteToolkit.SanitizeLabel(s);
 }

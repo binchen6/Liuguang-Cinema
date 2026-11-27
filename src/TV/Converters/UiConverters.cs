@@ -42,20 +42,3 @@ public sealed class IntroToggleTextConverter : IValueConverter
     public object Convert(object value, Type targetType, object parameter, string language) => value is true ? "收起 ▲" : "查看全部 ▼";
     public object ConvertBack(object value, Type targetType, object parameter, string language) => throw new NotSupportedException();
 }
-
-/// <summary>分类胶囊配色：parameter = bg / fg / border。</summary>
-public sealed class PillBrushConverter : IValueConverter
-{
-    public object Convert(object value, Type targetType, object parameter, string language)
-    {
-        var active = value is true;
-        var key = (parameter as string) switch
-        {
-            "fg" => active ? "PillActiveInkBrush" : "PrimaryTextBrush",
-            "border" => active ? "AccentBrush" : "SubtleBorderBrush",
-            _ => active ? "AccentBrush" : "PillIdleBrush"
-        };
-        return Application.Current.Resources[key];
-    }
-    public object ConvertBack(object value, Type targetType, object parameter, string language) => throw new NotSupportedException();
-}

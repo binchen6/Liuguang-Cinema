@@ -5,18 +5,50 @@ import fi.iki.elonen.NanoHTTPD;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
+import java.io.InputStream;
+import java.lang.reflect.Field;
+import java.lang.reflect.Method;
 import java.nio.charset.StandardCharsets;
 import java.security.SecureRandom;
 import java.util.HexFormat;
+import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 public class Proxy extends Spider {
     private static final String PATH = "/proxy/" + HexFormat.of().formatHex(new SecureRandom().generateSeed(24));
+    private static final List<Class<?>> EXTERNAL_PROXIES = new CopyOnWriteArrayList<>();
     private static NanoHTTPD server;
 
+    public static void registerExternalProxy(Class<?> proxyClass) {
+        if (proxyClass == null || proxyClass == Proxy.class) return;
+        if (!EXTERNAL_PROXIES.contains(proxyClass)) {
+            EXTERNAL_PROXIES.add(0, proxyClass);
+        }
+        int port = getPort();
+        try {
+            Field portField = proxyClass.getDeclaredField("port");
+            portField.setAccessible(true);
+            portField.setInt(null, port);
+        } catch (Throwable ignored) { }
+    }
+
     private static Object[] proxy(Map<String, String> params) throws Exception {
-        return switch (params.getOrDefault("do", "")) {
-            case "ck" -> new Object[]{200, "text/plain; charset=utf-8", new ByteArrayInputStream("ok".getBytes("UTF-8"))};
+        String action = params.getOrDefault("do", "");
+        if ("ck".equals(action)) {
+            return new Object[]{200, "text/plain; charset=utf-8", new ByteArrayInputStream("ok".getBytes(StandardCharsets.UTF_8))};
+        }
+        for (Class<?> external : EXTERNAL_PROXIES) {
+            try {
+                Method method = external.getDeclaredMethod("proxy", Map.class);
+                method.setAccessible(true);
+                Object result = method.invoke(null, params);
+                if (result instanceof Object[] arr && arr.length >= 3) {
+                    return arr;
+                }
+            } catch (Throwable ignored) { }
+        }
+        return switch (action) {
             case "ali" -> Ali.proxy(params);
             case "bili" -> Bili.proxy(params);
             default -> null;
@@ -36,7 +68,9 @@ public class Proxy extends Spider {
         try {
             NanoHTTPD listener = new NanoHTTPD("127.0.0.1", 0) {
                 @Override public Response serve(IHTTPSession session) {
-                    if (!PATH.equals(session.getUri()) ||
+                    String uri = session.getUri();
+                    boolean allowedPath = PATH.equals(uri) || "/proxy".equals(uri);
+                    if (!allowedPath ||
                         !("127.0.0.1:" + getListeningPort()).equals(session.getHeaders().get("host")) ||
                         session.getMethod() != Method.GET && session.getMethod() != Method.HEAD)
                         return newFixedLengthResponse(Response.Status.NOT_FOUND, "text/plain", "not found");
@@ -46,7 +80,20 @@ public class Proxy extends Spider {
                         if (result == null) return newFixedLengthResponse(Response.Status.NOT_FOUND, "text/plain", "not found");
                         int status = result[0] instanceof Number ? ((Number) result[0]).intValue() : 200;
                         Response.Status code = status == 200 ? Response.Status.OK : Response.Status.lookup(status);
-                        return newFixedLengthResponse(code, (String) result[1], (java.io.InputStream) result[2], -1);
+                        if (code == null) code = Response.Status.OK;
+                        String mime = result[1] instanceof String s ? s : "application/octet-stream";
+                        InputStream body = result[2] instanceof InputStream is
+                            ? is
+                            : new ByteArrayInputStream(String.valueOf(result[2]).getBytes(StandardCharsets.UTF_8));
+                        Response response = newFixedLengthResponse(code, mime, body, -1);
+                        if (result.length >= 4 && result[3] instanceof Map<?, ?> extraHeaders) {
+                            for (Map.Entry<?, ?> entry : extraHeaders.entrySet()) {
+                                if (entry.getKey() != null && entry.getValue() != null) {
+                                    response.addHeader(String.valueOf(entry.getKey()), String.valueOf(entry.getValue()));
+                                }
+                            }
+                        }
+                        return response;
                     } catch (Exception error) {
                         return newFixedLengthResponse(Response.Status.INTERNAL_ERROR, "text/plain", "media unavailable");
                     }

@@ -18,7 +18,7 @@ namespace TV.Services.Vod.Native;
 public sealed partial class Xb6vVodProvider(SourceHttpClient http) : ICategoryFilterVodProvider, INativePlaybackProvider
 {
     private static readonly Uri DefaultOrigin = new("https://www.xb6v.com/");
-    private const string BrowserUa = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36";
+    private const string BrowserUa = NativeSiteToolkit.BrowserUserAgent;
 
     private readonly ConcurrentDictionary<string, string> _searchActionByOrigin = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, string> _searchIdByKey = new(StringComparer.Ordinal);

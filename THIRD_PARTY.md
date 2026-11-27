@@ -7,10 +7,14 @@
 | 上游 | 本项目中的用途 | 来源与许可 |
 | --- | --- | --- |
 | FongMi/TV | TVBox 配置协议、交互和兼容性参考；未复制其完整 Android 应用 | [FongMi/TV](https://github.com/FongMi/TV)，[GPL-3.0](https://github.com/FongMi/TV/blob/fongmi/LICENSE.md) |
+| yagami-hue/MisaTV | 第三方安卓 TVBox 站点通用适配方案的架构思路参考；未复制任何源码 | [yagami-hue/MisaTV](https://github.com/yagami-hue/MisaTV)，GPL-3.0（仅作架构调研参考） |
 | FongMi/CatVodSpider | Java 爬虫、Bean、网络与工具类快照，构建时由 `engine/catvod/pom.xml` 选择 | 固定提交 [6a43253](https://github.com/FongMi/CatVodSpider/commit/6a43253e48c9e6cd81bba19440a794448411c45f)，快照位于 `third_party/v2024`。截至 2026-11-22，上游仓库未提供可识别的许可证文件；本项目不因此授予额外权利 |
 | AndroidCatVodSpider | 夸克、UC、Libvio、ChangZhang 等相关实现与工具类 | [lushunming/AndroidCatVodSpider](https://github.com/lushunming/AndroidCatVodSpider)，固定提交 [8415d16](https://github.com/lushunming/AndroidCatVodSpider/commit/8415d161e217118e5560d2e608df9948dfbc417e)，快照位于 `third_party/quark`。上游当前分支提供 [MIT License](https://github.com/lushunming/AndroidCatVodSpider/blob/multiThread/LICENSE)；固定快照本身未附带该文件 |
 | bizhangjie/CatVodSpider | 公开 Spider 实现参考 | [bizhangjie/CatVodSpider](https://github.com/bizhangjie/CatVodSpider)，MIT；原文保留于 `third_party/bizhangjie/CatVodSpider-main/LICENSE` |
 | CatVodTVSpider | CatVod 架构与接口来源 | [CatVodTVOfficial/CatVodTVSpider](https://github.com/CatVodTVOfficial/CatVodTVSpider)。未据此声明额外许可 |
+| Jint & Acornima | C# 托管 JavaScript 沙盒执行引擎（用于 `drpy2` / `CatVod-JS` 通用站点规则） | [sebastienros/jint](https://github.com/sebastienros/jint) 4.18.1（BSD-2-Clause）、Acornima 1.9.1（BSD-3-Clause） |
+| dex2jar (`de.femtopedia.dex2jar:dex-translator`) | Java 引擎将外部安卓 TVBox 站点 DEX 字节码转换为 JVM 类文件 | [dex2jar](https://github.com/pxb1988/dex2jar) 2.4.37，Apache-2.0 |
+| BouncyCastle (`org.bouncycastle:bcprov-jdk18on`) | 外部安卓爬虫加密/签名兼容支持 | [Legion of the Bouncy Castle](https://www.bouncycastle.org/) 1.80，MIT 兼容许可 |
 | VideoLAN / LibVLCSharp | 音视频解码、 demux、音轨与字幕、Windows 渲染 | LibVLC 3.0.24、LibVLCSharp.WinUI 3.10.0；[源码与版本说明](third_party/VideoLAN/SOURCE.md)，LGPL-2.1-or-later。许可证原文在 `third_party/VideoLAN` |
 | LibVLCSharp 及相关 .NET 包 | C# 播放控制与 WinUI 绑定 | 版本见 `src/TV/packages.lock.json` 和 `src/TV/TV.csproj`；各包许可证随安装包的 `licenses` 目录分发 |
 | Inno Setup 简体中文翻译 | 安装器与增量更新器的中文界面 | [Inno-Setup-Chinese-Simplified-Translation](https://github.com/kira-96/Inno-Setup-Chinese-Simplified-Translation)，MIT；固定副本位于 `installer/Languages`，许可证随源码及安装包分发 |

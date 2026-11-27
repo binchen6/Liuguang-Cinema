@@ -135,12 +135,21 @@
                         </StackPanel>
                         <StackPanel Orientation="Horizontal" Spacing="14" VerticalAlignment="Center">
                             <TextBlock Text="点播" Style="{StaticResource PageTitleText}" VerticalAlignment="Center" />
-                            <Border Background="{ThemeResource GlassChipBrush}" BorderBrush="{ThemeResource GlassEdgeBrush}"
-                                    BorderThickness="1" CornerRadius="14" Padding="12,4" VerticalAlignment="Center"
-                                    Visibility="{Binding SelectedSite.DisplayName, Converter={StaticResource StringToVisibility}, FallbackValue=Collapsed, TargetNullValue=Collapsed}">
-                                <TextBlock Text="{Binding SelectedSite.DisplayName}" Style="{StaticResource MetaText}"
-                                           Foreground="{ThemeResource PrimaryTextBrush}" MaxWidth="220" TextTrimming="CharacterEllipsis" />
-                            </Border>
+                            <DropDownButton x:Name="RepoSwitcherButton"
+                                            Background="{ThemeResource GlassChipBrush}"
+                                            BorderBrush="{ThemeResource GlassEdgeBrush}"
+                                            BorderThickness="1" CornerRadius="14"
+                                            Padding="12,4,10,4" MinHeight="30" VerticalAlignment="Center"
+                                            ToolTipService.ToolTip="切换片源仓库"
+                                            AutomationProperties.Name="切换仓库">
+                                <DropDownButton.Content>
+                                    <TextBlock Text="{Binding ActiveRepositoryName}" Style="{StaticResource MetaText}"
+                                               Foreground="{ThemeResource PrimaryTextBrush}" MaxWidth="220" TextTrimming="CharacterEllipsis" />
+                                </DropDownButton.Content>
+                                <DropDownButton.Flyout>
+                                    <MenuFlyout x:Name="RepoSwitcherFlyout" Placement="BottomEdgeAlignedLeft" Opening="OnRepoMenuOpening" />
+                                </DropDownButton.Flyout>
+                            </DropDownButton>
                         </StackPanel>
                     </StackPanel>
                     <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">

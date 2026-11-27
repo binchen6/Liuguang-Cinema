@@ -74,6 +74,7 @@ public sealed partial class LiveViewModel : ObservableObject
 {
     private readonly AppServices _services;
     private readonly Action<PlaybackRequest> _play;
+    private readonly Microsoft.UI.Dispatching.DispatcherQueue _dispatcher = Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread();
     private readonly List<LiveChannel> _allChannels = [];
     private List<LiveChannelItem> _allGrouped = [];
     private Dictionary<string, List<LiveChannelItem>> _groupedByCategory = new(StringComparer.Ordinal);
@@ -85,6 +86,10 @@ public sealed partial class LiveViewModel : ObservableObject
     {
         _services = services;
         _play = play;
+        _services.Config.Changed += (_, _) => _dispatcher.TryEnqueue(() =>
+        {
+            if (AvailableSources.Count > 0 || HasChannels) _ = ReloadAsync();
+        });
     }
 
     public ObservableCollection<string> Groups { get; } = [];
@@ -216,7 +221,6 @@ public sealed partial class LiveViewModel : ObservableObject
             _groupedByCategory[cat.Key] = GroupItems(cat);
     }
 
-    [RelayCommand]
     private void ApplyFilter()
     {
         var selectedName = SelectedItem?.Name;

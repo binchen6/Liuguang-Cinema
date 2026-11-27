@@ -74,11 +74,19 @@ jobs:
           TV_SIGN_PFX: ${{ steps.cert.outputs.pfx_path }}
           TV_SIGN_PASSWORD: ${{ secrets.SIGN_PFX_PASSWORD }}
         run: |
-          $relay = $null
-          if (-not [uri]::TryCreate($env:DANDANPLAY_RELAY_URL, [UriKind]::Absolute, [ref]$relay) -or
-              $relay.Scheme -ne 'https' -or -not $relay.IsDefaultPort -or $relay.IsLoopback -or
-              $relay.UserInfo -or $relay.PathAndQuery -ne '/' -or $relay.Fragment) {
-            throw 'DANDANPLAY_RELAY_URL must be a public HTTPS origin.'
+          $rawRelays = if ($env:DANDANPLAY_RELAY_URL) { $env:DANDANPLAY_RELAY_URL } else { '' }
+          $relayEntries = @($rawRelays.Split(@(',', ';'), [StringSplitOptions]::RemoveEmptyEntries) | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+          if ($relayEntries.Count -eq 0) {
+            throw 'DANDANPLAY_RELAY_URL must contain one or more public HTTPS relay URLs.'
+          }
+          foreach ($entry in $relayEntries) {
+            $relay = $null
+            if (-not [uri]::TryCreate($entry, [UriKind]::Absolute, [ref]$relay) -or
+                $relay.Scheme -ne 'https' -or -not $relay.IsDefaultPort -or $relay.IsLoopback -or
+                $relay.UserInfo -or $relay.Query -or $relay.Fragment -or
+                $relay.AbsolutePath.Length -gt 64 -or $relay.AbsolutePath.Contains('..')) {
+              throw "Invalid DANDANPLAY_RELAY_URL entry: $entry (must be a public HTTPS URL without query/fragment)."
+            }
           }
           pwsh -NoProfile -File ./scripts/build-installer.ps1 -NoRestore
 

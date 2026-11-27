@@ -35,6 +35,7 @@ public sealed partial class VodViewModel : ObservableObject
     }
 
     public event EventHandler? DetailRequested;
+    public ObservableCollection<SourceRepository> Repositories { get; } = [];
     public ObservableCollection<SourceSite> Sites { get; } = [];
     public ObservableCollection<VodCategory> Categories { get; } = [];
     public ObservableCollection<VodCardViewModel> Items { get; } = [];
@@ -46,8 +47,11 @@ public sealed partial class VodViewModel : ObservableObject
     public ObservableCollection<VodCategoryFilterChoice> CategoryFilters { get; } = [];
     public bool HasCategoryFilters => CategoryFilters.Count > 0;
 
+    [ObservableProperty] private SourceRepository? _activeRepository;
+    [ObservableProperty] private string _activeRepositoryName = Services.Configuration.SourceConfigService.BuiltInRepositoryName;
     [ObservableProperty] private SourceSite? _selectedSite;
     private SourceSite? _lastContentSite;
+    private string _loadedRepositoryId = string.Empty;
     [ObservableProperty] private VodCategory? _selectedCategory;
     [ObservableProperty, NotifyPropertyChangedFor(nameof(DetailSources)), NotifyPropertyChangedFor(nameof(HasAlternateSources))]
     private VodCardViewModel? _selectedCard;
@@ -126,19 +130,50 @@ public sealed partial class VodViewModel : ObservableObject
     [RelayCommand]
     private Task ReloadAsync() => ReloadCoreAsync(allowFallback: false);
 
+    [RelayCommand]
+    private async Task SelectRepositoryAsync(SourceRepository? repository)
+    {
+        if (repository is null) return;
+        if (string.Equals(repository.Id, _services.Config.ActiveRepositoryId, StringComparison.OrdinalIgnoreCase)) return;
+        try
+        {
+            await _services.Config.SelectRepositoryAsync(repository.Id);
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = "切换仓库失败：" + ex.Message;
+        }
+    }
+
+    private void SyncRepositoriesFromConfig()
+    {
+        Repositories.Clear();
+        foreach (var repo in _services.Config.Repositories) Repositories.Add(repo);
+        ActiveRepository = _services.Config.ActiveRepository;
+        ActiveRepositoryName = ActiveRepository?.Name ?? Services.Configuration.SourceConfigService.BuiltInRepositoryName;
+    }
+
+    private static string HomeSiteSettingKey(string? repoId) =>
+        string.IsNullOrWhiteSpace(repoId) || string.Equals(repoId, Services.Configuration.SourceConfigService.BuiltInRepositoryId, StringComparison.OrdinalIgnoreCase)
+            ? "source.homeSite"
+            : $"source.homeSite.{repoId}";
+
     private async Task ReloadCoreAsync(bool allowFallback)
     {
         var token = BeginRequest();
         IsLoading = true;
-        StatusMessage = "正在加载饭太硬配置…";
+        StatusMessage = "正在加载片源配置…";
         Diagnostics.Log("Vod reload started");
         try
         {
             var config = await _services.Config.LoadAsync(false, token);
+            SyncRepositoriesFromConfig();
+            var repoId = _services.Config.ActiveRepositoryId;
+            _loadedRepositoryId = repoId;
             var homeSite = (!allowFallback ? SelectedSite?.Key : null)
-                ?? await _services.Database.GetSettingAsync("source.homeSite", token);
+                ?? await _services.Database.GetSettingAsync(HomeSiteSettingKey(repoId), token);
             token.ThrowIfCancellationRequested();
-            Diagnostics.Log($"Vod config loaded: {config.Sites.Count} sites");
+            Diagnostics.Log($"Vod config loaded: repo={repoId}, {config.Sites.Count} sites");
             _suppressSelection = true;
             Sites.Clear();
             foreach (var site in config.Sites) Sites.Add(site);
@@ -146,7 +181,13 @@ public sealed partial class VodViewModel : ObservableObject
                 ?? AlternateHomeSites().FirstOrDefault()
                 ?? Sites.FirstOrDefault(site => site.IsSupported) ?? Sites.FirstOrDefault();
             _suppressSelection = false;
-            if (SelectedSite is null) throw new InvalidDataException("配置中没有点播站点。");
+            if (SelectedSite is null)
+            {
+                Categories.Clear();
+                ReplaceItems([]);
+                StatusMessage = "当前仓库没有点播站点。";
+                return;
+            }
             await LoadHomeAsync(allowFallback);
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested) { }
@@ -419,7 +460,6 @@ public sealed partial class VodViewModel : ObservableObject
         catch (Exception ex) { Diagnostics.Log($"首页缓存保存失败 ({site.Key}): {ex.Message}"); }
     }
 
-    [RelayCommand]
     private async Task LoadCategoryAsync()
     {
         if (SelectedSite is null || SelectedCategory is null || _suppressSelection) return;
@@ -490,7 +530,7 @@ public sealed partial class VodViewModel : ObservableObject
             return;
         }
 
-        var site = Sites.FirstOrDefault(item => item.Key == card.Item.SiteKey);
+        var site = _services.Config.FindSite(card.Item.SiteKey);
         IsDetailLoading = true;
         DetailStatus = string.Empty;
         if (!IsDownloading) DownloadStatus = string.Empty;
@@ -653,7 +693,7 @@ public sealed partial class VodViewModel : ObservableObject
             _lastContentSite = value;
             _siteFilters = default;
             UpdateCategoryFilters(null);
-            _ = _services.Database.SetSettingAsync("source.homeSite", value.Key);
+            _ = _services.Database.SetSettingAsync(HomeSiteSettingKey(_services.Config.ActiveRepositoryId), value.Key);
             _ = LoadHomeAsync();
         }
     }
@@ -724,7 +764,7 @@ public sealed partial class VodViewModel : ObservableObject
     private PlaybackRequest? CreatePlaybackRequest(Episode? episode)
     {
         if (episode is null || Detail is null) return null;
-        var site = Sites.FirstOrDefault(item => item.Key == Detail.SiteKey);
+        var site = _services.Config.FindSite(Detail.SiteKey);
         var lineIndex = Math.Max(0, Lines.IndexOf(SelectedLine!));
         var episodeIndex = Math.Max(0, SelectedLine?.Episodes.IndexOf(episode) ?? 0);
         return new PlaybackRequest
@@ -889,18 +929,46 @@ public sealed partial class VodViewModel : ObservableObject
 
     private void OnConfigChanged(object? sender, EventArgs e)
     {
-        _dispatcher.TryEnqueue(() =>
+        _dispatcher.TryEnqueue(async () =>
         {
-            if (!_initialized || IsLoading || _services.Config.Current is not { } config) return;
-            var selectedKey = SelectedSite?.Key;
+            SyncRepositoriesFromConfig();
+            if (!_initialized || _services.Config.Current is not { } config) return;
+            var repoId = _services.Config.ActiveRepositoryId;
+            var repoChanged = !string.Equals(repoId, _loadedRepositoryId, StringComparison.OrdinalIgnoreCase);
+            if (!repoChanged && IsLoading) return;
+            _loadedRepositoryId = repoId;
+            var previousKey = SelectedSite?.Key;
+            var savedSiteKey = repoChanged
+                ? await _services.Database.GetSettingAsync(HomeSiteSettingKey(repoId))
+                : previousKey;
+
             _suppressSelection = true;
             Sites.Clear();
             foreach (var site in config.Sites) Sites.Add(site);
-            SelectedSite = Sites.FirstOrDefault(site => site.Key == selectedKey && site.IsSupported)
-                ?? Sites.FirstOrDefault(site => site.Api.Equals("csp_Dm84Guard", StringComparison.OrdinalIgnoreCase))
-                ?? Sites.FirstOrDefault(site => site.IsSupported) ?? Sites.FirstOrDefault();
+            SelectedSite = Sites.FirstOrDefault(site => site.Key == savedSiteKey && site.IsSupported && !Services.Vod.Native.MyDriveVodProvider.Supports(site))
+                ?? AlternateHomeSites().FirstOrDefault()
+                ?? Sites.FirstOrDefault(site => site.IsSupported)
+                ?? Sites.FirstOrDefault();
             _suppressSelection = false;
-            if (SelectedSite is not null && SelectedSite.Key != selectedKey) _ = LoadHomeAsync();
+
+            if (repoChanged)
+            {
+                Categories.Clear();
+                CategoryFilters.Clear();
+                OnPropertyChanged(nameof(HasCategoryFilters));
+                ReplaceItems([]);
+                if (SelectedSite is null)
+                {
+                    StatusMessage = "当前仓库没有点播站点。";
+                    IsLoading = false;
+                    return;
+                }
+                _ = LoadHomeAsync(allowFallback: true);
+            }
+            else if (SelectedSite is not null && SelectedSite.Key != previousKey)
+            {
+                _ = LoadHomeAsync();
+            }
         });
     }
 

@@ -56,7 +56,7 @@ public sealed class SourceRecoveryService(AppServices services)
         if (episodeIndex < 0) episodeIndex = Math.Clamp(current.EpisodeIndex, 0, line.Episodes.Count - 1);
         if (line.Episodes.Count == 0) throw new InvalidDataException("新来源没有可播放集数。");
         var episode = line.Episodes[episodeIndex];
-        var site = services.Config?.Current?.Sites.FirstOrDefault(item => item.Key == source.SiteKey);
+        var site = services.Config?.FindSite(source.SiteKey);
         var copy = current.Copy();
         copy.Item = source;
         copy.SiteKey = source.SiteKey;

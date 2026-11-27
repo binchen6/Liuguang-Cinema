@@ -3,14 +3,31 @@ using System.Text.Json.Serialization;
 
 namespace TV.Models;
 
-public sealed record ImportedRepository(string Url, string Name, ConfigDocument Document)
+public sealed record ImportedRepository(string Url, string Name, ConfigDocument Document, string? GroupUrl = null)
 {
     public string Summary => $"{Document.Sites.Count} 个点播站点 · {Document.Lives.Count} 个直播源";
+}
+
+/// <summary>
+/// A selectable source repository (either the built-in default repo or an imported single/sub repository).
+/// </summary>
+public sealed record SourceRepository(
+    string Id,
+    string Name,
+    string Url,
+    bool IsBuiltIn,
+    ConfigDocument Document,
+    string? GroupUrl = null)
+{
+    public string Summary => $"{Document.Sites.Count} 个点播站点 · {Document.Lives.Count} 个直播源";
+    public string MenuLabel => $"{Name}（{Document.Sites.Count} 站）";
+    public override string ToString() => Name;
 }
 
 public sealed class ConfigDocument
 {
     [JsonPropertyName("urls")] public List<ConfigDepot> Urls { get; set; } = [];
+    [JsonPropertyName("storeHouse")] public List<StoreHouseEntry> StoreHouse { get; set; } = [];
     [JsonPropertyName("sites")] public List<SourceSite> Sites { get; set; } = [];
     [JsonPropertyName("lives")] public List<LiveSource> Lives { get; set; } = [];
     [JsonPropertyName("parses")] public List<ParseSource> Parses { get; set; } = [];
@@ -27,6 +44,12 @@ public sealed class ConfigDepot
     [JsonPropertyName("url")] public string Url { get; set; } = string.Empty;
 }
 
+public sealed class StoreHouseEntry
+{
+    [JsonPropertyName("sourceName")] public string SourceName { get; set; } = string.Empty;
+    [JsonPropertyName("sourceUrl")] public string SourceUrl { get; set; } = string.Empty;
+}
+
 public sealed class SourceSite
 {
     [JsonPropertyName("key")] public string Key { get; set; } = string.Empty;
@@ -35,19 +58,34 @@ public sealed class SourceSite
     [JsonPropertyName("api")] public string Api { get; set; } = string.Empty;
     [JsonPropertyName("ext"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] public JsonElement Ext { get; set; }
     [JsonPropertyName("jar")] public string Jar { get; set; } = string.Empty;
+    [JsonPropertyName("playUrl")] public string PlayUrl { get; set; } = string.Empty;
+    [JsonPropertyName("click")] public string Click { get; set; } = string.Empty;
     [JsonPropertyName("searchable")] public int Searchable { get; set; } = 1;
     [JsonPropertyName("changeable")] public int Changeable { get; set; } = 1;
     [JsonPropertyName("quickSearch")] public int QuickSearch { get; set; } = 1;
+    [JsonPropertyName("filterable")] public int Filterable { get; set; } = 1;
     [JsonPropertyName("timeout")] public int Timeout { get; set; } = 30;
     [JsonPropertyName("categories")] public List<string> Categories { get; set; } = [];
     [JsonPropertyName("header"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] public JsonElement Header { get; set; }
 
-    [JsonIgnore] public bool IsSupported => Type is 0 or 1 || Services.Vod.Native.HttpSpiderProvider.Supports(this)
+    /// <summary>
+    /// Repository-level spider JAR fallback populated when loading a repository, used when site.Jar is empty.
+    /// </summary>
+    [JsonIgnore] public string RepositorySpider { get; set; } = string.Empty;
+
+    [JsonIgnore] public string EffectiveJar => !string.IsNullOrWhiteSpace(Jar) ? Jar.Trim() : RepositorySpider.Trim();
+
+    [JsonIgnore] public bool IsSupported => Type is 0 or 1 or 4
+        || Services.Vod.Native.HttpSpiderProvider.Supports(this)
         || Services.Vod.Native.HtmlVodProvider.Supports(this)
+        || Services.Vod.Native.UniversalProtocolVodProvider.Supports(this)
         || Services.Vod.Native.NativeVodProviderRouter.IsSearchOnly(this)
         || Services.Vod.Native.MyDriveVodProvider.Supports(this)
         || Services.Vod.Native.PushVodProvider.Supports(this)
-        || Type == 3 && Services.Spider.SpiderCatalog.IsAvailable(Api, Ext);
+        || Services.Spider.JsSpiderClient.Supports(this)
+        || Services.Spider.PySpiderClient.Supports(this)
+        || Type == 3 && Services.Spider.SpiderCatalog.IsAvailable(Api, Ext, EffectiveJar);
+
     [JsonIgnore] public string DisplayName => IsSupported ? Name : $"{Name}（无公开实现）";
 
     public IReadOnlyDictionary<string, string> GetHeaders() => HeaderValueParser.Parse(Header);

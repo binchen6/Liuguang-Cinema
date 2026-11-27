@@ -16,7 +16,7 @@ public sealed class GuaziVodProvider(SourceHttpClient http) : INativePlaybackPro
     private const string ApiBase = "https://haiwaiapi.1fc8ab0.com";
     private const string WebOrigin = "https://gz360.tv";
     private const string ImageHost = "https://images.67c6c7a.com/";
-    private const string BrowserUa = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36";
+    private const string BrowserUa = NativeSiteToolkit.BrowserUserAgent;
 
     private static readonly byte[] AesKey = Encoding.UTF8.GetBytes("181cc88340ae5b2b");
     private static readonly byte[] AesIv = Encoding.UTF8.GetBytes("4423d1e2773476ce");
@@ -124,9 +124,10 @@ public sealed class GuaziVodProvider(SourceHttpClient http) : INativePlaybackPro
                 ? JsonSerializer.Serialize(new { vod_id = numericId, page = epPage, page_size = 100 })
                 : JsonSerializer.Serialize(new { vod_id = id, page = epPage, page_size = 100 });
             using var plDoc = await PostApiAsync("/Pc/Resource/GetOnePlayList", plPayload, cancellationToken).ConfigureAwait(false);
-            if (epPage == 1 && plDoc.RootElement.TryGetProperty("total_vod_vurl", out var totalEl))
+            if (epPage == 1 && plDoc.RootElement.TryGetProperty("total_vod_vurl", out var totalEl) &&
+                int.TryParse(totalEl.ValueKind == JsonValueKind.String ? totalEl.GetString() : totalEl.GetRawText(), out var parsedTotal))
             {
-                int.TryParse(totalEl.ValueKind == JsonValueKind.String ? totalEl.GetString() : totalEl.GetRawText(), out totalEps);
+                totalEps = parsedTotal;
             }
             if (!plDoc.RootElement.TryGetProperty("urls", out var urls) || urls.ValueKind != JsonValueKind.Array || urls.GetArrayLength() == 0)
                 break;
@@ -236,8 +237,9 @@ public sealed class GuaziVodProvider(SourceHttpClient http) : INativePlaybackPro
             }
         }
         var total = 0;
-        if (root.TryGetProperty("total", out var totalEl))
-            int.TryParse(totalEl.ValueKind == JsonValueKind.String ? totalEl.GetString() : totalEl.GetRawText(), out total);
+        if (root.TryGetProperty("total", out var totalEl) &&
+            int.TryParse(totalEl.ValueKind == JsonValueKind.String ? totalEl.GetString() : totalEl.GetRawText(), out var parsedTotal))
+            total = parsedTotal;
         var pageCount = total > 0
             ? Math.Max(1, (int)Math.Ceiling(total / (double)pageSize))
             : (items.Count >= pageSize ? page + 1 : page);
@@ -304,19 +306,9 @@ public sealed class GuaziVodProvider(SourceHttpClient http) : INativePlaybackPro
         return Encoding.UTF8.GetString(plain);
     }
 
-    private static string ReadString(JsonElement obj, string prop)
-    {
-        if (!obj.TryGetProperty(prop, out var el)) return string.Empty;
-        return el.ValueKind switch
-        {
-            JsonValueKind.String => el.GetString()?.Trim() ?? string.Empty,
-            JsonValueKind.Number => el.GetRawText(),
-            _ => string.Empty
-        };
-    }
+    private static string ReadString(JsonElement obj, string prop) => NativeSiteToolkit.ReadJsonString(obj, prop);
 
-    private static string FirstNonEmpty(params string[] values) =>
-        values.FirstOrDefault(v => !string.IsNullOrWhiteSpace(v)) ?? string.Empty;
+    private static string FirstNonEmpty(params string[] values) => NativeSiteToolkit.FirstNonEmpty(values);
 
-    private static string SanitizeLabel(string s) => s.Replace("$", "＄").Replace("#", "＃").Trim();
+    private static string SanitizeLabel(string s) => NativeSiteToolkit.SanitizeLabel(s);
 }

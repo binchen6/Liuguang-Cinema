@@ -37,7 +37,7 @@ public static partial class SearchScoring
         }
         if (query.Contains("动漫") || query.Contains("动画")) score += item.TypeName.Contains("动漫") || item.TypeName.Contains("动画") ? 90 : -50;
         if (query.Contains("电影")) score += item.TypeName.Contains("电影") ? 90 : -30;
-        if (query.Contains("电视剧") || query.Contains("剧集")) score += item.TypeName.Contains("剧") ? 90 : -30;
+        if (query.Contains("电视剧") || query.Contains("剧集")) score += item.TypeName.Contains('剧') ? 90 : -30;
         if (item.PlayUrl.Length > 0) score += 12;
         return score;
     }

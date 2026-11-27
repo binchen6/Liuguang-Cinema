@@ -14,7 +14,7 @@ namespace TV.Services.Vod.Native;
 public sealed partial class GimyVodProvider(SourceHttpClient http) : INativePlaybackProvider
 {
     private static readonly Uri Origin = new("https://gimytw.cc/");
-    private const string BrowserUa = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36";
+    private const string BrowserUa = NativeSiteToolkit.BrowserUserAgent;
 
     private static readonly VodCategory[] DefaultCategories =
     [
@@ -272,11 +272,9 @@ public sealed partial class GimyVodProvider(SourceHttpClient http) : INativePlay
         return eps;
     }
 
-    private static string ResolveUrl(Uri pageUri, string? raw) =>
-        !string.IsNullOrWhiteSpace(raw) && Uri.TryCreate(pageUri, raw.Trim(), out var uri) ? uri.AbsoluteUri : string.Empty;
+    private static string ResolveUrl(Uri pageUri, string? raw) => NativeSiteToolkit.ResolveUrl(pageUri, raw);
 
-    private static string CollapseSpaces(string value) =>
-        string.Join(' ', value.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+    private static string CollapseSpaces(string value) => NativeSiteToolkit.CollapseSpaces(value);
 
     [GeneratedRegex(@"/voddetail2/(\d+)\.html", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
     private static partial Regex DetailIdRegex();

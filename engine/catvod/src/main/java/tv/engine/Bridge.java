@@ -26,16 +26,17 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
 public final class Bridge {
-    private record SpiderKey(String site, String api) { }
-    private static final Map<SpiderKey, Spider> SPIDERS = new ConcurrentHashMap<>();
-    private static final Map<Spider, String> EXTENSIONS = new ConcurrentHashMap<>();
+    private record SpiderKey(String site, String api, String jar) { }
+    private static final Map<SpiderKey, Object> SPIDERS = new ConcurrentHashMap<>();
+    private static final Map<Object, String> EXTENSIONS = new ConcurrentHashMap<>();
 
     public static void main(String[] args) throws Exception {
         PrintWriter ipc = new PrintWriter(new FileOutputStream(FileDescriptor.out), true, StandardCharsets.UTF_8);
         System.setOut(new PrintStream(new FileOutputStream(FileDescriptor.err), true, StandardCharsets.UTF_8));
         DesktopApplication app = new DesktopApplication();
         Init.init(app);
-        ExecutorService workers = Executors.newFixedThreadPool(6, runnable -> {
+        ExternalJarLoader jarLoader = new ExternalJarLoader(app);
+        ExecutorService workers = Executors.newFixedThreadPool(8, runnable -> {
             Thread thread = new Thread(runnable, "catvod-request");
             thread.setDaemon(true);
             return thread;
@@ -45,7 +46,7 @@ public final class Bridge {
         while ((line = input.readLine()) != null) {
             try {
                 JsonObject request = JsonParser.parseString(line).getAsJsonObject();
-                workers.submit(() -> handle(app, request, ipc));
+                workers.submit(() -> handle(app, jarLoader, request, ipc));
             } catch (Throwable error) {
                 writeError(ipc, "", error);
             }
@@ -54,30 +55,30 @@ public final class Bridge {
         workers.awaitTermination(1, TimeUnit.MINUTES);
     }
 
-    private static void handle(DesktopApplication app, JsonObject request, PrintWriter ipc) {
+    private static void handle(DesktopApplication app, ExternalJarLoader jarLoader, JsonObject request, PrintWriter ipc) {
         String requestId = text(request, "requestId");
         try {
             String api = request.get("api").getAsString();
-            String ext = request.has("ext") ? request.get("ext").getAsString() : "";
+            String ext = request.has("ext") && !request.get("ext").isJsonNull() ? request.get("ext").getAsString() : "";
+            String jar = text(request, "jar");
             String site = text(request, "key");
-            Spider spider = SPIDERS.computeIfAbsent(new SpiderKey(site, api), key -> create(api, ext));
+            Object spider = SPIDERS.computeIfAbsent(new SpiderKey(site, api, jar), key -> create(jarLoader, api, ext, jar));
             String raw;
             synchronized (spider) {
                 if (!Objects.equals(EXTENSIONS.get(spider), ext)) {
-                    spider.init(app, ext);
+                    if (spider instanceof ExternalJarLoader.ReflectiveSpider external) {
+                        external.init(app, ext);
+                    } else if (spider instanceof Spider builtin) {
+                        builtin.init(app, ext);
+                    }
                     EXTENSIONS.put(spider, ext);
                 }
                 String action = request.get("action").getAsString();
-                raw = switch (action) {
-                    case "home" -> home(spider);
-                    case "category" -> spider.categoryContent(text(request, "tid"), text(request, "pg"), true, extend(request));
-                    case "detail" -> spider.detailContent(List.of(text(request, "id")));
-                    case "search" -> search(spider,
-                            request.has("keyword") ? text(request, "keyword") : text(request, "key"),
-                            text(request, "pg"));
-                    case "play" -> spider.playerContent(text(request, "flag"), text(request, "id"), new ArrayList<>());
-                    default -> throw new IllegalArgumentException("Unknown action: " + action);
-                };
+                if (spider instanceof ExternalJarLoader.ReflectiveSpider external) {
+                    raw = dispatchExternal(external, action, request);
+                } else {
+                    raw = dispatchBuiltin((Spider) spider, action, request);
+                }
             }
             JsonObject response = new JsonObject();
             response.addProperty("requestId", requestId);
@@ -94,6 +95,45 @@ public final class Bridge {
         }
     }
 
+    private static String dispatchBuiltin(Spider spider, String action, JsonObject request) throws Exception {
+        return switch (action) {
+            case "home" -> homeBuiltin(spider);
+            case "category" -> spider.categoryContent(text(request, "tid"), text(request, "pg"), true, extend(request));
+            case "detail" -> spider.detailContent(List.of(text(request, "id")));
+            case "search" -> searchBuiltin(spider,
+                    request.has("keyword") ? text(request, "keyword") : text(request, "key"),
+                    text(request, "pg"));
+            case "play" -> spider.playerContent(text(request, "flag"), text(request, "id"), new ArrayList<>());
+            case "live" -> invokeLiveBuiltin(spider, text(request, "url"));
+            default -> throw new IllegalArgumentException("Unknown action: " + action);
+        };
+    }
+
+    private static String invokeLiveBuiltin(Spider spider, String url) throws Exception {
+        try {
+            var m = spider.getClass().getMethod("liveContent", String.class);
+            Object res = m.invoke(spider, url);
+            return res == null ? "" : String.valueOf(res);
+        } catch (NoSuchMethodException ignored) {
+            return "";
+        }
+    }
+
+    private static String dispatchExternal(ExternalJarLoader.ReflectiveSpider spider, String action, JsonObject request) throws Exception {
+        return switch (action) {
+            case "home" -> homeExternal(spider);
+            case "category" -> spider.categoryContent(text(request, "tid"), text(request, "pg"), true, extend(request));
+            case "detail" -> spider.detailContent(List.of(text(request, "id")));
+            case "search" -> spider.searchContent(
+                    request.has("keyword") ? text(request, "keyword") : text(request, "key"),
+                    false,
+                    text(request, "pg"));
+            case "play" -> spider.playerContent(text(request, "flag"), text(request, "id"), new ArrayList<>());
+            case "live" -> spider.liveContent(text(request, "url"));
+            default -> throw new IllegalArgumentException("Unknown action: " + action);
+        };
+    }
+
     private static void writeError(PrintWriter ipc, String id, Throwable error) {
         JsonObject response = new JsonObject();
         response.addProperty("requestId", id);
@@ -105,15 +145,24 @@ public final class Bridge {
         }
     }
 
-    private static String home(Spider spider) throws Exception {
+    private static String homeBuiltin(Spider spider) throws Exception {
         String raw = spider.homeContent(true);
         if (raw == null || raw.isBlank()) return spider.homeVideoContent();
         if (spider.getClass().getMethod("homeVideoContent").getDeclaringClass() == Spider.class) return raw;
+        return mergeHomeVideos(raw, spider::homeVideoContent);
+    }
 
+    private static String homeExternal(ExternalJarLoader.ReflectiveSpider spider) throws Exception {
+        String raw = spider.homeContent(true);
+        if (raw == null || raw.isBlank()) return spider.homeVideoContent();
+        return mergeHomeVideos(raw, spider::homeVideoContent);
+    }
+
+    private static String mergeHomeVideos(String raw, ThrowingStringSupplier supplementalLoader) {
         try {
             JsonElement primary = JsonParser.parseString(raw);
             if (!primary.isJsonObject() || hasVideos(primary.getAsJsonObject())) return raw;
-            String extra = spider.homeVideoContent();
+            String extra = supplementalLoader.get();
             if (extra == null || extra.isBlank()) return raw;
             JsonElement supplemental = JsonParser.parseString(extra);
             if (supplemental.isJsonObject() && hasVideos(supplemental.getAsJsonObject())) {
@@ -131,7 +180,7 @@ public final class Bridge {
         return list != null && list.isJsonArray() && list.getAsJsonArray().size() > 0;
     }
 
-    private static String search(Spider spider, String keyword, String page) throws Exception {
+    private static String searchBuiltin(Spider spider, String keyword, String page) throws Exception {
         if (spider.getClass().getMethod("searchContent", String.class, boolean.class, String.class)
                 .getDeclaringClass() != Spider.class) {
             return spider.searchContent(keyword, false, page);
@@ -140,7 +189,17 @@ public final class Bridge {
         return "{\"list\":[]}";
     }
 
-    private static Spider create(String api, String ext) {
+    private static Object create(ExternalJarLoader jarLoader, String api, String ext, String jar) {
+        Throwable externalError = null;
+        if (jar != null && !jar.isBlank() && api.startsWith("csp_")) {
+            try {
+                return jarLoader.createSpider(jar, api);
+            } catch (Throwable ex) {
+                externalError = ex;
+                System.err.println("[Bridge] External jar load failed for " + api + " (" + jar + "): " + ex);
+            }
+        }
+
         try {
             if (api.startsWith("http")) {
                 String script = ext;
@@ -170,6 +229,9 @@ public final class Bridge {
             Class<?> type = Class.forName("com.github.catvod.spider." + name);
             return (Spider) type.getDeclaredConstructor().newInstance();
         } catch (Throwable error) {
+            if (externalError != null) {
+                throw new IllegalStateException("External jar and built-in fallback both failed for " + api + ": " + externalError.getMessage(), externalError);
+            }
             throw new IllegalStateException("No compatible public spider implementation for " + api, error);
         }
     }
@@ -181,8 +243,15 @@ public final class Bridge {
     private static HashMap<String, String> extend(JsonObject object) {
         HashMap<String, String> result = new HashMap<>();
         if (object.has("extend") && object.get("extend").isJsonObject()) {
-            for (Map.Entry<String, JsonElement> entry : object.getAsJsonObject("extend").entrySet()) result.put(entry.getKey(), entry.getValue().getAsString());
+            for (Map.Entry<String, JsonElement> entry : object.getAsJsonObject("extend").entrySet()) {
+                result.put(entry.getKey(), entry.getValue().getAsString());
+            }
         }
         return result;
+    }
+
+    @FunctionalInterface
+    private interface ThrowingStringSupplier {
+        String get() throws Exception;
     }
 }

@@ -15,7 +15,7 @@ namespace TV.Services.Vod.Native;
 public sealed partial class HanjuVodProvider(SourceHttpClient http) : INativePlaybackProvider
 {
     private static readonly Uri Origin = new("https://www.9hanju.com/");
-    private const string BrowserUa = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36";
+    private const string BrowserUa = NativeSiteToolkit.BrowserUserAgent;
 
     private static readonly byte[] AesKey = CreatePaddedKey("my-to-newhan-2025");
 
@@ -239,11 +239,9 @@ public sealed partial class HanjuVodProvider(SourceHttpClient http) : INativePla
         return padded;
     }
 
-    private static string ResolveUrl(Uri pageUri, string? raw) =>
-        !string.IsNullOrWhiteSpace(raw) && Uri.TryCreate(pageUri, raw.Trim(), out var uri) ? uri.AbsoluteUri : string.Empty;
+    private static string ResolveUrl(Uri pageUri, string? raw) => NativeSiteToolkit.ResolveUrl(pageUri, raw);
 
-    private static string CollapseSpaces(string value) =>
-        string.Join(' ', value.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+    private static string CollapseSpaces(string value) => NativeSiteToolkit.CollapseSpaces(value);
 
     [GeneratedRegex(@"/detail/(\d+)\.html", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
     private static partial Regex DetailIdRegex();

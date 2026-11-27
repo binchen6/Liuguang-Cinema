@@ -1,0 +1,4 @@
+{
+  "name": "liuguang-dandanplay-relay",
+  "entry": "./esa/index.mjs"
+}

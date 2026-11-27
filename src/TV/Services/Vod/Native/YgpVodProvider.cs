@@ -13,7 +13,7 @@ namespace TV.Services.Vod.Native;
 public sealed class YgpVodProvider(SourceHttpClient http) : INativePlaybackProvider
 {
     private const string MaoyanBase = "https://m.maoyan.com/ajax";
-    private const string BrowserUa = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36";
+    private const string BrowserUa = NativeSiteToolkit.BrowserUserAgent;
 
     private static readonly Dictionary<string, string> Headers = new(StringComparer.OrdinalIgnoreCase)
     {

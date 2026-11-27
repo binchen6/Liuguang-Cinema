@@ -194,6 +194,25 @@
                                         </StackPanel>
                                     </Grid>
                                     <Border Height="1" Background="{ThemeResource DividerBrush}" />
+                                    <Grid MinHeight="{StaticResource SettingsRowMinHeight}" ColumnSpacing="{StaticResource SpaceLarge}">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Text="当前仓库" Style="{StaticResource LabelText}" Width="{StaticResource SettingsFormLabelWidth}" VerticalAlignment="Center" />
+                                        <controls:AnchoredChoice Grid.Column="1" Header="当前仓库" MinWidth="220"
+                                                                 MinHeight="{StaticResource SecondaryButtonHeight}"
+                                                                 HorizontalAlignment="Left" VerticalAlignment="Center"
+                                                                 ItemsSource="{Binding Repositories}"
+                                                                 DisplayMemberPath="MenuLabel"
+                                                                 SelectedItem="{Binding SelectedRepository, Mode=TwoWay}"
+                                                                 PlaceholderText="选择片源仓库" />
+                                        <Button Grid.Column="2" Content="切回内置" Command="{Binding SwitchToBuiltInCommand}"
+                                                Style="{StaticResource GhostButtonStyle}" VerticalAlignment="Center"
+                                                Visibility="{Binding CanSwitchToBuiltIn, Converter={StaticResource BoolToVisibility}}" />
+                                    </Grid>
+                                    <Border Height="1" Background="{ThemeResource DividerBrush}" />
                                     <StackPanel Spacing="6">
                                         <TextBlock Text="已导入仓库" Style="{StaticResource LabelText}" />
                                         <ItemsControl ItemsSource="{Binding ImportedRepositories}">
@@ -207,18 +226,26 @@
                                                                 <ColumnDefinition Width="Auto" />
                                                             </Grid.ColumnDefinitions>
                                                             <StackPanel Spacing="{StaticResource SpaceTiny}">
-                                                                <TextBlock Text="{Binding Url}" Style="{StaticResource BodyText}"
+                                                                <TextBlock Text="{Binding Name}" Style="{StaticResource LabelText}"
+                                                                           TextTrimming="CharacterEllipsis" />
+                                                                <TextBlock Text="{Binding Url}" Style="{StaticResource MetaText}"
                                                                            TextTrimming="CharacterEllipsis"
                                                                            ToolTipService.ToolTip="{Binding Url}" />
                                                                 <TextBlock Text="{Binding Summary}" Style="{StaticResource MetaText}"
                                                                            TextTrimming="CharacterEllipsis" />
                                                             </StackPanel>
-                                                            <Button Grid.Column="1" Style="{StaticResource IconButtonStyle}"
-                                                                    Tag="{Binding}" Click="OnRemoveSourceClick"
-                                                                    ToolTipService.ToolTip="删除仓库"
-                                                                    AutomationProperties.Name="删除仓库">
-                                                                <controls:LineIcon PathData="{StaticResource IconTrash}" IconSize="15" />
-                                                            </Button>
+                                                            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                                                                <Button Content="使用" Style="{StaticResource SecondaryButtonStyle}"
+                                                                        Tag="{Binding}" Click="OnSelectImportedRepoClick"
+                                                                        ToolTipService.ToolTip="切换到此仓库"
+                                                                        AutomationProperties.Name="切换仓库" />
+                                                                <Button Style="{StaticResource IconButtonStyle}"
+                                                                        Tag="{Binding}" Click="OnRemoveSourceClick"
+                                                                        ToolTipService.ToolTip="删除仓库"
+                                                                        AutomationProperties.Name="删除仓库">
+                                                                    <controls:LineIcon PathData="{StaticResource IconTrash}" IconSize="15" />
+                                                                </Button>
+                                                            </StackPanel>
                                                         </Grid>
                                                     </Border>
                                                 </DataTemplate>
@@ -471,7 +498,22 @@
                                                 Style="{StaticResource GhostButtonStyle}" VerticalAlignment="Center" />
                                     </Grid>
                                     <Border Height="1" Background="{ThemeResource DividerBrush}" />
-                                    <TextBlock Text="可选：填写自定义弹弹play AppId 与 AppSecret 覆盖默认配置；开源自构建时也可在此填入个人密钥。" Style="{StaticResource MetaText}" TextWrapping="Wrap" />
+                                    <TextBlock Text="可选：填写国内免翻墙免费签名中继地址（如腾讯 EdgeOne Pages / 阿里云 ESA / Laf，多个地址用逗号分隔自动故障转移），或填写个人 AppId / AppSecret 直连。" Style="{StaticResource MetaText}" TextWrapping="Wrap" />
+                                    <Grid MinHeight="{StaticResource SettingsRowMinHeight}" ColumnSpacing="{StaticResource SpaceLarge}">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Text="签名中继地址" Style="{StaticResource LabelText}" Width="{StaticResource SettingsFormLabelWidth}" VerticalAlignment="Center" />
+                                        <TextBox Grid.Column="1" MinWidth="240" MaxWidth="420" HorizontalAlignment="Left"
+                                                 PlaceholderText="https://...（多个地址用逗号分隔）"
+                                                 InputScope="Url"
+                                                 AutomationProperties.Name="弹弹play 中继地址"
+                                                 Text="{Binding DanDanPlayRelayUrlInput, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                                        <Button Grid.Column="2" Content="保存中继" Command="{Binding SaveDanDanPlayRelayCommand}"
+                                                Style="{StaticResource SecondaryButtonStyle}" VerticalAlignment="Center" />
+                                    </Grid>
                                     <Grid MinHeight="{StaticResource SettingsRowMinHeight}" ColumnSpacing="{StaticResource SpaceLarge}">
                                         <Grid.ColumnDefinitions>
                                             <ColumnDefinition Width="Auto" />

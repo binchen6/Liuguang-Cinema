@@ -27,6 +27,7 @@ public sealed partial class DanDanPlayService
     public const string ApiBaseUrl = "https://api.dandanplay.net";
     public const string SettingAppId = "danmaku.dandanplay.appId";
     public const string SettingAppSecret = "danmaku.dandanplay.appSecret";
+    public const string SettingRelayUrl = "danmaku.dandanplay.relayUrl";
     private const int HashPrefixBytes = 16 * 1024 * 1024; // 16 MB per DanDanPlay /api/v2/match spec
     private const int MaxEpisodeQueryNumber = 9999;
     private const double MinTitleRelevanceScore = 230.0;
@@ -35,26 +36,41 @@ public sealed partial class DanDanPlayService
 
     private readonly SourceHttpClient _http;
     private readonly DatabaseService _database;
-    private readonly Uri? _defaultRelay;
+    private readonly IReadOnlyList<Uri> _defaultRelays;
+    private readonly Func<Uri, Uri>? _commentDeliveryRewriter;
+    private int _preferredRelayIndex;
     private readonly ConcurrentDictionary<string, (DanDanPlayEpisode Episode, DateTimeOffset Expires)> _matchCache = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<(long Episode, bool WithRelated, int Conversion), (DanmakuEntry[] Comments, DateTimeOffset Expires)> _commentCache = new();
 
     public DanDanPlayService(SourceHttpClient http, DatabaseService database)
-        : this(http, database, ReadDefaultRelay())
+        : this(http, database, ReadDefaultRelays())
     {
     }
 
     internal DanDanPlayService(SourceHttpClient http, DatabaseService database, Uri? defaultRelay)
+        : this(http, database, defaultRelay is null ? [] : [defaultRelay])
+    {
+    }
+
+    internal DanDanPlayService(
+        SourceHttpClient http,
+        DatabaseService database,
+        IReadOnlyList<Uri> defaultRelays,
+        Func<Uri, Uri>? commentDeliveryRewriter = null)
     {
         _http = http;
         _database = database;
-        _defaultRelay = defaultRelay;
+        _defaultRelays = defaultRelays;
+        _commentDeliveryRewriter = commentDeliveryRewriter;
     }
 
-    public bool HasDefaultService => _defaultRelay is not null;
+    public bool HasDefaultService => _defaultRelays.Count > 0;
+    public int DefaultRelayCount => _defaultRelays.Count;
 
     public async Task<bool> HasCredentialsAsync(CancellationToken token = default) =>
-        HasDefaultService || await HasCustomCredentialsAsync(token).ConfigureAwait(false);
+        HasDefaultService
+        || await HasCustomCredentialsAsync(token).ConfigureAwait(false)
+        || (await ReadCustomRelaysAsync(token).ConfigureAwait(false)).Count > 0;
 
     public async Task<bool> HasCustomCredentialsAsync(CancellationToken token = default)
     {
@@ -62,14 +78,102 @@ public sealed partial class DanDanPlayService
         return appId.Length > 0 && secret.Length > 0;
     }
 
-    private static Uri? ReadDefaultRelay()
+    public async Task<bool> HasCustomRelayAsync(CancellationToken token = default) =>
+        (await ReadCustomRelaysAsync(token).ConfigureAwait(false)).Count > 0;
+
+    public async Task<string> GetCustomRelayUrlAsync(CancellationToken token = default) =>
+        (await _database.GetSettingAsync(SettingRelayUrl, token).ConfigureAwait(false) ?? string.Empty).Trim();
+
+    public async Task SaveCustomRelayUrlAsync(string rawUrls, CancellationToken token = default)
     {
-        var address = typeof(DanDanPlayService).Assembly.GetCustomAttributes<AssemblyMetadataAttribute>()
-            .FirstOrDefault(attribute => attribute.Key == "DanDanPlayRelayUrl")?.Value;
-        return Uri.TryCreate(address, UriKind.Absolute, out var uri) && uri.Scheme == Uri.UriSchemeHttps &&
-            uri.IsDefaultPort && uri.UserInfo.Length == 0 && uri.PathAndQuery == "/" && uri.Fragment.Length == 0 && !uri.IsLoopback
-            ? uri : null;
+        var trimmed = (rawUrls ?? string.Empty).Trim();
+        if (trimmed.Length == 0)
+        {
+            await _database.SetSettingAsync(SettingRelayUrl, string.Empty, token).ConfigureAwait(false);
+            return;
+        }
+        var parsed = ParseRelayUrls(trimmed, strict: true);
+        if (parsed.Count == 0)
+            throw new InvalidDataException("请输入有效的公网 HTTPS 中继地址（例如 Tencent EdgeOne / 阿里云 ESA / Laf 地址），多个地址请用逗号分隔。");
+        var normalized = string.Join(",", parsed.Select(u => u.ToString().TrimEnd('/')));
+        await _database.SetSettingAsync(SettingRelayUrl, normalized, token).ConfigureAwait(false);
     }
+
+    public Task ClearCustomRelayUrlAsync(CancellationToken token = default) =>
+        _database.SetSettingAsync(SettingRelayUrl, string.Empty, token);
+
+    private static List<Uri> ReadDefaultRelays()
+    {
+        var values = typeof(DanDanPlayService).Assembly.GetCustomAttributes<AssemblyMetadataAttribute>()
+            .Where(attribute => attribute.Key is "DanDanPlayRelayUrl" or "DanDanPlayRelayUrls")
+            .Select(attribute => attribute.Value);
+        var list = new List<Uri>();
+        foreach (var value in values)
+        {
+            foreach (var uri in ParseRelayUrls(value, strict: false))
+            {
+                if (!list.Any(existing => Uri.Compare(existing, uri, UriComponents.AbsoluteUri, UriFormat.Unescaped, StringComparison.OrdinalIgnoreCase) == 0))
+                    list.Add(uri);
+            }
+        }
+        return list;
+    }
+
+    internal static IReadOnlyList<Uri> ParseRelayUrls(string? raw, bool strict = false)
+    {
+        if (string.IsNullOrWhiteSpace(raw)) return [];
+        var parts = raw.Split([',', ';', '\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        var list = new List<Uri>(parts.Length);
+        foreach (var part in parts)
+        {
+            if (TryParseRelayUri(part, out var uri) && uri is not null)
+            {
+                if (!list.Any(existing => Uri.Compare(existing, uri, UriComponents.AbsoluteUri, UriFormat.Unescaped, StringComparison.OrdinalIgnoreCase) == 0))
+                    list.Add(uri);
+            }
+            else if (strict)
+            {
+                return [];
+            }
+        }
+        return list;
+    }
+
+    internal static bool TryParseRelayUri(string? address, out Uri? normalized)
+    {
+        normalized = null;
+        if (string.IsNullOrWhiteSpace(address)) return false;
+        if (!Uri.TryCreate(address.Trim(), UriKind.Absolute, out var uri)) return false;
+        if (uri.Scheme != Uri.UriSchemeHttps || !uri.IsDefaultPort || uri.UserInfo.Length != 0 ||
+            uri.Query.Length != 0 || uri.Fragment.Length != 0 || uri.IsLoopback)
+            return false;
+        var path = uri.AbsolutePath;
+        if (path.Length > 64 || path.Contains("..", StringComparison.Ordinal) || path.Contains('\\'))
+            return false;
+        var baseText = path == "/"
+            ? $"{uri.Scheme}://{uri.IdnHost}/"
+            : $"{uri.Scheme}://{uri.IdnHost}{path.TrimEnd('/')}/";
+        normalized = new Uri(baseText, UriKind.Absolute);
+        return true;
+    }
+
+    internal static Uri BuildRelayRequestUri(Uri relayBase, string apiPathAndQuery)
+    {
+        var baseText = relayBase.ToString();
+        if (!baseText.EndsWith('/')) baseText += "/";
+        var relative = apiPathAndQuery.TrimStart('/');
+        return new Uri(baseText + relative, UriKind.Absolute);
+    }
+
+    internal static bool IsAllowedCommentDeliveryUri(Uri target, string apiPath) =>
+        target.Scheme == Uri.UriSchemeHttps
+        && target.IsDefaultPort
+        && string.Equals(target.IdnHost, "cas2.dandanplay.net", StringComparison.OrdinalIgnoreCase)
+        && target.UserInfo.Length == 0
+        && target.Fragment.Length == 0
+        && target.Query.Length <= 4096
+        && apiPath.StartsWith("/api/v2/comment/", StringComparison.Ordinal)
+        && string.Equals(target.AbsolutePath, "/api" + apiPath["/api/v2".Length..], StringComparison.Ordinal);
 
     public Task SaveCustomCredentialsAsync(string appId, string appSecret, CancellationToken token = default) =>
         _database.SetSettingPairAsync((SettingAppId, appId.Trim()), (SettingAppSecret, SecretStore.Protect(appSecret)), token);
@@ -287,7 +391,7 @@ public sealed partial class DanDanPlayService
 
     public async Task<DanmakuEntry[]> GetCommentsAsync(long episodeId, bool withRelated = true, int chConvert = 1, CancellationToken token = default)
     {
-        if (episodeId <= 0) throw new ArgumentOutOfRangeException(nameof(episodeId));
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(episodeId);
         var convert = Math.Clamp(chConvert, 0, 2);
         var cacheKey = (episodeId, withRelated, convert);
         if (_commentCache.TryGetValue(cacheKey, out var cached) && cached.Expires > DateTimeOffset.UtcNow)
@@ -454,11 +558,11 @@ public sealed partial class DanDanPlayService
         if (titlePart.Length == 0) return string.Empty;
         var sb = new StringBuilder(titlePart);
         if (identity.SeasonNumber is >= 1 and <= 50 && identity.EpisodeNumber is >= 1 and <= MaxEpisodeQueryNumber)
-            sb.Append($" S{identity.SeasonNumber.Value:D2}E{identity.EpisodeNumber.Value:D2}");
+            sb.Append(CultureInfo.InvariantCulture, $" S{identity.SeasonNumber.Value:D2}E{identity.EpisodeNumber.Value:D2}");
         else if (identity.SeasonNumber is >= 2 and <= 50)
-            sb.Append($" 第{identity.SeasonNumber.Value}季");
+            sb.Append(CultureInfo.InvariantCulture, $" 第{identity.SeasonNumber.Value}季");
         else if (identity.EpisodeNumber is >= 1 and <= MaxEpisodeQueryNumber)
-            sb.Append($" 第{identity.EpisodeNumber.Value:D2}集");
+            sb.Append(CultureInfo.InvariantCulture, $" 第{identity.EpisodeNumber.Value:D2}集");
         else if (!string.IsNullOrWhiteSpace(identity.SpecialTag))
             sb.Append(' ').Append(identity.SpecialTag);
         return SanitizeMatchFileName(sb.ToString());
@@ -605,7 +709,7 @@ public sealed partial class DanDanPlayService
         return (pool[0], false, 0);
     }
 
-    private static DanDanPlayEpisode? PickBestFlatMatch(IReadOnlyList<DanDanPlayEpisode> matches, MediaIdentity identity, string rawEpisode)
+    private static DanDanPlayEpisode? PickBestFlatMatch(List<DanDanPlayEpisode> matches, MediaIdentity identity, string rawEpisode)
     {
         if (matches.Count == 0) return null;
         var wantedSeason = identity.SeasonNumber ?? 1;
@@ -779,27 +883,160 @@ public sealed partial class DanDanPlayService
     {
         var (appId, secret) = await ReadCredentialsAsync(token).ConfigureAwait(false);
         var custom = appId.Length > 0 && secret.Length > 0;
-        if (!custom && _defaultRelay is null)
-            throw new InvalidOperationException("尚未配置弹弹play 开放平台 AppId/AppSecret，请在“设置 → 弹幕与 AI”中填入凭证。");
-
         var timeout = requestTimeout ?? SearchRequestTimeout;
-        Task<string> SendAsync() => custom
-            ? SendWithSingleCredentialAsync(method, apiPath, url, bodyJson, appId, secret, token, timeout)
-            : SendApiAsync(new Uri(_defaultRelay!, new Uri(url).PathAndQuery), method == HttpMethod.Post ? bodyJson ?? "{}" : null,
-                new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) { ["User-Agent"] = "LiuguangCinema/1.9 (DanDanPlay Relay)" },
-                timeout, fromRelay: true, token);
+        if (custom)
+        {
+            try
+            {
+                return await SendWithSingleCredentialAsync(method, apiPath, url, bodyJson, appId, secret, token, timeout).ConfigureAwait(false);
+            }
+            catch (Exception ex) when (IsTransientRelayFailure(ex, token))
+            {
+                Diagnostics.Log($"DanDanPlay direct transient failure on {apiPath} ({ex.GetType().Name}), retrying once");
+                await Task.Delay(400, token).ConfigureAwait(false);
+                return await SendWithSingleCredentialAsync(method, apiPath, url, bodyJson, appId, secret, token, timeout).ConfigureAwait(false);
+            }
+        }
+
+        var relays = await GetOrderedRelaysAsync(token).ConfigureAwait(false);
+        if (relays.Count == 0)
+            throw new InvalidOperationException("尚未配置弹弹play 开放平台凭证或国内签名中继，请在“设置 → 弹幕与 AI”中配置。");
+
+        var pathAndQuery = new Uri(url).PathAndQuery;
+        var body = method == HttpMethod.Post ? bodyJson ?? "{}" : null;
+        var isCommentRoute = method == HttpMethod.Get && apiPath.StartsWith("/api/v2/comment/", StringComparison.Ordinal);
+
+        Exception? lastError = null;
+        for (var i = 0; i < relays.Count; i++)
+        {
+            var relay = relays[i];
+            try
+            {
+                var payload = await SendViaRelayAsync(relay, apiPath, pathAndQuery, body, timeout, preferDirectCommentCdn: isCommentRoute, token).ConfigureAwait(false);
+                RememberHealthyRelay(relay);
+                return payload;
+            }
+            catch (Exception ex) when (IsTransientRelayFailure(ex, token))
+            {
+                lastError = ex;
+                Diagnostics.Log($"DanDanPlay relay {relay.Host} failed on {apiPath} ({ex.GetType().Name}: {ex.Message})");
+                if (relays.Count == 1)
+                {
+                    await Task.Delay(400, token).ConfigureAwait(false);
+                    var retryPayload = await SendViaRelayAsync(relay, apiPath, pathAndQuery, body, timeout, preferDirectCommentCdn: isCommentRoute, token).ConfigureAwait(false);
+                    return retryPayload;
+                }
+            }
+        }
+
+        throw lastError ?? new HttpRequestException("默认弹幕服务暂不可用，请稍后重试或配置国内签名中继 / 自定义凭据。");
+    }
+
+    private async Task<string> SendViaRelayAsync(
+        Uri relay,
+        string apiPath,
+        string pathAndQuery,
+        string? bodyJson,
+        TimeSpan timeout,
+        bool preferDirectCommentCdn,
+        CancellationToken token)
+    {
+        var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["User-Agent"] = "LiuguangCinema/1.9 (DanDanPlay Relay)"
+        };
+        if (preferDirectCommentCdn)
+            headers["X-Relay-Delivery"] = "direct";
+
+        var relayUri = BuildRelayRequestUri(relay, pathAndQuery);
+        var responseText = await SendApiAsync(relayUri, bodyJson, headers, timeout, fromRelay: true, token).ConfigureAwait(false);
+
+        if (preferDirectCommentCdn && TryExtractDirectCommentDeliveryUrl(responseText, apiPath, out var deliveryUri) && deliveryUri is not null)
+        {
+            var targetUri = _commentDeliveryRewriter is not null ? _commentDeliveryRewriter(deliveryUri) : deliveryUri;
+            try
+            {
+                var cdnHeaders = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+                {
+                    ["Accept"] = "application/json",
+                    ["User-Agent"] = "LiuguangCinema/1.9"
+                };
+                return await SendApiAsync(targetUri, null, cdnHeaders, timeout, fromRelay: false, token).ConfigureAwait(false);
+            }
+            catch (Exception ex) when (IsTransientRelayFailure(ex, token))
+            {
+                Diagnostics.Log($"DanDanPlay direct China CDN fetch failed ({ex.GetType().Name}), falling back to relay proxy");
+                headers.Remove("X-Relay-Delivery");
+                return await SendApiAsync(relayUri, bodyJson, headers, timeout, fromRelay: true, token).ConfigureAwait(false);
+            }
+        }
+
+        return responseText;
+    }
+
+    internal static bool TryExtractDirectCommentDeliveryUrl(string json, string apiPath, out Uri? deliveryUri)
+    {
+        deliveryUri = null;
+        if (string.IsNullOrWhiteSpace(json) || json.Length > 8192 || !json.Contains("\"deliveryUrl\"", StringComparison.Ordinal))
+            return false;
         try
         {
-            return await SendAsync().ConfigureAwait(false);
+            using var doc = JsonDocument.Parse(json);
+            if (doc.RootElement.ValueKind != JsonValueKind.Object) return false;
+            var raw = ReadString(doc.RootElement, "deliveryUrl");
+            if (string.IsNullOrWhiteSpace(raw) || raw.Length > 4096) return false;
+            if (!Uri.TryCreate(raw, UriKind.Absolute, out var candidate)) return false;
+            if (!IsAllowedCommentDeliveryUri(candidate, apiPath)) return false;
+            deliveryUri = candidate;
+            return true;
         }
-        catch (Exception ex) when (!token.IsCancellationRequested &&
-            (ex is TimeoutException || ex is HttpRequestException http &&
-                (http.StatusCode is null || (int)http.StatusCode >= 500)))
+        catch (JsonException)
         {
-            Diagnostics.Log($"DanDanPlay transient failure on {apiPath} ({ex.GetType().Name}), retrying once");
-            await Task.Delay(400, token).ConfigureAwait(false);
-            return await SendAsync().ConfigureAwait(false);
+            return false;
         }
+    }
+
+    private static bool IsTransientRelayFailure(Exception ex, CancellationToken token) =>
+        !token.IsCancellationRequested &&
+        (ex is TimeoutException ||
+         (ex is HttpRequestException http &&
+          (http.StatusCode is null || (int)http.StatusCode >= 500 || http.StatusCode == HttpStatusCode.TooManyRequests)));
+
+    private async Task<List<Uri>> GetOrderedRelaysAsync(CancellationToken token)
+    {
+        var list = new List<Uri>();
+        foreach (var custom in await ReadCustomRelaysAsync(token).ConfigureAwait(false))
+            list.Add(custom);
+
+        if (_defaultRelays.Count > 0)
+        {
+            var start = Math.Clamp(Volatile.Read(ref _preferredRelayIndex), 0, _defaultRelays.Count - 1);
+            for (var i = 0; i < _defaultRelays.Count; i++)
+            {
+                var uri = _defaultRelays[(start + i) % _defaultRelays.Count];
+                if (!list.Any(existing => Uri.Compare(existing, uri, UriComponents.AbsoluteUri, UriFormat.Unescaped, StringComparison.OrdinalIgnoreCase) == 0))
+                    list.Add(uri);
+            }
+        }
+        return list;
+    }
+
+    private void RememberHealthyRelay(Uri relay)
+    {
+        for (var i = 0; i < _defaultRelays.Count; i++)
+        {
+            if (Uri.Compare(_defaultRelays[i], relay, UriComponents.AbsoluteUri, UriFormat.Unescaped, StringComparison.OrdinalIgnoreCase) == 0)
+            {
+                Volatile.Write(ref _preferredRelayIndex, i);
+                return;
+            }
+        }
+    }
+
+    private async Task<IReadOnlyList<Uri>> ReadCustomRelaysAsync(CancellationToken token)
+    {
+        var raw = await _database.GetSettingAsync(SettingRelayUrl, token).ConfigureAwait(false);
+        return ParseRelayUrls(raw, strict: false);
     }
 
     private async Task<string> SendWithSingleCredentialAsync(

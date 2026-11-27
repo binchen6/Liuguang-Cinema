@@ -15,10 +15,10 @@
 | 模块 | 实现说明 |
 | --- | --- |
 | **界面与主题** | 深色（暗室素墨）、浅色（暖白低眩光）与高对比度主题；使用 WinUI 3 `AcrylicBrush` 与自研多层光学玻璃控件 `GlassSurface`；全站横向/竖向导航样式收敛至 `Styles/Navigation.xaml` 与 `Controls/NavigationMotion.cs`，由 WinUI Composition 驱动可打断弹簧过渡 |
-| **点播与直播** | 兼容常见 TVBox 单仓、多仓、Type 0/1/4 与 M3U/TXT 直播源；内置 **22 个原生 C# 站点适配器**并配合 Java CatVod 兼容层；支持分类筛选、选集、多线路、EPG 节目单、收藏与断点续播 |
+| **点播与直播** | 兼容常见 TVBox 单仓、多仓、AES/Base64 加密配置、Type 0/1/4 与 M3U/TXT 直播源；支持**多仓库切换与站点隔离**；内置原生 C# 适配器、`AppYsV2/AList`、`Jint` JS 规则、`Python` 爬虫及支持外部安卓 DEX/JAR 动态转译加载的 Java 17 CatVod 引擎 |
 | **搜索与换源** | 支持多站并发搜索、本地历史/片库即时联想 + 防抖流式远端建议（不抢占中文 IME 焦点）、单站重试、应用内验证码/安全验证弹窗与同名片源切换 |
-| **播放器** | 基于 LibVLC，默认优先硬件解码（`:avcodec-hw=any`，不支持时自动回退软解）；支持倍速、画质、画面比例、多音轨/外挂字幕、片头片尾跳过、全屏、画中画与默认开启的播放期防息屏/防休眠；播放中无操作 3 秒且指针离开控件后自动隐藏控制层与鼠标 |
-| **弹幕与字幕** | 支持弹弹play 开放弹幕库（默认服务和自定义 AppId/AppSecret，支持本地 16 MB 哈希及在线片名匹配）及 B 站弹幕；支持字幕时间偏移（±60s）与 `0.80x–1.25x` 调速 |
+| **播放器** | 基于 LibVLC，默认优先硬件解码（`:avcodec-hw=any`，不支持时自动回退软解）；支持无回弹拖拽与悬停时间预览、网盘跳转实时取消旧预读、倍速、画质、画面比例、多音轨/外挂字幕、片头片尾跳过、全屏、画中画与播放期防息屏/防休眠 |
+| **弹幕与字幕** | 支持弹弹play 开放弹幕库（支持多平台免费国内直连签名中继、自动故障转移、直连国内 `cas2.dandanplay.net` CDN 省流下载及自定义 AppId/AppSecret）及 B 站弹幕；支持字幕时间偏移（±60s）与 `0.80x–1.25x` 调速 |
 | **AI 字幕（需自备 Key）** | 接入阿里云百炼 API（用户在设置中自行填入 API Key）：支持提取音轨生成字幕（`paraformer-v2` / `qwen3-asr-flash-filetrans`）、双语翻译（`qwen-mt-flash` / `qwen-mt-plus`）与 WASAPI 进程环回实时字幕（`qwen3-asr-flash-realtime`） |
 | **个人网盘** | 支持阿里云盘（含资源库/备份盘与设备会话签名）、夸克、UC、百度网盘登录与目录浏览；通过本地 `127.0.0.1` 代理和分块预读播放。UC 原画受限时会尝试账号可用的转码，并在播放页显示结果 |
 | **本地媒体与下载** | 支持本地目录递归扫描与变更监听、同名侧车字幕/弹幕自动挂载、Windows「打开方式」直达播放（跳过站点与爬虫初始化）；支持单集另存与批量/HLS 下载 |
@@ -44,8 +44,8 @@
 > 社区开源发行版未附带商业 Authenticode 代码签名证书，在开启 Windows 11 **智能应用控制（Smart App Control）** 或 SmartScreen 的设备上可能出现提示或拦截，详见 [智能应用控制与签名说明](docs/smart-app-control.md)。下载后建议核对官方 SHA-256：
 
 ```powershell
-Get-FileHash .\TV-Setup-1.9.6-x64.exe -Algorithm SHA256
-Get-Content .\TV-Setup-1.9.6-x64.exe.sha256
+Get-FileHash .\TV-Setup-1.9.7-x64.exe -Algorithm SHA256
+Get-Content .\TV-Setup-1.9.7-x64.exe.sha256
 ```
 
 ---
@@ -123,7 +123,7 @@ installer/ & scripts/    Inno Setup 脚本、构建与验收脚本
 docs/                    设计规范、开发指南、站点验收与发行说明
 ```
 
-文档索引见 [文档中心](docs/README.md)：[功能介绍](docs/showcase.md) · [开发指南](docs/development.md) · [设计语言](docs/brand-design-system.md) · [设计契约](docs/design-guide.md) · [动效规范](docs/motion-spec.md) · [智能应用控制说明](docs/smart-app-control.md) · [站点验收](docs/site-verification.md) · [1.9.6 发行说明](docs/releases/release-1.9.6.md)。
+文档索引见 [文档中心](docs/README.md)：[功能介绍](docs/showcase.md) · [开发指南](docs/development.md) · [设计语言](docs/brand-design-system.md) · [设计契约](docs/design-guide.md) · [动效规范](docs/motion-spec.md) · [智能应用控制说明](docs/smart-app-control.md) · [站点验收](docs/site-verification.md) · [1.9.7 发行说明](docs/releases/release-1.9.7.md)。
 
 ---
 

@@ -38,6 +38,7 @@ public sealed partial class VodPage : Page
             CategoryGlidePill,
             HorizontalIndicatorMode.PillMatchWidth,
             CategoryScroller);
+        MotionService.AttachTactile(RepoSwitcherButton, 1.02f, 0.96f, -1f);
         MotionService.AttachTactile(HeaderSearchButton, 1.02f, 0.96f, -1f);
         MotionService.AttachTactile(HeaderReloadButton, 1.04f, 0.94f, -1f);
         MotionService.AttachTactile(FilterButton, 1.02f, 0.96f, -1f);
@@ -115,6 +116,27 @@ public sealed partial class VodPage : Page
     }
 
     private void OnSearchClick(object sender, RoutedEventArgs e) => App.Window.OpenSearch();
+
+    private void OnRepoMenuOpening(object? sender, object e)
+    {
+        RepoSwitcherFlyout.Items.Clear();
+        var activeId = ViewModel.ActiveRepository?.Id;
+        foreach (var repo in ViewModel.Repositories)
+        {
+            var target = repo;
+            var item = new ToggleMenuFlyoutItem
+            {
+                Text = repo.MenuLabel,
+                IsChecked = string.Equals(repo.Id, activeId, StringComparison.OrdinalIgnoreCase)
+            };
+            item.Click += async (_, _) => await ViewModel.SelectRepositoryCommand.ExecuteAsync(target);
+            RepoSwitcherFlyout.Items.Add(item);
+        }
+        RepoSwitcherFlyout.Items.Add(new MenuFlyoutSeparator());
+        var manage = new MenuFlyoutItem { Text = "管理与导入仓库…" };
+        manage.Click += (_, _) => App.Window.Navigate("settings");
+        RepoSwitcherFlyout.Items.Add(manage);
+    }
 
     private async void OnVerifySiteClick(object sender, RoutedEventArgs e)
     {

@@ -24,6 +24,15 @@ public sealed class SourceHttpClient : IDisposable
         _client = CreateClient();
     }
 
+    internal SourceHttpClient(HttpMessageHandler handler, SiteSessionStore? sessions = null)
+    {
+        _dns = new DnsResolverService(new Persistence.DatabaseService());
+        _ownsDns = true;
+        _sessions = sessions;
+        Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
+        _client = new HttpClient(handler);
+    }
+
     public SiteSessionStore? Sessions => _sessions;
 
     private HttpClient CreateClient() => new(new SocketsHttpHandler

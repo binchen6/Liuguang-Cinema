@@ -36,15 +36,9 @@ public sealed partial class PlayerViewModel : ObservableObject
     private long _loadGeneration;
     private int _tickRunning;
     private int _recoveryRunning;
-    private long _lastProgressMs = -1;
-    private DateTimeOffset _lastProgressAt;
-    private DateTimeOffset _bufferResumeAt;
-    private DateTimeOffset _bufferWindowAt;
     private DateTimeOffset _lastRecoveryAt;
-    private bool _bufferingPaused;
-    private bool _manualPaused;
     private bool _adaptiveQuality = true;
-    private int _bufferEvents;
+    private readonly PlaybackSeekCoordinator _seek = new();
     private bool _refreshedSource;
     private bool _introSkipped;
     private bool _outroSkipped;
@@ -57,9 +51,6 @@ public sealed partial class PlayerViewModel : ObservableObject
     private string? _lastGeneratedAiSubtitlePath;
     private bool _externalSubtitleSpeedBaked;
     private long _lastAppliedDynamicSpuDelay = long.MinValue;
-    private bool _pauseOverrideActive;
-    private bool _pauseDesiredPlaying;
-    private long _pauseOverrideUntilTs;
     private CancellationTokenSource? _subtitleSpeedDebounceCts;
 
     public PlayerViewModel(AppServices services, DispatcherQueue dispatcher)
@@ -230,7 +221,6 @@ public sealed partial class PlayerViewModel : ObservableObject
         _lastGeneratedAiSubtitlePath = null;
         _externalSubtitleSpeedBaked = false;
         _lastAppliedDynamicSpuDelay = long.MinValue;
-        _pauseOverrideActive = false;
         _subtitleSpeedDebounceCts?.Cancel();
         SubtitleSpeed = 1.0;
         RequiredLoginProvider = null;
@@ -260,11 +250,7 @@ public sealed partial class PlayerViewModel : ObservableObject
         _hasPlayedMedia = false;
         _lineRecoveryAttempted = false;
         _refreshedSource = false;
-        _manualPaused = false;
-        _bufferingPaused = false;
-        _bufferEvents = 0;
-        _lastProgressMs = -1;
-        _lastProgressAt = DateTimeOffset.UtcNow;
+        _seek.Reset(PlaybackSeekCoordinator.NowMs(), request.StartPositionMs);
         _introSkipped = _outroSkipped = false;
         Timing = new();
         TimingMessage = string.Empty;
@@ -289,8 +275,8 @@ public sealed partial class PlayerViewModel : ObservableObject
             _settingQuality = false;
             if (string.Equals(await settings.GetSettingAsync("playback.resume", token), "false", StringComparison.OrdinalIgnoreCase)) request.StartPositionMs = 0;
             _services.Player.HardwareDecoding = !string.Equals(await settings.GetSettingAsync("playback.hardware", token), "false", StringComparison.OrdinalIgnoreCase);
-            _services.Player.NetworkCachingMs = await ReadIntAsync("playback.networkCache", 3600, 1200, 12000);
-            _services.Player.LiveCachingMs = await ReadIntAsync("playback.liveCache", 1800, 500, 8000);
+            _services.Player.NetworkCachingMs = await ReadIntAsync("playback.networkCache", 2000, 800, 12000);
+            _services.Player.LiveCachingMs = await ReadIntAsync("playback.liveCache", 1500, 500, 8000);
             _adaptiveQuality = !string.Equals(await settings.GetSettingAsync("playback.adaptiveQuality", token), "false", StringComparison.OrdinalIgnoreCase);
             SkipEnabled = !string.Equals(await settings.GetSettingAsync("playback.skipEnabled", token), "false", StringComparison.OrdinalIgnoreCase);
             if (_lastSaved == DateTime.MinValue) Volume = await ReadIntAsync("playback.volume", 85, 0, 100);
@@ -322,8 +308,6 @@ public sealed partial class PlayerViewModel : ObservableObject
             }
             pendingMedia = media;
             _isLocalFile = Uri.TryCreate(media.Url, UriKind.Absolute, out var mediaUri) && mediaUri.IsFile;
-            if (!_isLocalFile && request.Url.StartsWith("cloud://", StringComparison.OrdinalIgnoreCase))
-                _services.Player.NetworkCachingMs = Math.Max(_services.Player.NetworkCachingMs, 4500);
             SubtitleDelayMs = 0;
             AudioDelayMs = 0;
             MediaInfoText = string.Empty;
@@ -384,12 +368,7 @@ public sealed partial class PlayerViewModel : ObservableObject
     private void TogglePause()
     {
         if (_request is null) return;
-        var desiredPlaying = !IsPlaying;
-        _manualPaused = !desiredPlaying;
-        _bufferingPaused = false;
-        _pauseDesiredPlaying = desiredPlaying;
-        _pauseOverrideActive = true;
-        _pauseOverrideUntilTs = Stopwatch.GetTimestamp() + (long)(Stopwatch.Frequency * 0.65);
+        var desiredPlaying = _seek.TogglePause(IsPlaying, PlaybackSeekCoordinator.NowMs());
 
         // Optimistic 0ms UI + Danmaku sync before LibVLC native lock finishes
         IsPlaying = desiredPlaying;
@@ -397,33 +376,6 @@ public sealed partial class PlayerViewModel : ObservableObject
         PlaybackStateChanged?.Invoke(this, desiredPlaying);
 
         _services.Player.SetPause(!desiredPlaying);
-    }
-
-    [RelayCommand]
-    private async Task StopAsync()
-    {
-        var (generation, cancellation) = BeginLoadOperation();
-        ResetCloudSubtitles();
-        CancelAiSubtitle();
-        await StopRealtimeSubtitleAsync();
-        StopTimerAndSave();
-        DanmakuCleared?.Invoke(this, EventArgs.Empty);
-        await _loadGate.WaitAsync();
-        try
-        {
-            if (generation != _loadGeneration) return;
-            await _services.StopPlayerAsync();
-            ReleaseMedia(_resolvedMedia);
-            _resolvedMedia = null;
-            _pauseOverrideActive = false;
-            IsPlaying = false;
-            _services.KeepAwake.SetActive("player", false);
-            PlayPauseGlyph = "\uE768";
-            IsBuffering = false;
-            StatusMessage = "已停止播放";
-        }
-        catch (Exception ex) { if (!cancellation.IsCancellationRequested) StatusMessage = ex.Message; }
-        finally { _loadGate.Release(); }
     }
 
     /// <summary>离开播放器页面前调用：停播并等解码线程退出，避免交换链被销毁后 VLC 写帧导致进程崩溃。</summary>
@@ -453,7 +405,7 @@ public sealed partial class PlayerViewModel : ObservableObject
                 ReleaseMedia(_resolvedMedia);
                 _resolvedMedia = null;
             }
-            _pauseOverrideActive = false;
+            _seek.Reset(PlaybackSeekCoordinator.NowMs());
             _subtitleSpeedDebounceCts?.Cancel();
             IsPlaying = false;
             _services.KeepAwake.SetActive("player", false);
@@ -488,11 +440,14 @@ public sealed partial class PlayerViewModel : ObservableObject
     public void SeekBy(double seconds)
     {
         var snapshot = _services.Player.LastSnapshot;
-        if (snapshot.LengthMs <= 0) return;
-        var target = Math.Clamp(snapshot.TimeMs + (long)(seconds * 1000), 0, snapshot.LengthMs);
-        _services.Player.Seek(target);
+        var duration = snapshot.LengthMs > 0 ? snapshot.LengthMs : (long)DurationMs;
+        if (duration <= 0) return;
+        var nowMs = PlaybackSeekCoordinator.NowMs();
+        var target = _seek.ComputeRelativeSeekTarget(seconds, snapshot.TimeMs, duration, nowMs);
+        var gen = _services.Player.Seek(target);
+        _seek.CommitSeek(target, duration, gen, nowMs);
         PositionMs = target;
-        PositionText = Format(target);
+        UpdatePositionText(target);
         SeekPerformed?.Invoke(this, target);
     }
 
@@ -1155,9 +1110,11 @@ public sealed partial class PlayerViewModel : ObservableObject
     {
         if (Timing.IntroEndMs <= 0) return;
         _introSkipped = true;
-        _services.Player.Seek(Timing.IntroEndMs);
+        var duration = _services.Player.LastSnapshot.LengthMs > 0 ? _services.Player.LastSnapshot.LengthMs : (long)DurationMs;
+        var gen = _services.Player.Seek(Timing.IntroEndMs);
+        _seek.CommitSeek(Timing.IntroEndMs, duration, gen, PlaybackSeekCoordinator.NowMs());
         PositionMs = Timing.IntroEndMs;
-        PositionText = Format(Timing.IntroEndMs);
+        UpdatePositionText(Timing.IntroEndMs);
         SeekPerformed?.Invoke(this, Timing.IntroEndMs);
     }
 
@@ -1174,11 +1131,12 @@ public sealed partial class PlayerViewModel : ObservableObject
 
     private void ApplyEpisodeTiming(long position, long duration)
     {
-        if (!SkipEnabled || _isSeeking) return;
+        if (!SkipEnabled || _seek.IsDragging) return;
         if (Timing.IntroEndMs > 1000 && !_introSkipped && position >= 0 && position < Timing.IntroEndMs - 750)
         {
             _introSkipped = true;
-            _services.Player.Seek(Timing.IntroEndMs);
+            var gen = _services.Player.Seek(Timing.IntroEndMs);
+            _seek.CommitSeek(Timing.IntroEndMs, duration, gen, PlaybackSeekCoordinator.NowMs());
             SeekPerformed?.Invoke(this, Timing.IntroEndMs);
             TimingMessage = $"已跳过片头至 {Format(Timing.IntroEndMs)}";
         }
@@ -1215,25 +1173,14 @@ public sealed partial class PlayerViewModel : ObservableObject
             using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(2));
             var snapshot = await _services.Player.ReadSnapshotAsync(deadline.Token);
             if (_request is null || _loadCts.IsCancellationRequested) return;
-            var effectivePlaying = snapshot.IsPlaying;
-            if (_pauseOverrideActive)
+            var nowMs = PlaybackSeekCoordinator.NowMs();
+            var decision = _seek.EvaluateTick(snapshot, (long)PositionMs, nowMs, _isLocalFile);
+
+            if (IsPlaying != decision.EffectivePlaying)
             {
-                if (snapshot.IsPlaying == _pauseDesiredPlaying || Stopwatch.GetTimestamp() >= _pauseOverrideUntilTs)
-                {
-                    _pauseOverrideActive = false;
-                }
-                else
-                {
-                    effectivePlaying = _pauseDesiredPlaying;
-                    snapshot = snapshot with
-                    {
-                        IsPlaying = effectivePlaying,
-                        State = effectivePlaying ? VLCState.Playing : VLCState.Paused
-                    };
-                }
+                IsPlaying = decision.EffectivePlaying;
+                PlayPauseGlyph = decision.EffectivePlaying ? "\uE769" : "\uE768";
             }
-            IsPlaying = effectivePlaying;
-            PlayPauseGlyph = IsPlaying ? "\uE769" : "\uE768";
             if (snapshot.State == VLCState.Playing)
             {
                 _hasPlayedMedia = true;
@@ -1241,25 +1188,44 @@ public sealed partial class PlayerViewModel : ObservableObject
                 if (!string.IsNullOrEmpty(snapshot.MediaInfo) && MediaInfoText != snapshot.MediaInfo)
                     MediaInfoText = snapshot.MediaInfo;
             }
-            IsBuffering = snapshot.State is VLCState.Opening or VLCState.Buffering;
-            BufferingText = snapshot.State == VLCState.Buffering
-                ? $"网络缓冲 {Math.Clamp(snapshot.BufferingPercent, 0, 100):0}% · 缓冲后自动续播" : "正在打开媒体…";
-            SnapshotUpdated?.Invoke(this, snapshot);
+            if (IsBuffering != decision.ShowBuffering) IsBuffering = decision.ShowBuffering;
+            if (decision.ShowBuffering)
+            {
+                var nextBufText = snapshot.State == VLCState.Buffering
+                    ? $"正在缓冲 {Math.Clamp(snapshot.BufferingPercent, 0, 100):0}%" : "正在打开媒体…";
+                if (BufferingText != nextBufText) BufferingText = nextBufText;
+            }
+
+            var uiSnapshot = snapshot with
+            {
+                IsPlaying = decision.EffectivePlaying,
+                TimeMs = decision.DisplayPositionMs
+            };
+            SnapshotUpdated?.Invoke(this, uiSnapshot);
+
             if (_request.Kind == PlaybackKind.Vod)
             {
-                PositionMs = _isSeeking ? PositionMs : snapshot.TimeMs;
-                DurationMs = snapshot.LengthMs;
-                PositionText = Format(snapshot.TimeMs);
-                DurationText = Format(snapshot.LengthMs);
-                ApplyEpisodeTiming(snapshot.TimeMs, snapshot.LengthMs);
+                if (snapshot.LengthMs > 0 && Math.Abs(DurationMs - snapshot.LengthMs) > 1)
+                {
+                    DurationMs = snapshot.LengthMs;
+                    var durText = Format(snapshot.LengthMs);
+                    if (DurationText != durText) DurationText = durText;
+                }
+                if (decision.ShouldUpdatePosition)
+                {
+                    PositionMs = decision.DisplayPositionMs;
+                    UpdatePositionText(decision.DisplayPositionMs);
+                }
+                ApplyEpisodeTiming(decision.DisplayPositionMs, snapshot.LengthMs);
                 if (!_externalSubtitleSpeedBaked && Math.Abs(SubtitleSpeed - 1.0) > 0.0005)
-                    ApplyEffectiveSubtitleDelay(snapshot.TimeMs);
-                if (_hasPlayedMedia && !_manualPaused && !_isLocalFile) UpdateBuffering(snapshot);
+                    ApplyEffectiveSubtitleDelay(decision.DisplayPositionMs);
+                if (decision.SuggestLowerQuality && _adaptiveQuality && !SelectedQuality.RequestsOriginal)
+                    _ = LowerQualityAfterBufferingAsync();
             }
             else
             {
-                PositionText = "直播";
-                DurationText = string.Empty;
+                if (PositionText != "直播") PositionText = "直播";
+                if (DurationText.Length != 0) DurationText = string.Empty;
             }
             if (!IsBuffering && snapshot.State is VLCState.Playing or VLCState.Paused) StatusMessage = string.Empty;
             if (snapshot.State == VLCState.Error)
@@ -1295,42 +1261,6 @@ public sealed partial class PlayerViewModel : ObservableObject
         finally { Interlocked.Exchange(ref _tickRunning, 0); }
     }
 
-    private void UpdateBuffering(PlayerSnapshot snapshot)
-    {
-        var now = DateTimeOffset.UtcNow;
-        if (snapshot.TimeMs > _lastProgressMs + 40)
-        {
-            _lastProgressMs = snapshot.TimeMs;
-            _lastProgressAt = now;
-            if (_bufferingPaused)
-            {
-                _bufferingPaused = false;
-                _services.Player.SetBufferingPause(false);
-            }
-            return;
-        }
-        if (!_bufferingPaused && snapshot.State == VLCState.Playing && now - _lastProgressAt < TimeSpan.FromSeconds(6)) return;
-        if (!_bufferingPaused && snapshot.State == VLCState.Buffering && now - _lastProgressAt < TimeSpan.FromSeconds(2)) return;
-        if (!_bufferingPaused)
-        {
-            _bufferingPaused = true;
-            _bufferResumeAt = now + TimeSpan.FromMilliseconds(Math.Clamp(_services.Player.NetworkCachingMs, 2500, 6000));
-            _bufferEvents = now - _bufferWindowAt > TimeSpan.FromSeconds(90) ? 1 : _bufferEvents + 1;
-            _bufferWindowAt = now;
-            _services.Player.SetBufferingPause(true);
-            IsBuffering = true;
-            BufferingText = "网络波动，正在预缓存，稍后自动续播";
-            _services.Player.NetworkCachingMs = Math.Min(8000, _services.Player.NetworkCachingMs + 1000);
-            if (_adaptiveQuality && !SelectedQuality.RequestsOriginal && _bufferEvents >= 3) _ = LowerQualityAfterBufferingAsync();
-            return;
-        }
-        if (now < _bufferResumeAt || snapshot.BufferingPercent < 99 && now - _bufferResumeAt < TimeSpan.FromSeconds(5)) return;
-        _bufferingPaused = false;
-        _lastProgressAt = now;
-        _services.Player.SetBufferingPause(false);
-        IsBuffering = false;
-    }
-
     private async Task LowerQualityAfterBufferingAsync()
     {
         if (_resolvedMedia?.HasFixedVideoTrack == true || _settingQuality) return;
@@ -1338,7 +1268,6 @@ public sealed partial class PlayerViewModel : ObservableObject
         var quality = QualityOptions.Where(option => option.IsSpecific && !option.RequestsOriginal && option.Height > 0 && option.Height <= ceiling && CanSelectQuality(option))
             .OrderByDescending(option => option.Height).FirstOrDefault();
         if (quality is null) return;
-        _bufferEvents = 0;
         QualityMessage = $"网络多次缓冲，自动切换至 {quality.Name}；可随时手动切回原画";
         await ApplyQualityAsync(quality, false);
     }
@@ -1447,16 +1376,30 @@ public sealed partial class PlayerViewModel : ObservableObject
         await LoadAsync(next);
     }
 
-    private bool _isSeeking;
-    public void BeginSeek() => _isSeeking = true;
+    public void BeginSeek() => _seek.BeginDrag();
+
+    public void PreviewSeek(double value)
+    {
+        var clamped = Math.Max(0, (long)value);
+        UpdatePositionText(clamped);
+    }
+
     public void EndSeek(double value)
     {
-        _isSeeking = false;
-        var target = Math.Max(0, (long)value);
-        _services.Player.Seek(target);
+        var duration = _services.Player.LastSnapshot.LengthMs > 0 ? _services.Player.LastSnapshot.LengthMs : (long)DurationMs;
+        var target = duration > 0 ? Math.Clamp((long)value, 0, duration) : Math.Max(0, (long)value);
+        var gen = _services.Player.Seek(target);
+        _seek.CommitSeek(target, duration, gen, PlaybackSeekCoordinator.NowMs());
         PositionMs = target;
-        PositionText = Format(target);
+        UpdatePositionText(target);
         SeekPerformed?.Invoke(this, target);
+    }
+
+    private void UpdatePositionText(long milliseconds)
+    {
+        var formatted = Format(milliseconds);
+        if (!string.Equals(PositionText, formatted, StringComparison.Ordinal))
+            PositionText = formatted;
     }
 
     private bool TryNextLine()

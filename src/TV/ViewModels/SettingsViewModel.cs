@@ -17,8 +17,10 @@ namespace TV.ViewModels;
 public sealed partial class SettingsViewModel : ObservableObject
 {
     private readonly AppServices _services;
+    private readonly Microsoft.UI.Dispatching.DispatcherQueue _dispatcher;
     private bool _loaded;
     private bool _hasLoaded;
+    private bool _syncingRepository;
     private readonly Microsoft.UI.Dispatching.DispatcherQueueTimer _saveTimer;
     private readonly Dictionary<string, string> _pendingWrites = [];
     private readonly SemaphoreSlim _settingsWriteGate = new(1, 1);
@@ -26,10 +28,23 @@ public sealed partial class SettingsViewModel : ObservableObject
     public SettingsViewModel(AppServices services)
     {
         _services = services;
-        _saveTimer = Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread().CreateTimer();
+        _dispatcher = Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread();
+        _saveTimer = _dispatcher.CreateTimer();
         _saveTimer.Interval = TimeSpan.FromMilliseconds(250);
         _saveTimer.IsRepeating = false;
         _saveTimer.Tick += async (_, _) => await FlushPendingWritesAsync();
+        _services.Config.Changed += OnSourceConfigChanged;
+    }
+
+    private void OnSourceConfigChanged(object? sender, EventArgs e)
+    {
+        _dispatcher.TryEnqueue(async () =>
+        {
+            if (!_hasLoaded) return;
+            SyncRepositories();
+            ActiveSource = _services.Config.ActiveUrl;
+            await UpdateSourceSummaryAsync();
+        });
     }
 
     [ObservableProperty] private string _activeSource = "尚未加载";
@@ -38,7 +53,10 @@ public sealed partial class SettingsViewModel : ObservableObject
     [ObservableProperty] private bool _doubanEnabled = true;
     [ObservableProperty] private int _recommendationSourceIndex;
     [ObservableProperty] private bool _isBusy;
+    public ObservableCollection<SourceRepository> Repositories { get; } = [];
     public ObservableCollection<ImportedRepository> ImportedRepositories { get; } = [];
+    [ObservableProperty, NotifyPropertyChangedFor(nameof(CanSwitchToBuiltIn))] private SourceRepository? _selectedRepository;
+    public bool CanSwitchToBuiltIn => SelectedRepository is { IsBuiltIn: false };
     public ObservableCollection<CloudAccountInfo> CloudAccounts { get; } = [];
     public ObservableCollection<CleanupCategory> CleanupCategories { get; } = [];
     [ObservableProperty] private bool _hasCleanupResults;
@@ -57,8 +75,8 @@ public sealed partial class SettingsViewModel : ObservableObject
     [ObservableProperty] private string _lastSourceRefresh = string.Empty;
     [ObservableProperty] private string _storageSummary = string.Empty;
     [ObservableProperty] private string _downloadFolder = string.Empty;
-    [ObservableProperty] private int _networkCache = 3600;
-    [ObservableProperty] private int _liveCache = 1800;
+    [ObservableProperty] private int _networkCache = 2000;
+    [ObservableProperty] private int _liveCache = 1500;
     [ObservableProperty] private bool _adaptiveQuality = true;
     [ObservableProperty] private int _defaultVolume = 85;
     [ObservableProperty] private int _defaultQualityIndex;
@@ -90,6 +108,7 @@ public sealed partial class SettingsViewModel : ObservableObject
 
     // --- 弹弹play 开放弹幕库 ---
     [ObservableProperty] private string _danDanPlayStatus = "正在检测…";
+    [ObservableProperty] private string _danDanPlayRelayUrlInput = string.Empty;
     [ObservableProperty] private string _danDanPlayAppIdInput = string.Empty;
     [ObservableProperty] private string _danDanPlayAppSecretInput = string.Empty;
     [ObservableProperty] private bool _isTestingDanDanPlay;
@@ -162,8 +181,8 @@ public sealed partial class SettingsViewModel : ObservableObject
         var behavior = await Int("ui.closeBehavior", 0);
         CloseBehaviorIndex = Enum.IsDefined((WindowCloseBehavior)behavior) ? behavior : 0;
         AutoRefreshSources = await Bool("source.autoRefresh", true);
-        NetworkCache = await Int("playback.networkCache", 3600);
-        LiveCache = await Int("playback.liveCache", 1800);
+        NetworkCache = await Int("playback.networkCache", 2000);
+        LiveCache = await Int("playback.liveCache", 1500);
         AdaptiveQuality = await Bool("playback.adaptiveQuality", true);
         DefaultVolume = await Int("playback.volume", 85);
         DefaultQualityIndex = Math.Clamp(await Int("playback.defaultQuality", 0), 0, 4);
@@ -199,6 +218,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         AiBilingualSubtitles = aiConfig.Bilingual;
         AiRealtimeTranslate = aiConfig.RealtimeTranslate;
 
+        DanDanPlayRelayUrlInput = await _services.DanDanPlay.GetCustomRelayUrlAsync();
         DanDanPlayAppIdInput = await _services.Database.GetSettingAsync(DanDanPlayService.SettingAppId) ?? string.Empty;
         DanDanPlayAppSecretInput = string.Empty;
         await RefreshDanDanPlayStatusAsync();
@@ -208,10 +228,14 @@ public sealed partial class SettingsViewModel : ObservableObject
     {
         if (await _services.DanDanPlay.HasCustomCredentialsAsync())
             DanDanPlayStatus = "已启用自定义弹弹play 开放平台凭证（DPAPI 加密保存）";
+        else if (await _services.DanDanPlay.HasCustomRelayAsync())
+            DanDanPlayStatus = "已启用自定义弹幕签名中继（支持国内直连、多节点自动故障转移与国内 CDN 直连弹幕）";
         else if (_services.DanDanPlay.HasDefaultService)
-            DanDanPlayStatus = "已启用默认弹幕服务。可使用自定义凭据直连弹弹play。";
+            DanDanPlayStatus = _services.DanDanPlay.DefaultRelayCount > 1
+                ? $"已启用默认弹幕服务（{_services.DanDanPlay.DefaultRelayCount} 个签名中继自动故障转移 + 国内 CDN 直连弹幕）。"
+                : "已启用默认弹幕服务（签名中继 + 国内 CDN 直连弹幕）。可配置国内中继或自定义凭据。";
         else
-            DanDanPlayStatus = "尚未配置凭证；请在下方填入自定义 AppId / AppSecret";
+            DanDanPlayStatus = "尚未配置凭证或中继；请在下方填入国内中继地址或自定义 AppId / AppSecret";
     }
 
     [RelayCommand]
@@ -279,6 +303,21 @@ public sealed partial class SettingsViewModel : ObservableObject
     }
 
     [RelayCommand]
+    private async Task SaveDanDanPlayRelayAsync()
+    {
+        try
+        {
+            await _services.DanDanPlay.SaveCustomRelayUrlAsync(DanDanPlayRelayUrlInput);
+            DanDanPlayRelayUrlInput = await _services.DanDanPlay.GetCustomRelayUrlAsync();
+            await RefreshDanDanPlayStatusAsync();
+            StatusMessage = string.IsNullOrWhiteSpace(DanDanPlayRelayUrlInput)
+                ? "已清除自定义弹幕中继地址，将使用默认中继服务。"
+                : "自定义弹幕签名中继地址已保存（支持国内免费边缘节点与自动故障转移）。";
+        }
+        catch (Exception ex) { StatusMessage = "保存中继地址失败：" + ex.Message; }
+    }
+
+    [RelayCommand]
     private async Task SaveDanDanPlayAsync()
     {
         var appId = DanDanPlayAppIdInput.Trim();
@@ -318,10 +357,12 @@ public sealed partial class SettingsViewModel : ObservableObject
     private async Task ClearDanDanPlayAsync()
     {
         await _services.DanDanPlay.ClearCustomCredentialsAsync();
+        await _services.DanDanPlay.ClearCustomRelayUrlAsync();
+        DanDanPlayRelayUrlInput = string.Empty;
         DanDanPlayAppIdInput = string.Empty;
         DanDanPlayAppSecretInput = string.Empty;
         await RefreshDanDanPlayStatusAsync();
-        StatusMessage = _services.DanDanPlay.HasDefaultService ? "已清除自定义凭据，并恢复默认弹幕服务。" : "已清除自定义弹弹play 凭证。";
+        StatusMessage = _services.DanDanPlay.HasDefaultService ? "已清除自定义配置，并恢复默认弹幕服务。" : "已清除自定义弹弹play 配置。";
     }
 
     partial void OnBailianRegionIndexChanged(int value) =>
@@ -367,6 +408,51 @@ public sealed partial class SettingsViewModel : ObservableObject
         finally { IsBusy = false; }
     }
 
+    partial void OnSelectedRepositoryChanged(SourceRepository? value)
+    {
+        if (_syncingRepository || !_loaded || value is null) return;
+        if (string.Equals(value.Id, _services.Config.ActiveRepositoryId, StringComparison.OrdinalIgnoreCase)) return;
+        _ = SwitchRepositoryCoreAsync(value.Id, value.Name);
+    }
+
+    [RelayCommand]
+    private async Task SelectImportedRepositoryAsync(ImportedRepository? repository)
+    {
+        if (repository is null) return;
+        var repoId = Services.Configuration.SourceConfigService.ComputeRepositoryId(repository.Url);
+        await SwitchRepositoryCoreAsync(repoId, repository.Name);
+    }
+
+    [RelayCommand]
+    private Task SwitchToBuiltInAsync() =>
+        SwitchRepositoryCoreAsync(Services.Configuration.SourceConfigService.BuiltInRepositoryId, Services.Configuration.SourceConfigService.BuiltInRepositoryName);
+
+    private async Task SwitchRepositoryCoreAsync(string repositoryId, string displayName)
+    {
+        try
+        {
+            await _services.Config.SelectRepositoryAsync(repositoryId);
+            SyncRepositories();
+            ActiveSource = _services.Config.ActiveUrl;
+            await UpdateSourceSummaryAsync();
+            StatusMessage = $"已切换到「{displayName}」";
+        }
+        catch (Exception ex) { StatusMessage = "切换仓库失败：" + ex.Message; }
+    }
+
+    private void SyncRepositories()
+    {
+        _syncingRepository = true;
+        try
+        {
+            Repositories.Clear();
+            foreach (var repo in _services.Config.Repositories) Repositories.Add(repo);
+            SelectedRepository = Repositories.FirstOrDefault(r => string.Equals(r.Id, _services.Config.ActiveRepositoryId, StringComparison.OrdinalIgnoreCase))
+                ?? Repositories.FirstOrDefault();
+        }
+        finally { _syncingRepository = false; }
+    }
+
     [RelayCommand]
     private async Task AddSourceAsync()
     {
@@ -375,7 +461,10 @@ public sealed partial class SettingsViewModel : ObservableObject
             await _services.Config.ImportAsync(NewSourceUrl);
             NewSourceUrl = string.Empty;
             await LoadImportsAsync();
-            StatusMessage = "已导入";
+            SyncRepositories();
+            ActiveSource = _services.Config.ActiveUrl;
+            await UpdateSourceSummaryAsync();
+            StatusMessage = $"已导入并切换到「{_services.Config.ActiveRepository?.Name ?? "新仓库"}」";
         }
         catch (Exception ex) { StatusMessage = ex.Message; }
     }
@@ -388,6 +477,9 @@ public sealed partial class SettingsViewModel : ObservableObject
         {
             await _services.Config.RemoveImportAsync(repository.Url);
             await LoadImportsAsync();
+            SyncRepositories();
+            ActiveSource = _services.Config.ActiveUrl;
+            await UpdateSourceSummaryAsync();
             StatusMessage = "已删除";
         }
         catch (Exception ex) { StatusMessage = ex.Message; }
@@ -398,12 +490,17 @@ public sealed partial class SettingsViewModel : ObservableObject
         var repositories = await _services.Config.GetImportsAsync();
         ImportedRepositories.Clear();
         foreach (var repository in repositories) ImportedRepositories.Add(repository);
+        await _services.Config.GetRepositoriesAsync();
+        SyncRepositories();
     }
 
     private async Task UpdateSourceSummaryAsync()
     {
         var config = _services.Config.Current;
-        SourceSummary = config is null ? "尚未加载配置" : $"{config.Sites.Count} 个点播站点 · {config.Lives.Count} 个直播源 · {ImportedRepositories.Count} 个导入仓库";
+        var activeName = _services.Config.ActiveRepository?.Name ?? Services.Configuration.SourceConfigService.BuiltInRepositoryName;
+        SourceSummary = config is null
+            ? "尚未加载配置"
+            : $"当前：{activeName}（{config.Sites.Count} 个点播站点 · {config.Lives.Count} 个直播源）· 共 {Math.Max(1, Repositories.Count)} 个仓库";
         if (DateTimeOffset.TryParse(await _services.Database.GetSettingAsync("source.lastRefresh"), System.Globalization.CultureInfo.InvariantCulture,
             System.Globalization.DateTimeStyles.RoundtripKind, out var refreshed))
             LastSourceRefresh = "最近刷新 " + refreshed.ToLocalTime().ToString("yyyy-MM-dd HH:mm", System.Globalization.CultureInfo.InvariantCulture);

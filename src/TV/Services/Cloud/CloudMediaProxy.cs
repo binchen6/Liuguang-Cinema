@@ -40,6 +40,10 @@ public sealed partial class CloudMediaProxy : IDisposable
         public IReadOnlyDictionary<string, string>? ResolvedHeaders { get; set; }
         public CloudBlockCache? BlockCache { get; set; }
         public string[]? NextSegmentIds { get; set; }
+        public string? PlaylistOwnerId { get; set; }
+        public int SegmentIndex { get; set; } = -1;
+        public int LastRequestedSegmentIndex { get; set; } = -1;
+        public CancellationTokenSource? HlsPrefetchCts { get; set; }
         public readonly object Sync = new();
     }
 
@@ -125,6 +129,12 @@ public sealed partial class CloudMediaProxy : IDisposable
         if (!_sessions.TryRemove(id, out var session)) return;
         session.BlockCache?.Dispose();
         session.BlockCache = null;
+        if (session.HlsPrefetchCts is { } hlsCts)
+        {
+            session.HlsPrefetchCts = null;
+            try { hlsCts.Cancel(); } catch { }
+            hlsCts.Dispose();
+        }
         if (_segmentPrefetches.TryRemove(id, out var cachedTask) && cachedTask.IsCompletedSuccessfully && cachedTask.Result is { } seg)
             Interlocked.Add(ref _segmentCacheBytes, -seg.Data.LongLength);
         foreach (var resource in session.Resources.Values)
@@ -195,9 +205,35 @@ public sealed partial class CloudMediaProxy : IDisposable
                     ? null : incoming.GetValueOrDefault("Range");
                 var agent = incoming.GetValueOrDefault("User-Agent");
 
-                // 1. Trigger HLS segment lookahead prefetching & serve from prefetched cache if available
-                if (!head && range is null && session.NextSegmentIds is { Length: > 0 } nextSegments)
-                    ScheduleSegmentPrefetches(nextSegments, agent);
+                // 1. Seek-aware HLS segment lookahead: cancel stale prefetches on segment jumps!
+                if (!head && range is null && session.PlaylistOwnerId is { } ownerId &&
+                    _sessions.TryGetValue(ownerId, out var playlistSession) && session.SegmentIndex >= 0)
+                {
+                    CancellationToken prefetchToken = _cts.Token;
+                    lock (playlistSession.Sync)
+                    {
+                        var jumped = playlistSession.LastRequestedSegmentIndex >= 0 &&
+                            (session.SegmentIndex < playlistSession.LastRequestedSegmentIndex ||
+                             session.SegmentIndex > playlistSession.LastRequestedSegmentIndex + 3);
+                        playlistSession.LastRequestedSegmentIndex = session.SegmentIndex;
+                        if (jumped || playlistSession.HlsPrefetchCts is null)
+                        {
+                            if (playlistSession.HlsPrefetchCts is { } oldCts)
+                            {
+                                try { oldCts.Cancel(); } catch { }
+                                oldCts.Dispose();
+                            }
+                            playlistSession.HlsPrefetchCts = CancellationTokenSource.CreateLinkedTokenSource(_cts.Token);
+                        }
+                        prefetchToken = playlistSession.HlsPrefetchCts.Token;
+                    }
+                    if (session.NextSegmentIds is { Length: > 0 } nextSegments)
+                        ScheduleSegmentPrefetches(nextSegments, agent, prefetchToken);
+                }
+                else if (!head && range is null && session.NextSegmentIds is { Length: > 0 } nextSegments)
+                {
+                    ScheduleSegmentPrefetches(nextSegments, agent, _cts.Token);
+                }
                 if (!head && range is null && _segmentPrefetches.TryRemove(id, out var prefetchedTask))
                 {
                     var prefetchedSeg = await prefetchedTask.ConfigureAwait(false);
@@ -400,38 +436,39 @@ public sealed partial class CloudMediaProxy : IDisposable
         }
     }
 
-    private void ScheduleSegmentPrefetches(string[] segmentIds, string? agent)
+    private void ScheduleSegmentPrefetches(string[] segmentIds, string? agent, CancellationToken prefetchToken)
     {
         foreach (var segId in segmentIds)
         {
-            if (Interlocked.Read(ref _segmentCacheBytes) >= MaxHlsSegmentCacheBytes) break;
+            if (prefetchToken.IsCancellationRequested || Interlocked.Read(ref _segmentCacheBytes) >= MaxHlsSegmentCacheBytes) break;
             if (!_sessions.TryGetValue(segId, out var segSession) || _segmentPrefetches.ContainsKey(segId)) continue;
-            _segmentPrefetches.TryAdd(segId, PrefetchSegmentAsync(segId, segSession, agent));
+            _segmentPrefetches.TryAdd(segId, PrefetchSegmentAsync(segId, segSession, agent, prefetchToken));
         }
     }
 
-    private async Task<PrefetchedSegment?> PrefetchSegmentAsync(string segId, Session session, string? agent)
+    private async Task<PrefetchedSegment?> PrefetchSegmentAsync(string segId, Session session, string? agent, CancellationToken prefetchToken)
     {
         var gate = session.Provider is { } provider ? _gates.GetOrAdd(provider, _ => new SemaphoreSlim(6)) : _mediaRangeGate;
         var acquired = false;
         try
         {
-            await gate.WaitAsync(_cts.Token).ConfigureAwait(false);
+            if (gate.CurrentCount <= 1) return null; // Keep 1 fast-lane slot open for active seek demand
+            await gate.WaitAsync(prefetchToken).ConfigureAwait(false);
             acquired = true;
             var origin = new Uri(session.Result.Url);
             var upstream = await SendUpstreamAsync(HttpMethod.Get, origin, session.ResolvedUri ?? origin,
-                session.ResolvedHeaders ?? session.Result.Headers, null, agent).ConfigureAwait(false);
+                session.ResolvedHeaders ?? session.Result.Headers, null, agent, prefetchToken).ConfigureAwait(false);
             using var response = upstream.Response;
             if (!response.IsSuccessStatusCode) return null;
             if (response.Content.Headers.ContentLength is > MaxSinglePrefetchedSegmentBytes) return null;
             var contentType = response.Content.Headers.ContentType?.MediaType ?? "video/mp2t";
-            await using var source = await response.Content.ReadAsStreamAsync(_cts.Token).ConfigureAwait(false);
+            await using var source = await response.Content.ReadAsStreamAsync(prefetchToken).ConfigureAwait(false);
             using var memory = new MemoryStream(response.Content.Headers.ContentLength is > 0 and <= MaxSinglePrefetchedSegmentBytes
                 ? (int)response.Content.Headers.ContentLength.Value : 256 * 1024);
             var buf = ArrayPool<byte>.Shared.Rent(64 * 1024);
             try
             {
-                using var idle = CancellationTokenSource.CreateLinkedTokenSource(_cts.Token);
+                using var idle = CancellationTokenSource.CreateLinkedTokenSource(prefetchToken);
                 while (true)
                 {
                     idle.CancelAfter(TimeSpan.FromSeconds(15));
@@ -453,11 +490,15 @@ public sealed partial class CloudMediaProxy : IDisposable
                     contentType = "video/mp2t";
                 }
             }
-            if (!_sessions.ContainsKey(segId)) return null;
+            if (!_sessions.ContainsKey(segId) || prefetchToken.IsCancellationRequested) return null;
             Interlocked.Add(ref _segmentCacheBytes, data.LongLength);
             return new PrefetchedSegment(data, contentType, DateTimeOffset.UtcNow);
         }
-        catch { return null; }
+        catch
+        {
+            _segmentPrefetches.TryRemove(segId, out _);
+            return null;
+        }
         finally
         {
             if (acquired) gate.Release();
@@ -567,9 +608,9 @@ public sealed partial class CloudMediaProxy : IDisposable
     }
 
     private async Task<(HttpResponseMessage Response, Uri FinalUri, IReadOnlyDictionary<string, string> Headers)> SendUpstreamAsync(
-        HttpMethod method, Uri origin, Uri currentUri, IReadOnlyDictionary<string, string> headers, string? range, string? agent)
+        HttpMethod method, Uri origin, Uri currentUri, IReadOnlyDictionary<string, string> headers, string? range, string? agent, CancellationToken token = default)
     {
-        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(_cts.Token);
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(_cts.Token, token);
         deadline.CancelAfter(TimeSpan.FromSeconds(18));
         var uri = currentUri;
         for (var count = 0; ; count++)
@@ -643,17 +684,23 @@ public sealed partial class CloudMediaProxy : IDisposable
                 lines[i] = HlsUriAttrPattern().Replace(lines[i], match => "URI=\"" + Resolve(match.Groups[1].Value) + "\"");
         }
 
-        // Link each cloud HLS segment to its next 2 segments for stall-free background lookahead prefetching
+        // Link each cloud HLS segment to its owner playlist + next 2 segments for seek-aware lookahead prefetching
         if (enableLookahead && segmentIds.Count > 1)
         {
-            for (var i = 0; i < segmentIds.Count - 1; i++)
+            var ownerId = _sessions.FirstOrDefault(pair => ReferenceEquals(pair.Value, session)).Key;
+            for (var i = 0; i < segmentIds.Count; i++)
             {
                 if (_sessions.TryGetValue(segmentIds[i], out var segSession))
                 {
-                    var count = Math.Min(2, segmentIds.Count - 1 - i);
-                    var next = new string[count];
-                    for (var j = 0; j < count; j++) next[j] = segmentIds[i + 1 + j];
-                    segSession.NextSegmentIds = next;
+                    segSession.PlaylistOwnerId = ownerId;
+                    segSession.SegmentIndex = i;
+                    if (i < segmentIds.Count - 1)
+                    {
+                        var count = Math.Min(2, segmentIds.Count - 1 - i);
+                        var next = new string[count];
+                        for (var j = 0; j < count; j++) next[j] = segmentIds[i + 1 + j];
+                        segSession.NextSegmentIds = next;
+                    }
                 }
             }
         }
@@ -699,10 +746,11 @@ public sealed partial class CloudMediaProxy : IDisposable
             using var idle = CancellationTokenSource.CreateLinkedTokenSource(_cts.Token);
             while (true)
             {
-                idle.CancelAfter(TimeSpan.FromSeconds(45));
+                if (destination is NetworkStream net && !net.Socket.Connected) break;
+                idle.CancelAfter(TimeSpan.FromSeconds(30));
                 var read = await source.ReadAsync(buffer.AsMemory(), idle.Token).ConfigureAwait(false);
                 if (read == 0) break;
-                idle.CancelAfter(TimeSpan.FromSeconds(45));
+                idle.CancelAfter(TimeSpan.FromSeconds(30));
                 await destination.WriteAsync(buffer.AsMemory(0, read), idle.Token).ConfigureAwait(false);
             }
         }

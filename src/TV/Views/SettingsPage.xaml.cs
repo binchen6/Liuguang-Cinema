@@ -125,6 +125,12 @@ public sealed partial class SettingsPage : Page
         DispatcherQueue.TryEnqueue(() => section.IsExpanded = true);
     }
 
+    private async void OnSelectImportedRepoClick(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { Tag: Models.ImportedRepository repository }) return;
+        await ViewModel.SelectImportedRepositoryCommand.ExecuteAsync(repository);
+    }
+
     private async void OnRemoveSourceClick(object sender, RoutedEventArgs e)
     {
         if (sender is not Button { Tag: Models.ImportedRepository repository }) return;
@@ -201,6 +207,4 @@ public sealed partial class SettingsPage : Page
             await ViewModel.RefreshStorageCommand.ExecuteAsync(null);
         }
     }
-
-    private void OnCloseCloudQrClick(object sender, RoutedEventArgs e) => _loginFlyout?.Hide();
 }

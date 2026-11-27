@@ -47,6 +47,8 @@ public sealed partial class SearchViewModel(AppServices services, Action<VodCard
     private readonly HashSet<string> _sessionTitleSet = new(StringComparer.CurrentCultureIgnoreCase);
     private readonly System.Collections.Concurrent.ConcurrentDictionary<string, DateTimeOffset> _slowSuggestSites = new(StringComparer.Ordinal);
     private readonly SearchScope _all = new("全部站点");
+    private readonly Microsoft.UI.Dispatching.DispatcherQueue _dispatcher = Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread();
+    private bool _configSubscribed;
     private int _maximumRequests = 3;
 
     public ObservableCollection<VodCardViewModel> Rows { get; } = [];
@@ -70,6 +72,11 @@ public sealed partial class SearchViewModel(AppServices services, Action<VodCard
 
     public async Task PrepareAsync()
     {
+        if (!_configSubscribed)
+        {
+            _configSubscribed = true;
+            services.Config.Changed += OnConfigChanged;
+        }
         if (services.Config.Current is { } config) SetScopes(config);
         await (_readHistory ??= ReadHistoryAsync());
         try
@@ -78,6 +85,16 @@ public sealed partial class SearchViewModel(AppServices services, Action<VodCard
                 _maximumRequests = Math.Clamp(limit, 1, 6);
         }
         catch (Exception ex) { Diagnostics.Log($"读取搜索并发设置失败: {ex.GetType().Name}"); }
+    }
+
+    private void OnConfigChanged(object? sender, EventArgs e)
+    {
+        _dispatcher.TryEnqueue(() =>
+        {
+            if (services.Config.Current is not { } config) return;
+            CancelPending();
+            SetScopes(config);
+        });
     }
 
     private bool CanSubmit() => !string.IsNullOrWhiteSpace(Query);

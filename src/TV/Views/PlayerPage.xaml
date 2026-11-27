@@ -349,7 +349,7 @@
                                        Foreground="{ThemeResource VermilionBrush}" MaxLines="1" TextTrimming="CharacterEllipsis"
                                        Visibility="{Binding QualityMessage, Converter={StaticResource StringToVisibility}}" />
 
-                            <!-- 底部第一行：播放进度 + 等宽时间码 -->
+                            <!-- 底部第一行：播放进度 + 等宽时间码 + 悬浮拖动/悬停时间预览 -->
                             <Grid x:Name="ProgressRow" Height="28"
                                   ColumnSpacing="10"
                                   Visibility="{Binding DurationText, Converter={StaticResource StringToVisibility}}">
@@ -360,11 +360,26 @@
                                 </Grid.ColumnDefinitions>
                                 <TextBlock Text="{Binding PositionText}" Style="{StaticResource MonoMetaText}" FontWeight="SemiBold"
                                            Foreground="#FFF8F7F2" VerticalAlignment="Center" MinWidth="48" />
-                                <Slider x:Name="SeekSlider" Grid.Column="1" Minimum="0" Maximum="{Binding DurationMs}" Value="{Binding PositionMs, Mode=TwoWay}"
-                                        VerticalAlignment="Center" MinHeight="28"
-                                        ValueChanged="OnSeekValueChanged"
-                                        StepFrequency="1000" SmallChange="5000" LargeChange="30000"
-                                        AutomationProperties.Name="播放进度" />
+                                <Grid x:Name="SeekTrackHost" Grid.Column="1" VerticalAlignment="Center">
+                                    <Border x:Name="SeekPreviewPill"
+                                            HorizontalAlignment="Left" VerticalAlignment="Top"
+                                            Margin="0,-32,0,0" Padding="8,3" CornerRadius="8"
+                                            Background="#E6141418" BorderBrush="#40FFFFFF" BorderThickness="1"
+                                            Opacity="0" IsHitTestVisible="False" Canvas.ZIndex="20">
+                                        <Border.RenderTransform>
+                                            <TranslateTransform x:Name="SeekPreviewTransform" X="0" />
+                                        </Border.RenderTransform>
+                                        <TextBlock x:Name="SeekPreviewText" Style="{StaticResource MonoMetaText}"
+                                                   FontWeight="SemiBold" Foreground="#FFF8F7F2" Text="00:00" />
+                                    </Border>
+                                    <Slider x:Name="SeekSlider" Minimum="0" Maximum="{Binding DurationMs}" Value="{Binding PositionMs, Mode=TwoWay}"
+                                            VerticalAlignment="Center" MinHeight="28"
+                                            ValueChanged="OnSeekValueChanged"
+                                            PointerMoved="OnSeekTrackPointerMoved"
+                                            PointerExited="OnSeekTrackPointerExited"
+                                            StepFrequency="100" SmallChange="5000" LargeChange="30000"
+                                            AutomationProperties.Name="播放进度" />
+                                </Grid>
                                 <TextBlock Grid.Column="2" Text="{Binding DurationText}" Style="{StaticResource MonoMetaText}"
                                            Foreground="#CCF8F7F2" VerticalAlignment="Center" MinWidth="48" TextAlignment="Right" />
                             </Grid>

@@ -1,3 +1,5 @@
+using System.Text.Json;
+
 namespace TV.Services.Spider;
 
 public static class SpiderCatalog
@@ -11,28 +13,53 @@ public static class SpiderCatalog
         "Yingshiche", "YiSo", "YpanSo", "Ysj", "YueTing", "Zhaozy", "Quark", "UC", "Cloud"
     };
 
-    public static bool IsAvailable(string api, System.Text.Json.JsonElement ext = default)
+    private static readonly HashSet<string> NonPlayablePlaceholders = new(StringComparer.OrdinalIgnoreCase)
     {
-        if (api.Contains("drpy2", StringComparison.OrdinalIgnoreCase) && ext.ValueKind == System.Text.Json.JsonValueKind.String)
+        "Notice", "Market", "LocalFile", "Config", "ConfigCenter", "Danmu", "PushAgent"
+    };
+
+    private static readonly string[] BuiltInDrpyScripts = ["虎牙.js", "斗鱼直播.js", "兔小贝.js"];
+
+    public static bool IsAvailable(string api, JsonElement ext = default, string? effectiveJar = null)
+    {
+        if (string.IsNullOrWhiteSpace(api)) return false;
+        if (api.Contains("drpy2", StringComparison.OrdinalIgnoreCase) && ext.ValueKind == JsonValueKind.String)
         {
             var script = Uri.UnescapeDataString(ext.GetString() ?? string.Empty);
-            return new[] { "虎牙.js", "斗鱼直播.js", "兔小贝.js" }.Any(name => script.Contains(name, StringComparison.Ordinal));
+            if (BuiltInDrpyScripts.Any(name => script.Contains(name, StringComparison.Ordinal)))
+                return true;
         }
         if (!api.StartsWith("csp_", StringComparison.OrdinalIgnoreCase)) return false;
         var name = api[4..];
-        if (name.EndsWith("Guard", StringComparison.OrdinalIgnoreCase)) name = name[..^5];
-        // XPath spiders require a rule JSON or rule URL in ext; empty-ext entries (e.g. notice banners like "请勿信视频中任何广告") cannot be queried.
-        if (name.StartsWith("XPath", StringComparison.OrdinalIgnoreCase))
+        if (name.EndsWith("Guard", StringComparison.OrdinalIgnoreCase) && name.Length > 5) name = name[..^5];
+        if (NonPlayablePlaceholders.Contains(name)) return false;
+
+        // XPath spiders require a rule JSON or rule URL in ext; empty-ext entries (e.g. notice banners) cannot be queried.
+        if (name.StartsWith("XPath", StringComparison.OrdinalIgnoreCase) || name.StartsWith("XYQ", StringComparison.OrdinalIgnoreCase))
         {
             var hasExt = ext.ValueKind switch
             {
-                System.Text.Json.JsonValueKind.String => !string.IsNullOrWhiteSpace(ext.GetString()),
-                System.Text.Json.JsonValueKind.Object => ext.EnumerateObject().Any(),
+                JsonValueKind.String => !string.IsNullOrWhiteSpace(ext.GetString()),
+                JsonValueKind.Object => ext.EnumerateObject().Any(),
                 _ => false
             };
             if (!hasExt) return false;
         }
-        return Available.Contains(name);
+
+        if (Available.Contains(name)) return true;
+
+        // Any external TVBox repository supplying a spider JAR (Android DEX or JVM JAR) can be dynamically loaded.
+        if (!string.IsNullOrWhiteSpace(effectiveJar))
+        {
+            var jarUrl = effectiveJar.Split(';', 2)[0].Trim();
+            if (jarUrl.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
+                jarUrl.StartsWith("https://", StringComparison.OrdinalIgnoreCase) ||
+                jarUrl.StartsWith("file://", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+        }
+        return false;
     }
 
     public static void Register(string name) => Available.Add(name);

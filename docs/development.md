@@ -114,9 +114,9 @@ pwsh -NoProfile -File ./scripts/run-release-regressions.ps1
 
 ## 8. 默认弹幕服务
 
-签名服务源码与部署元数据位于 `server/dandanplay-relay/`。服务只转发对 `api.dandanplay.net` 的剧集搜索、弹幕查询和文件匹配。弹幕查询可跟随同一集到 `cas2.dandanplay.net` 的官方跳转，签名请求头只发给 API 域名。Worker 分别限制客户端和服务的请求频率，关闭请求日志和链路跟踪。
+签名服务源码与多平台部署配置位于 `server/dandanplay-relay/`（公共核心为 `relay-core.mjs`）。服务只转发对 `api.dandanplay.net` 的剧集搜索、弹幕查询和文件匹配，严格拒绝任意路由与异常请求体，签名请求头绝不发给第三方域名。
 
-- 更新 Worker 时使用 Cloudflare 的 [模块上传接口](https://developers.cloudflare.com/workers/configuration/multipart-upload-metadata/)。以 multipart 字段 `metadata` 上传 `worker-metadata.json`，再上传同名 `worker.mjs` 模块。现有加密绑定会随更新保留。
-- 使用 Cloudflare 的 Worker 加密绑定设置 `DANDANPLAY_APP_ID`、`DANDANPLAY_APP_SECRET` 和可选的 `DANDANPLAY_BACKUP_SECRET`。旧版 1.9.5 曾包含默认密钥，轮换时在开放平台撤销旧值并更新对应绑定。
-- 将已验证的 HTTPS 服务根地址设置为 GitHub Actions 变量 `DANDANPLAY_RELAY_URL`，本地打包使用同名环境变量。
-- 本地测试运行 `node --test server/dandanplay-relay/worker.test.mjs`。发布包可运行 `scripts/run-release-regressions.ps1 -AppDirectory <发布目录> -VerifyDefaultService`，同时验证自定义 DPAPI 凭据和真实默认服务。
+- **国内直连免费部署**：优先推荐部署到国内直连友好的边缘/Serverless 平台（[阿里云 ESA Pages](server/dandanplay-relay/esa/standalone.mjs) 支持独立子域名 CNAME 接入而不影响主域名与现有站点、或 [腾讯云 EdgeOne Pages](server/dandanplay-relay/edgeone/functions/%5B%5Bdefault%5D%5D.js)、[Laf](server/dandanplay-relay/laf/dandanplay-relay.ts)、自建 [Node.js 服务](server/dandanplay-relay/node-server.mjs)），并将原有 Cloudflare Workers（`worker.mjs`）保留在多地址列表末尾作为海外兜底。
+- **弹幕直连国内 CDN 省流**：客户端请求 `/api/v2/comment/{id}` 时附加 `X-Relay-Delivery: direct`，中继仅回传经过白名单校验的官方国内 CDN 地址（`https://cas2.dandanplay.net/api/comment/{id}?...`），大体积弹幕 JSON 由桌面端直连国内 CDN 下载，可节省 95% 以上中继流量。
+- **密钥与多节点配置**：在对应平台加密环境变量中配置 `DANDANPLAY_APP_ID`、`DANDANPLAY_APP_SECRET` 和可选的 `DANDANPLAY_BACKUP_SECRET`。GitHub Actions 变量与本地环境变量 `DANDANPLAY_RELAY_URL` 支持英文逗号分隔多个公网 HTTPS 地址（例如 `https://cn-primary.example.com,https://backup.workers.dev`），客户端自动故障转移并记住健康节点；用户也可在「设置 → 弹幕与 AI → 签名中继地址」自助覆盖。
+- 本地测试运行 `node --test server/dandanplay-relay/worker.test.mjs`。发布包可运行 `scripts/run-release-regressions.ps1 -AppDirectory <发布目录> -VerifyDefaultService`，同时验证自定义 DPAPI 凭据、多中继故障转移、国内 CDN 直连校验与真实默认服务。
