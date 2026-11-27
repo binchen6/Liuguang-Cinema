@@ -389,8 +389,10 @@
         </Setter>
     </Style>
 
-    <!-- 次操作：轻透表面 + 1px 玻璃高光描边，40 高 -->
+    <!-- 次操作：轻透表面 + 1px 玻璃高光描边 + 交互光学折射，40 高 -->
     <Style x:Key="SecondaryButtonStyle" TargetType="Button" BasedOn="{StaticResource DefaultButtonStyle}">
+        <Setter Property="controls:GlassOpticsEngine.Mode" Value="Interactive" />
+        <Setter Property="controls:GlassOpticsEngine.Profile" Value="Control" />
         <Setter Property="Height" Value="{StaticResource SecondaryButtonHeight}" />
         <Setter Property="MinHeight" Value="{StaticResource SecondaryButtonHeight}" />
         <Setter Property="Padding" Value="16,0" />
@@ -411,8 +413,10 @@
         <Setter Property="CornerRadius" Value="{StaticResource RadiusControl}" />
     </Style>
 
-    <!-- 图标按钮 40×40 -->
+    <!-- 图标按钮 40×40（轻透玻璃光学反应） -->
     <Style x:Key="IconButtonStyle" TargetType="Button" BasedOn="{StaticResource DefaultButtonStyle}">
+        <Setter Property="controls:GlassOpticsEngine.Mode" Value="Interactive" />
+        <Setter Property="controls:GlassOpticsEngine.Profile" Value="Control" />
         <Setter Property="Width" Value="{StaticResource IconButtonSize}" />
         <Setter Property="Height" Value="{StaticResource IconButtonSize}" />
         <Setter Property="MinWidth" Value="{StaticResource IconButtonSize}" />
@@ -476,6 +480,10 @@
                                     Margin="{TemplateBinding CausticMargin}"
                                     Background="{TemplateBinding BottomBevelBrush}"
                                     IsHitTestVisible="False" />
+                            <!-- L6: 专属 GPU 光学折射/菲涅尔边缘/点击焦散波纹引擎宿主层（零闲置开销） -->
+                            <Border x:Name="OpticsHost"
+                                    CornerRadius="{TemplateBinding InnerCornerRadius}"
+                                    IsHitTestVisible="False" />
                             <ContentPresenter Content="{TemplateBinding Content}"
                                               ContentTemplate="{TemplateBinding ContentTemplate}"
                                               Padding="{TemplateBinding Padding}"
@@ -498,6 +506,7 @@
         <Setter Property="CausticBrush" Value="{StaticResource PlayerGlassCausticBrush}" />
         <Setter Property="BottomBevelBrush" Value="{StaticResource PlayerGlassBottomBevelBrush}" />
         <Setter Property="FrostGrainOpacity" Value="0.085" />
+        <Setter Property="OpticsProfile" Value="Cinema" />
     </Style>
 
     <Style x:Key="PlayerPillGlassStyle" TargetType="controls:GlassSurface" BasedOn="{StaticResource PlayerDockGlassStyle}">
@@ -515,6 +524,9 @@
 
     <!-- 光学磨砂悬浮圆形操作按钮（回到顶部等悬浮圆镜） -->
     <Style x:Key="GlassFabButtonStyle" TargetType="Button">
+        <Setter Property="controls:GlassOpticsEngine.Mode" Value="Interactive" />
+        <Setter Property="controls:GlassOpticsEngine.Profile" Value="Control" />
+        <Setter Property="controls:GlassOpticsEngine.RadiusOverride" Value="23" />
         <Setter Property="Width" Value="46" />
         <Setter Property="Height" Value="46" />
         <Setter Property="MinWidth" Value="46" />
@@ -578,6 +590,9 @@
 
     <!-- 播放器通透玻璃图标按钮（悬停/按压呈现清透玻璃光晕胶囊） -->
     <Style x:Key="PlayerIconButtonStyle" TargetType="Button">
+        <Setter Property="controls:GlassOpticsEngine.Mode" Value="Interactive" />
+        <Setter Property="controls:GlassOpticsEngine.Profile" Value="Cinema" />
+        <Setter Property="controls:GlassOpticsEngine.RadiusOverride" Value="19" />
         <Setter Property="Width" Value="38" />
         <Setter Property="Height" Value="38" />
         <Setter Property="MinWidth" Value="38" />
@@ -640,8 +655,11 @@
         </Setter>
     </Style>
 
-    <!-- 播放器通透玻璃下拉胶囊按钮（倍速 / 画质 / 跳过，无磨砂、清透光学高光态） -->
+    <!-- 播放器通透玻璃下拉胶囊按钮（倍速 / 画质 / 跳过，无磨砂、清透光学高光态 + 专属光学折射） -->
     <Style x:Key="PlayerDropDownButtonStyle" TargetType="DropDownButton">
+        <Setter Property="controls:GlassOpticsEngine.Mode" Value="Interactive" />
+        <Setter Property="controls:GlassOpticsEngine.Profile" Value="Cinema" />
+        <Setter Property="controls:GlassOpticsEngine.RadiusOverride" Value="17" />
         <Setter Property="Height" Value="34" />
         <Setter Property="MinHeight" Value="34" />
         <Setter Property="Padding" Value="11,0,9,0" />
@@ -743,6 +761,9 @@
 
     <!-- 建筑磨砂玻璃主面板（详情工作台 / 投屏控制台 / 直播面板） -->
     <Style x:Key="PanelCardStyle" TargetType="Border">
+        <Setter Property="controls:GlassOpticsEngine.Mode" Value="Interactive" />
+        <Setter Property="controls:GlassOpticsEngine.Profile" Value="Standard" />
+        <Setter Property="controls:GlassOpticsEngine.RadiusOverride" Value="14" />
         <Setter Property="Background" Value="{ThemeResource GlassPanelBrush}" />
         <Setter Property="BorderBrush" Value="{ThemeResource GlassEdgeBrush}" />
         <Setter Property="BorderThickness" Value="1" />
@@ -752,6 +773,9 @@
 
     <!-- 轻透建筑设置分组卡片（无额外重度 Acrylic 模糊层，保证多卡同屏滚动满帧与层级主次分明） -->
     <Style x:Key="SettingsCardStyle" TargetType="Border">
+        <Setter Property="controls:GlassOpticsEngine.Mode" Value="Interactive" />
+        <Setter Property="controls:GlassOpticsEngine.Profile" Value="Standard" />
+        <Setter Property="controls:GlassOpticsEngine.RadiusOverride" Value="14" />
         <Setter Property="Background" Value="{ThemeResource SettingsCardBackgroundBrush}" />
         <Setter Property="BorderBrush" Value="{ThemeResource GlassEdgeBrush}" />
         <Setter Property="BorderThickness" Value="1" />

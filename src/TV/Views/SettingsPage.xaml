@@ -173,11 +173,15 @@
                                             <Button Content="导入仓库" Style="{StaticResource PrimaryButtonStyle}">
                                                 <Button.Flyout>
                                                     <Flyout Placement="BottomEdgeAlignedRight">
-                                                        <StackPanel Width="320" Spacing="{StaticResource SpaceSmall}"
+                                                        <StackPanel Width="340" Spacing="{StaticResource SpaceSmall}"
                                                                     AutomationProperties.Name="仓库链接">
                                                             <TextBox Header="仓库链接"
                                                                      Text="{Binding NewSourceUrl, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                                                                      PlaceholderText="https://" InputScope="Url" />
+                                                            <TextBox Header="自定义仓库名称（可选）"
+                                                                     Text="{Binding NewSourceName, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                                     PlaceholderText="留空自动使用域名或原名称"
+                                                                     AutomationProperties.Name="自定义仓库名称" />
                                                             <Button Content="导入" Command="{Binding AddSourceCommand}"
                                                                     Style="{StaticResource PrimaryButtonStyle}"
                                                                     HorizontalAlignment="Right" />
@@ -239,6 +243,10 @@
                                                                         Tag="{Binding}" Click="OnSelectImportedRepoClick"
                                                                         ToolTipService.ToolTip="切换到此仓库"
                                                                         AutomationProperties.Name="切换仓库" />
+                                                                <Button Content="重命名" Style="{StaticResource GhostButtonStyle}"
+                                                                        Tag="{Binding}" Click="OnRenameSourceClick"
+                                                                        ToolTipService.ToolTip="自定义仓库名称"
+                                                                        AutomationProperties.Name="重命名仓库" />
                                                                 <Button Style="{StaticResource IconButtonStyle}"
                                                                         Tag="{Binding}" Click="OnRemoveSourceClick"
                                                                         ToolTipService.ToolTip="删除仓库"
@@ -252,6 +260,64 @@
                                             </ItemsControl.ItemTemplate>
                                         </ItemsControl>
                                     </StackPanel>
+                                </StackPanel>
+                            </Border>
+                            <Border Style="{StaticResource SettingsCardStyle}">
+                                <StackPanel Spacing="12">
+                                    <Grid ColumnSpacing="12">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel Spacing="2" VerticalAlignment="Center">
+                                            <TextBlock Text="仓库资源包" Style="{StaticResource LabelText}" />
+                                            <TextBlock Text="为特定第三方片源提供专属站点适配规则，复用国内加速通道并强制 SHA-256 校验；导入对应仓库时会自动匹配下载。"
+                                                       Style="{StaticResource MetaText}" TextWrapping="Wrap" />
+                                        </StackPanel>
+                                        <Button Grid.Column="1" Content="刷新清单" Command="{Binding RefreshRepoPacksCommand}"
+                                                Style="{StaticResource SecondaryButtonStyle}" VerticalAlignment="Center"
+                                                AutomationProperties.Name="刷新资源包清单" />
+                                    </Grid>
+                                    <ProgressBar Value="{Binding RepoPackDownloadProgress}" Maximum="100" Height="3"
+                                                 Foreground="{ThemeResource VermilionBrush}"
+                                                 Visibility="{Binding IsDownloadingRepoPack, Converter={StaticResource BoolToVisibility}}" />
+                                    <TextBlock Text="{Binding RepoPackStatus}" Style="{StaticResource MetaText}" TextWrapping="Wrap" />
+                                    <Border Height="1" Background="{ThemeResource DividerBrush}" />
+                                    <ItemsControl ItemsSource="{Binding RepoPacks}">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate>
+                                                <Border BorderBrush="{ThemeResource DividerBrush}" BorderThickness="0,0,0,1" Padding="0,10">
+                                                    <Grid ColumnSpacing="{StaticResource SpaceMedium}">
+                                                        <Grid.ColumnDefinitions>
+                                                            <ColumnDefinition Width="*" />
+                                                            <ColumnDefinition Width="Auto" />
+                                                        </Grid.ColumnDefinitions>
+                                                        <StackPanel Spacing="3">
+                                                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                                                <TextBlock Text="{Binding Name}" Style="{StaticResource LabelText}" TextTrimming="CharacterEllipsis" />
+                                                                <TextBlock Text="{Binding VersionBadge}" Style="{StaticResource MonoMetaText}" VerticalAlignment="Center" />
+                                                            </StackPanel>
+                                                            <TextBlock Text="{Binding Description}" Style="{StaticResource MetaText}" TextWrapping="Wrap" />
+                                                            <TextBlock Text="{Binding MetaSummary}" Style="{StaticResource MetaText}" />
+                                                        </StackPanel>
+                                                        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                                                            <Button Content="{Binding ActionLabel}" Style="{StaticResource SecondaryButtonStyle}"
+                                                                    IsEnabled="{Binding CanDownload}"
+                                                                    Tag="{Binding}" Click="OnDownloadRepoPackClick"
+                                                                    AutomationProperties.Name="下载仓库资源包" />
+                                                            <Button Style="{StaticResource IconButtonStyle}"
+                                                                    Visibility="{Binding IsInstalled, Converter={StaticResource BoolToVisibility}}"
+                                                                    Tag="{Binding}" Click="OnRemoveRepoPackClick"
+                                                                    ToolTipService.ToolTip="卸载资源包"
+                                                                    AutomationProperties.Name="卸载仓库资源包">
+                                                                <controls:LineIcon PathData="{StaticResource IconTrash}" IconSize="15" />
+                                                            </Button>
+                                                        </StackPanel>
+                                                    </Grid>
+                                                </Border>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
                                 </StackPanel>
                             </Border>
                             <Border Style="{StaticResource SettingsCardStyle}">

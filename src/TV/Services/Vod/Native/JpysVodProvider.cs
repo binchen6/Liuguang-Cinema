@@ -26,14 +26,16 @@ public sealed class JpysVodProvider(SourceHttpClient http) : INativePlaybackProv
 
     public static bool Supports(SourceSite site) => site.Type == 3 &&
         (site.Api.Equals("csp_JpysGuard", StringComparison.OrdinalIgnoreCase) ||
-         site.Api.Equals("csp_Jpys", StringComparison.OrdinalIgnoreCase));
+         site.Api.Equals("csp_Jpys", StringComparison.OrdinalIgnoreCase) ||
+         site.Api.Equals("csp_WenCai", StringComparison.OrdinalIgnoreCase) ||
+         site.Api.Equals("csp_WenCaiGuard", StringComparison.OrdinalIgnoreCase));
 
     public bool CanHandle(SourceSite site) => Supports(site);
 
     public async Task<CmsResponse> GetHomeAsync(SourceSite site, CancellationToken cancellationToken = default)
     {
         var categories = new List<VodCategory>();
-        using (var typeDoc = await GetApiAsync("/api/mw-movie/anonymous/get/filer/type", null, cancellationToken).ConfigureAwait(false))
+        using (var typeDoc = await GetApiAsync(site, "/api/mw-movie/anonymous/get/filer/type", null, cancellationToken).ConfigureAwait(false))
         {
             if (typeDoc.RootElement.TryGetProperty("data", out var data) && data.ValueKind == JsonValueKind.Array)
             {
@@ -78,7 +80,7 @@ public sealed class JpysVodProvider(SourceHttpClient http) : INativePlaybackProv
             ["pageSize"] = "24",
             ["type1"] = categoryId
         };
-        using var doc = await GetApiAsync("/api/mw-movie/anonymous/video/list", query, cancellationToken).ConfigureAwait(false);
+        using var doc = await GetApiAsync(site, "/api/mw-movie/anonymous/video/list", query, cancellationToken).ConfigureAwait(false);
         return ParsePagedList(doc.RootElement, site, page);
     }
 
@@ -93,7 +95,7 @@ public sealed class JpysVodProvider(SourceHttpClient http) : INativePlaybackProv
             ["pageNum"] = page.ToString(CultureInfo.InvariantCulture),
             ["pageSize"] = "24"
         };
-        using var doc = await GetApiAsync("/api/mw-movie/anonymous/video/searchByWord", query, cancellationToken).ConfigureAwait(false);
+        using var doc = await GetApiAsync(site, "/api/mw-movie/anonymous/video/searchByWord", query, cancellationToken).ConfigureAwait(false);
         if (doc.RootElement.TryGetProperty("data", out var data) && data.ValueKind == JsonValueKind.Object)
         {
             var container = data.TryGetProperty("result", out var result) && result.ValueKind == JsonValueKind.Object ? result : data;
@@ -105,7 +107,7 @@ public sealed class JpysVodProvider(SourceHttpClient http) : INativePlaybackProv
     public async Task<VodItem> GetDetailAsync(SourceSite site, string id, CancellationToken cancellationToken = default)
     {
         var query = new SortedDictionary<string, string>(StringComparer.Ordinal) { ["id"] = id };
-        using var doc = await GetApiAsync("/api/mw-movie/anonymous/video/detail", query, cancellationToken).ConfigureAwait(false);
+        using var doc = await GetApiAsync(site, "/api/mw-movie/anonymous/video/detail", query, cancellationToken).ConfigureAwait(false);
         if (!doc.RootElement.TryGetProperty("data", out var data) || data.ValueKind != JsonValueKind.Object)
             throw new InvalidDataException("文采详情返回空数据。");
 
@@ -155,7 +157,7 @@ public sealed class JpysVodProvider(SourceHttpClient http) : INativePlaybackProv
             ["id"] = parts[0],
             ["nid"] = parts[1]
         };
-        using var doc = await GetApiAsync("/api/mw-movie/anonymous/v2/video/episode/url", query, token).ConfigureAwait(false);
+        using var doc = await GetApiAsync(site, "/api/mw-movie/anonymous/v2/video/episode/url", query, token).ConfigureAwait(false);
         if (!doc.RootElement.TryGetProperty("data", out var data) || data.ValueKind != JsonValueKind.Object)
             throw new InvalidDataException("文采播放地址解析失败。");
 
@@ -185,7 +187,7 @@ public sealed class JpysVodProvider(SourceHttpClient http) : INativePlaybackProv
         return new SpiderPlayResult(bestUrl, headers, 0, 0);
     }
 
-    private async Task<JsonDocument> GetApiAsync(string path, SortedDictionary<string, string>? query, CancellationToken token)
+    private async Task<JsonDocument> GetApiAsync(SourceSite site, string path, SortedDictionary<string, string>? query, CancellationToken token)
     {
         var t = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds().ToString(CultureInfo.InvariantCulture);
         var rawQs = query is { Count: > 0 }
@@ -200,7 +202,7 @@ public sealed class JpysVodProvider(SourceHttpClient http) : INativePlaybackProv
         var sign = Convert.ToHexString(SHA1.HashData(Encoding.UTF8.GetBytes(md5Hex))).ToLowerInvariant();
 
         Exception? lastError = null;
-        foreach (var origin in Origins)
+        foreach (var origin in NativeSiteToolkit.MergeConfiguredOrigins(site, Origins))
         {
             var url = new Uri(origin, path + (encodedQs.Length > 0 ? "?" + encodedQs : string.Empty)).AbsoluteUri;
             var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)

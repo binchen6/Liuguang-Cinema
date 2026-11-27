@@ -98,7 +98,7 @@ public sealed partial class SeedhubVodProvider(SourceHttpClient http, CloudDrive
     }
 
     private Task<(IDocument Document, Uri FinalUri)> FetchHtmlAsync(SourceSite site, string relativePath, CancellationToken token) =>
-        NativeSiteToolkit.FetchHtmlAsync(http, site, Origins, relativePath, "聚剧（SeedHub）", token, minHtmlLength: 400);
+        NativeSiteToolkit.FetchHtmlAsync(http, site, NativeSiteToolkit.MergeConfiguredOrigins(site, Origins), relativePath, "聚剧（SeedHub）", token, minHtmlLength: 400);
 
     private static List<VodItem> ParseCards(IDocument doc, Uri pageUri, SourceSite site)
     {

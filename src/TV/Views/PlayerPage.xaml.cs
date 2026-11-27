@@ -3,6 +3,8 @@ using System.Text.Json;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Input;
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Automation;
+using Microsoft.UI.Xaml.Automation.Peers;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Input;
@@ -25,7 +27,6 @@ public sealed partial class PlayerPage : Page
     private static readonly double[] Rates = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0];
     private static readonly double[] DanmakuSpeeds = [0.6, 0.8, 1.0, 1.25, 1.5];
     private static readonly double[] DanmakuAreas = [0.25, 0.50, 0.75, 1.0];
-    private static readonly string[] BasicDanmakuBlockedWords = ["加群", "代充", "博彩", "刷单", "加微信"];
 
     private readonly DispatcherQueueTimer _hideTimer;
     private readonly DispatcherQueueTimer _osdTimer;
@@ -33,8 +34,10 @@ public sealed partial class PlayerPage : Page
     private bool _controlsVisible = true;
     private PlayerViewModel? _vm;
     private CancellationTokenSource? _danmakuLoad;
+    private CancellationTokenSource? _danmakuFiltering;
     private DanmakuEntry[] _rawComments = [];
     private DanmakuPreferences _danmaku = new();
+    private DanmakuFilter _danmakuFilter = DanmakuFilter.Default;
     private Uri? _danmakuAddress;
     private Uri? _localDanmakuOverride;
     private Flyout? _danmakuFlyout;
@@ -83,7 +86,6 @@ public sealed partial class PlayerPage : Page
     [System.Runtime.InteropServices.DllImport("user32.dll")] [return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.Bool)] private static extern bool ScreenToClient(nint hWnd, ref NativePoint lpPoint);
     [System.Runtime.InteropServices.DllImport("user32.dll")] [return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.Bool)] private static extern bool GetWindowRect(nint hWnd, out NativeRect lpRect);
     [System.Runtime.InteropServices.DllImport("user32.dll")] private static extern nint GetForegroundWindow();
-    [System.Runtime.InteropServices.DllImport("kernel32.dll")] private static extern bool SetProcessWorkingSetSize(nint hProcess, nint dwMinimumWorkingSetSize, nint dwMaximumWorkingSetSize);
 
     private bool IsPointerOverControls => _hoveredControls.Count > 0 || _pointerOverControls;
 
@@ -232,16 +234,6 @@ public sealed partial class PlayerPage : Page
         }
     }
 
-    private static void TrimWorkingSet()
-    {
-        try
-        {
-            GC.Collect(2, GCCollectionMode.Aggressive, blocking: false, compacting: true);
-            SetProcessWorkingSetSize(Process.GetCurrentProcess().Handle, -1, -1);
-        }
-        catch { }
-    }
-
     private PlayerViewModel ViewModel => _vm ??= App.Window.ViewModel.Player;
 
     public PlayerPage()
@@ -352,14 +344,6 @@ public sealed partial class PlayerPage : Page
             ViewModel.Service.SetVolume(ViewModel.Volume);
             ViewModel.NotifyVideoReady();
             Diagnostics.Log("VideoView output attached");
-            if (App.PlayerOnly)
-            {
-                _ = Task.Run(async () =>
-                {
-                    await Task.Delay(1800).ConfigureAwait(false);
-                    TrimWorkingSet();
-                });
-            }
         }
         catch (Exception ex)
         {
@@ -1289,8 +1273,24 @@ public sealed partial class PlayerPage : Page
             var autoMatch = new ToggleSwitch { Header = "换集后自动匹配对应集数", IsOn = _danmaku.AutoMatch };
             var filter = new ToggleSwitch { Header = "基础广告屏蔽规则", IsOn = _danmaku.BasicFilter };
             var words = new TextBox { Header = "自定义屏蔽词", Text = _danmaku.BlockedWords, PlaceholderText = "空格或逗号分隔", MaxLength = 400 };
+            var patterns = new TextBox
+            {
+                Header = "正则表达式屏蔽",
+                Text = _danmaku.BlockedPatterns,
+                PlaceholderText = "每行一条，例如 ^跳过[0-9]{2,4}$",
+                AcceptsReturn = true,
+                MinHeight = 82,
+                MaxHeight = 142,
+                MaxLength = DanmakuFilter.MaxPatternTextLength,
+                IsSpellCheckEnabled = false,
+                IsTextPredictionEnabled = false
+            };
+            var filterError = new TextBlock { TextWrapping = TextWrapping.Wrap, Visibility = Visibility.Collapsed };
+            AutomationProperties.SetLiveSetting(filterError, AutomationLiveSetting.Polite);
+            AutomationProperties.SetHelpText(patterns, "每行一条 .NET 正则。点击应用并关闭后生效。");
+            patterns.TextChanged += (_, _) => filterError.Visibility = Visibility.Collapsed;
 
-            void ApplyLiveVisual(bool refilter = false)
+            void ApplyLiveVisual()
             {
                 _danmaku = _danmaku with
                 {
@@ -1308,8 +1308,6 @@ public sealed partial class PlayerPage : Page
                     ShowBottom = showBottom.IsChecked == true,
                     ShowColor = showColor.IsChecked == true,
                     TimeOffsetSeconds = double.IsFinite(timeOffset.Value) ? Math.Clamp(timeOffset.Value, -15, 15) : 0,
-                    BasicFilter = filter.IsOn,
-                    BlockedWords = words.Text ?? string.Empty,
                     Source = source.SelectedIndex switch { 1 => "dandanplay", 2 => "bilibili", _ => "origin" },
                     AutoMatch = autoMatch.IsOn
                 };
@@ -1317,14 +1315,13 @@ public sealed partial class PlayerPage : Page
                 sizeHeader.Text = $"字号：{_danmaku.Size} px";
                 UpdateDanmakuToggle();
                 DanmakuLayer.SetPreferences(_danmaku);
-                if (refilter && _rawComments.Length > 0) ApplyFilteredComments();
                 QueueSaveDanmakuPreferences();
             }
 
             var advanced = new StackPanel
             {
                 Spacing = 10,
-                Children = { opacityHeader, opacitySlider, sizeHeader, sizeSlider, speed, area, density, color, styleRow, typeLabel, typeRow, timeOffset, source, autoMatch, filter, words },
+                Children = { opacityHeader, opacitySlider, sizeHeader, sizeSlider, speed, area, density, color, styleRow, typeLabel, typeRow, timeOffset, source, autoMatch },
                 Visibility = enabled.IsOn ? Visibility.Visible : Visibility.Collapsed
             };
 
@@ -1347,10 +1344,18 @@ public sealed partial class PlayerPage : Page
             showBottom.Click += (_, _) => ApplyLiveVisual();
             showColor.Click += (_, _) => ApplyLiveVisual();
             timeOffset.ValueChanged += (_, _) => ApplyLiveVisual();
-            filter.Toggled += (_, _) => ApplyLiveVisual(refilter: true);
+            filter.Toggled += (_, _) =>
+            {
+                _danmaku = _danmaku with { BasicFilter = filter.IsOn };
+                _danmakuFilter = _danmakuFilter.WithBasicFilter(filter.IsOn);
+                QueueSaveDanmakuPreferences();
+                _ = ApplyFilteredCommentsAsync();
+            };
             autoMatch.Toggled += (_, _) => ApplyLiveVisual();
             source.SelectionChanged += (_, _) =>
             {
+                _localDanmakuOverride = null;
+                _manualDanDanPlayEpisodeId = null;
                 ApplyLiveVisual();
                 if (enabled.IsOn) _ = ReloadDanmakuAsync(false);
             };
@@ -1359,18 +1364,21 @@ public sealed partial class PlayerPage : Page
             var matchDanDan = new Button { Content = "立即匹配弹弹play 弹幕", Style = Application.Current.Resources["PrimaryButtonStyle"] as Style, HorizontalAlignment = HorizontalAlignment.Stretch };
             var searchDanDan = new Button { Content = "手动搜索弹弹play 剧集…", HorizontalAlignment = HorizontalAlignment.Stretch };
             var matchBili = new Button { Content = "匹配哔哩哔哩弹幕", HorizontalAlignment = HorizontalAlignment.Stretch };
-            var resetDefaults = new Button { Content = "恢复默认样式" };
-            var save = new Button { Content = "应用并关闭", Style = Application.Current.Resources["SecondaryButtonStyle"] as Style };
-            var footerRow = new Grid { ColumnSpacing = 8 };
-            footerRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-            footerRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-            footerRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-            Grid.SetColumn(resetDefaults, 0);
-            Grid.SetColumn(save, 2);
-            footerRow.Children.Add(resetDefaults);
-            footerRow.Children.Add(save);
+            var resetDefaults = new Button { Content = "恢复默认样式", HorizontalAlignment = HorizontalAlignment.Stretch };
+            var save = new Button
+            {
+                Content = "应用并关闭",
+                Style = Application.Current.Resources["SecondaryButtonStyle"] as Style,
+                HorizontalAlignment = HorizontalAlignment.Right
+            };
 
-            var options = new StackPanel { Width = 336, Padding = new Thickness(0, 0, 12, 0), Spacing = 10, Children = { enabled, advanced, matchDanDan, searchDanDan, matchBili, loadLocal, footerRow } };
+            var options = new StackPanel
+            {
+                Width = 336,
+                Padding = new Thickness(0, 0, 12, 0),
+                Spacing = 10,
+                Children = { enabled, filter, words, patterns, filterError, save, advanced, matchDanDan, searchDanDan, matchBili, loadLocal, resetDefaults }
+            };
             var flyout = new Flyout
             {
                 Placement = ReferenceEquals(target, PlaybackOptionsButton)
@@ -1392,13 +1400,15 @@ public sealed partial class PlayerPage : Page
                     picker.FileTypeFilter.Add(".json");
                     var file = await picker.PickSingleFileAsync();
                     if (file is null) return;
-                    _localDanmakuOverride = new Uri(file.Path);
+                    var chosen = new Uri(file.Path);
+                    _localDanmakuOverride = chosen;
                     _manualDanDanPlayEpisodeId = null;
                     _danmaku = _danmaku with { Enabled = true, Source = "origin" };
                     await PersistDanmakuPreferencesAsync();
                     UpdateDanmakuToggle();
                     await ReloadDanmakuAsync(false);
-                    ShowOsd("已加载本地弹幕");
+                    if (IsLoaded && _localDanmakuOverride == chosen && _rawComments.Length > 0)
+                        ShowOsd("已加载本地弹幕");
                 }
                 catch (Exception ex) { ViewModel.QualityMessage = "本地弹幕加载失败：" + ex.Message; }
             };
@@ -1441,13 +1451,9 @@ public sealed partial class PlayerPage : Page
 
             resetDefaults.Click += (_, _) =>
             {
-                var keepEnabled = _danmaku.Enabled;
-                var keepSource = _danmaku.Source;
-                var keepAuto = _danmaku.AutoMatch;
-                var keepWords = _danmaku.BlockedWords;
-                _danmaku = new DanmakuPreferences(Enabled: keepEnabled, Source: keepSource, AutoMatch: keepAuto, BlockedWords: keepWords);
-                opacitySlider.Value = Math.Round(_danmaku.Opacity * 100);
-                sizeSlider.Value = _danmaku.Size;
+                var defaults = new DanmakuPreferences();
+                opacitySlider.Value = Math.Round(defaults.Opacity * 100);
+                sizeSlider.Value = defaults.Size;
                 speed.SelectedIndex = 2;
                 area.SelectedIndex = 1;
                 density.SelectedIndex = 1;
@@ -1459,13 +1465,27 @@ public sealed partial class PlayerPage : Page
                 showBottom.IsChecked = true;
                 showColor.IsChecked = true;
                 timeOffset.Value = 0;
-                ApplyLiveVisual(refilter: true);
+                ApplyLiveVisual();
                 ShowOsd("已恢复默认弹幕样式");
             };
 
             save.Click += async (_, _) =>
             {
-                ApplyLiveVisual(refilter: true);
+                var revised = _danmaku with { BlockedWords = words.Text, BlockedPatterns = patterns.Text };
+                if (revised != _danmaku)
+                {
+                    if (!DanmakuFilter.TryCreate(revised, out var configured, out var error))
+                    {
+                        filterError.Text = error;
+                        filterError.Visibility = Visibility.Visible;
+                        patterns.Focus(FocusState.Programmatic);
+                        filterError.StartBringIntoView();
+                        return;
+                    }
+                    _danmaku = revised;
+                    _danmakuFilter = configured;
+                    _ = ApplyFilteredCommentsAsync();
+                }
                 flyout.Hide();
                 await PersistDanmakuPreferencesAsync();
             };
@@ -1484,6 +1504,7 @@ public sealed partial class PlayerPage : Page
 
     private async Task PersistDanmakuPreferencesAsync()
     {
+        _danmakuSaveTimer.Stop();
         try
         {
             await App.Services.Database.SetSettingAsync("playback.danmaku", JsonSerializer.Serialize(_danmaku));
@@ -1493,11 +1514,26 @@ public sealed partial class PlayerPage : Page
 
     private async Task ReadDanmakuPreferencesAsync()
     {
+        if (_danmakuPrefsLoaded) return;
         var saved = await App.Services.Database.GetSettingAsync("playback.danmaku");
-        if (!string.IsNullOrWhiteSpace(saved))
-            _danmaku = (JsonSerializer.Deserialize<DanmakuPreferences>(saved) ?? new()).Normalize();
-        else
-            _danmaku = _danmaku.Normalize();
+        if (_danmakuPrefsLoaded) return;
+        try
+        {
+            if (!string.IsNullOrWhiteSpace(saved))
+                _danmaku = (JsonSerializer.Deserialize<DanmakuPreferences>(saved) ?? new()).Normalize();
+        }
+        catch (JsonException)
+        {
+            Diagnostics.Log("弹幕设置格式无效，已使用默认值。");
+        }
+
+        if (!DanmakuFilter.TryCreate(_danmaku, out var configured, out var error))
+        {
+            // Keep the saved expression editable and retain the other filters.
+            Diagnostics.Log($"已跳过已存储的弹幕正则规则。{error}");
+            DanmakuFilter.TryCreate(_danmaku with { BlockedPatterns = "" }, out configured, out _);
+        }
+        _danmakuFilter = configured ?? DanmakuFilter.Default;
         _danmakuPrefsLoaded = true;
         DanmakuLayer.SetPreferences(_danmaku);
     }
@@ -1644,8 +1680,9 @@ public sealed partial class PlayerPage : Page
         try
         {
             await ReadDanmakuPreferencesAsync();
+            if (token.IsCancellationRequested) return;
             UpdateDanmakuToggle();
-            if (!_danmaku.Enabled || token.IsCancellationRequested) return;
+            if (!_danmaku.Enabled) return;
 
             IReadOnlyList<DanmakuEntry> comments;
             if (_localDanmakuOverride is { } localUri)
@@ -1720,13 +1757,12 @@ public sealed partial class PlayerPage : Page
 
             if (token.IsCancellationRequested) return;
             _rawComments = comments as DanmakuEntry[] ?? comments.ToArray();
-            ApplyFilteredComments();
             var snap = ViewModel.Service.LastSnapshot;
             DanmakuLayer.SyncPlayback(snap.TimeMs / 1000d,
                 snap.CapturedAtTimestamp != 0 ? snap.CapturedAtTimestamp : Stopwatch.GetTimestamp(),
                 snap.Rate, snap.IsPlaying, ViewModel.IsBuffering);
-            Diagnostics.Log($"Danmaku loaded: {DanmakuLayer.LoadedCount}/{_rawComments.Length} entries (source={_danmaku.Source})");
-            if (DanmakuLayer.LoadedCount == 0) ViewModel.QualityMessage = "当前匹配节目没有可显示的弹幕。";
+            if (_rawComments.Length == 0) ViewModel.QualityMessage = "当前来源没有可显示的弹幕。";
+            await ApplyFilteredCommentsAsync();
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested) { }
         catch (OperationCanceledException)
@@ -1740,17 +1776,46 @@ public sealed partial class PlayerPage : Page
         }
     }
 
-    private void ApplyFilteredComments()
+    private async Task ApplyFilteredCommentsAsync()
     {
-        var blocked = _danmaku.BlockedWords.Split([' ', '，', ',', '\n', '、'], StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
-        var filtered = _rawComments.Where(comment =>
-            !blocked.Any(word => comment.Text.Contains(word, StringComparison.OrdinalIgnoreCase)) &&
-            (!_danmaku.BasicFilter || !BasicDanmakuBlockedWords.Any(word => comment.Text.Contains(word, StringComparison.Ordinal)))).ToArray();
-        DanmakuLayer.SetComments(filtered);
+        _danmakuFiltering?.Cancel();
+        var comments = _rawComments;
+        if (comments.Length == 0) return;
+        var rules = _danmakuFilter;
+        using var work = new CancellationTokenSource();
+        _danmakuFiltering = work;
+        var started = Stopwatch.GetTimestamp();
+        try
+        {
+            var result = rules.HasRules
+                ? await Task.Run(() => rules.Apply(comments, work.Token), work.Token)
+                : new DanmakuFilter.Result(comments);
+            if (!IsLoaded || work.IsCancellationRequested) return;
+
+            DanmakuLayer.SetComments(result.Comments);
+            Diagnostics.Log($"Danmaku loaded: {result.Comments.Length}/{comments.Length} entries (source={_danmaku.Source}, filter={Stopwatch.GetElapsedTime(started).TotalMilliseconds:F1}ms)");
+            if (result.Warning is { } warning) ViewModel.QualityMessage = warning;
+            else if (result.Comments.Length == 0) ViewModel.QualityMessage = "当前弹幕均已被屏蔽规则过滤。";
+        }
+        catch (OperationCanceledException) when (work.IsCancellationRequested) { }
+        catch (Exception ex)
+        {
+            if (IsLoaded && !work.IsCancellationRequested)
+            {
+                DanmakuLayer.SetComments(comments);
+                ViewModel.QualityMessage = "弹幕筛选失败，已显示未筛选的弹幕。";
+                Diagnostics.Log($"弹幕筛选失败: {ex.GetType().Name}");
+            }
+        }
+        finally
+        {
+            if (ReferenceEquals(_danmakuFiltering, work)) _danmakuFiltering = null;
+        }
     }
 
     private void CancelDanmakuLoad()
     {
+        _danmakuFiltering?.Cancel();
         var load = _danmakuLoad;
         _danmakuLoad = null;
         try { load?.Cancel(); }

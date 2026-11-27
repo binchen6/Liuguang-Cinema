@@ -78,6 +78,11 @@ internal static partial class NativeSiteToolkit
                 nested.GetAttribute("data-echo"),
                 nested.GetAttribute("src"));
         }
+        if (raw.Length == 0 && element.GetAttribute("style") is { Length: > 0 } style)
+        {
+            var bgMatch = BackgroundUrlRegex().Match(style);
+            if (bgMatch.Success) raw = bgMatch.Groups[1].Value.Trim('"', '\'', ' ');
+        }
         return ResolveUrl(baseUri, raw);
     }
 
@@ -324,38 +329,53 @@ internal static partial class NativeSiteToolkit
             0, 0);
     }
 
+    internal static IReadOnlyList<Uri> ExtractConfiguredOrigins(SourceSite site) =>
+        MergeConfiguredOrigins(site, []).ToArray();
+
     internal static IEnumerable<Uri> MergeConfiguredOrigins(SourceSite site, IEnumerable<Uri> fallbacks)
     {
         var list = new List<Uri>();
         void AddOrigin(string? raw)
         {
             if (string.IsNullOrWhiteSpace(raw)) return;
-            if (Uri.TryCreate(raw.Trim(), UriKind.Absolute, out var uri) && uri.Scheme is "http" or "https" && uri.UserInfo.Length == 0)
+            foreach (var token in raw.Split(["$$$", ",", ";", "|", "\r", "\n"], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
             {
-                var root = new Uri(uri.GetLeftPart(UriPartial.Authority) + "/");
-                if (!list.Any(u => u.Host.Equals(root.Host, StringComparison.OrdinalIgnoreCase)))
-                    list.Add(root);
+                if (Uri.TryCreate(token, UriKind.Absolute, out var uri) && uri.Scheme is "http" or "https" && uri.UserInfo.Length == 0)
+                {
+                    var root = new Uri(uri.GetLeftPart(UriPartial.Authority) + "/");
+                    if (!list.Any(u => u.Host.Equals(root.Host, StringComparison.OrdinalIgnoreCase) && u.Port == root.Port))
+                        list.Add(root);
+                }
             }
         }
 
-        if (site.Ext.ValueKind == JsonValueKind.String)
+        void AddElement(JsonElement el)
         {
-            var raw = site.Ext.GetString();
-            if (!string.IsNullOrWhiteSpace(raw))
+            if (el.ValueKind == JsonValueKind.String)
+                AddOrigin(el.GetString());
+            else if (el.ValueKind == JsonValueKind.Array)
             {
-                foreach (var part in raw.Split("$$$", StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
-                    AddOrigin(part);
+                foreach (var item in el.EnumerateArray())
+                    if (item.ValueKind == JsonValueKind.String) AddOrigin(item.GetString());
             }
+        }
+
+        if (site.Ext.ValueKind is JsonValueKind.String or JsonValueKind.Array)
+        {
+            AddElement(site.Ext);
         }
         else if (site.Ext.ValueKind == JsonValueKind.Object)
         {
-            foreach (var prop in new[] { "siteUrl", "url", "host", "site" })
-                AddOrigin(ReadJsonString(site.Ext, prop));
+            foreach (var prop in new[] { "siteUrl", "url", "host", "site", "sites", "urls", "domains", "api" })
+            {
+                if (site.Ext.TryGetProperty(prop, out var value))
+                    AddElement(value);
+            }
         }
 
         foreach (var fb in fallbacks)
         {
-            if (!list.Any(u => u.Host.Equals(fb.Host, StringComparison.OrdinalIgnoreCase)))
+            if (!list.Any(u => u.Host.Equals(fb.Host, StringComparison.OrdinalIgnoreCase) && u.Port == fb.Port))
                 list.Add(fb);
         }
         return list;
@@ -363,4 +383,7 @@ internal static partial class NativeSiteToolkit
 
     [GeneratedRegex(@"player_aaaa\s*=\s*(\{.*?\})\s*;?\s*(?:</script>|[\r\n]|$)", RegexOptions.Singleline | RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
     internal static partial Regex PlayerAaaaRegex();
+
+    [GeneratedRegex(@"url\(\s*['""]?([^'""\)]+)['""]?\s*\)", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    private static partial Regex BackgroundUrlRegex();
 }

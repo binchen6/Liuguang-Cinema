@@ -84,12 +84,31 @@ public sealed partial class SourceConfigService : IDisposable
         finally { _loadLock.Release(); }
     }
 
-    public async Task ImportAsync(string url, CancellationToken cancellationToken = default)
+    public Task ImportAsync(string url, CancellationToken cancellationToken = default) =>
+        ImportAsync(url, null, cancellationToken);
+
+    public async Task ImportAsync(string url, string? customName, CancellationToken cancellationToken = default)
     {
         if (!Uri.TryCreate(url.Trim(), UriKind.Absolute, out var uri) || uri.Scheme is not ("http" or "https") || uri.UserInfo.Length > 0)
             throw new ArgumentException("请输入有效的 HTTP/HTTPS 配置地址。");
         var fetched = await FetchRepositoriesAsync(uri, cancellationToken).ConfigureAwait(false);
-        string? selectRepoId = null;
+        var trimmedCustomName = customName?.Trim();
+        if (!string.IsNullOrWhiteSpace(trimmedCustomName) && fetched.Count > 0)
+        {
+            if (fetched.Count == 1)
+            {
+                fetched[0] = fetched[0] with { Name = trimmedCustomName };
+            }
+            else
+            {
+                for (var i = 0; i < fetched.Count; i++)
+                {
+                    var suffix = string.IsNullOrWhiteSpace(fetched[i].Name) ? (i + 1).ToString() : fetched[i].Name;
+                    fetched[i] = fetched[i] with { Name = $"{trimmedCustomName} · {suffix}" };
+                }
+            }
+        }
+        var selectRepoId = fetched.Count > 0 ? ComputeRepositoryId(fetched[0].Url) : null;
         await UpdateImportsAsync(imports =>
         {
             // Remove existing entries for the same root URL or individual entry URLs
@@ -100,9 +119,22 @@ public sealed partial class SourceConfigService : IDisposable
                 newUrls.Contains(item.Url));
             for (var i = fetched.Count - 1; i >= 0; i--)
                 imports.Insert(0, fetched[i]);
-            if (fetched.Count > 0)
-                selectRepoId = ComputeRepositoryId(fetched[0].Url);
         }, selectRepoId, cancellationToken).ConfigureAwait(false);
+    }
+
+    public Task RenameImportAsync(string url, string newName, CancellationToken cancellationToken = default)
+    {
+        var trimmed = newName?.Trim() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(trimmed))
+            throw new ArgumentException("仓库名称不能为空。", nameof(newName));
+        if (trimmed.Length > 60)
+            trimmed = trimmed[..60];
+        return UpdateImportsAsync(imports =>
+        {
+            var idx = imports.FindIndex(item => string.Equals(item.Url, url, StringComparison.OrdinalIgnoreCase));
+            if (idx >= 0)
+                imports[idx] = imports[idx] with { Name = trimmed };
+        }, null, cancellationToken);
     }
 
     public Task RemoveImportAsync(string url, CancellationToken cancellationToken = default) =>
@@ -554,6 +586,11 @@ public sealed partial class SourceConfigService : IDisposable
                         site.Ext = JsonSerializer.SerializeToElement(normalizedExt);
                 }
             }
+            else if (site.Ext.ValueKind == JsonValueKind.Object)
+            {
+                var normalizedObj = NormalizeExtObject(parent, site.Ext, out var changed);
+                if (changed) site.Ext = normalizedObj;
+            }
             if (!string.IsNullOrWhiteSpace(document.Spider) && string.IsNullOrWhiteSpace(site.RepositorySpider))
                 site.RepositorySpider = document.Spider;
         }
@@ -585,6 +622,27 @@ public sealed partial class SourceConfigService : IDisposable
         if (IsRelativeOrUrlPath(urlPart) && TryHttpUri(parent, urlPart) is { } resolved)
             return resolved.AbsoluteUri + suffix;
         return trimmed;
+    }
+
+    private static JsonElement NormalizeExtObject(Uri parent, JsonElement obj, out bool changed)
+    {
+        changed = false;
+        var dict = new Dictionary<string, object?>(StringComparer.Ordinal);
+        foreach (var prop in obj.EnumerateObject())
+        {
+            if (prop.Value.ValueKind == JsonValueKind.String)
+            {
+                var raw = prop.Value.GetString() ?? string.Empty;
+                var norm = ResolveRelativeSegments(parent, raw);
+                if (!string.Equals(norm, raw, StringComparison.Ordinal)) changed = true;
+                dict[prop.Name] = norm;
+            }
+            else
+            {
+                dict[prop.Name] = prop.Value;
+            }
+        }
+        return changed ? JsonSerializer.SerializeToElement(dict) : obj;
     }
 
     private static string ResolveRelativeSegments(Uri parent, string raw)

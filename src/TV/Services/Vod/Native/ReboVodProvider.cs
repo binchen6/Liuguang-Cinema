@@ -31,7 +31,9 @@ public sealed partial class ReboVodProvider(SourceHttpClient http, CloudDriveSer
 
     public static bool Supports(SourceSite site) => site.Type == 3 &&
         (site.Api.Equals("csp_AppTTGuard", StringComparison.OrdinalIgnoreCase) ||
-         site.Api.Equals("csp_AppTT", StringComparison.OrdinalIgnoreCase));
+         site.Api.Equals("csp_AppTT", StringComparison.OrdinalIgnoreCase) ||
+         site.Api.Equals("csp_Rebo", StringComparison.OrdinalIgnoreCase) ||
+         site.Api.Equals("csp_ReboGuard", StringComparison.OrdinalIgnoreCase));
 
     public bool CanHandle(SourceSite site) => Supports(site);
 

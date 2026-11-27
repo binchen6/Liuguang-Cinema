@@ -40,7 +40,7 @@ public sealed class NativeVodProviderRouter
         new([
             new WoggNativeProvider(http, cloud),
             new HttpSpiderProvider(http),
-            new UniversalProtocolVodProvider(http),
+            new UniversalProtocolVodProvider(http, cloud),
             new HtmlVodProvider(http),
             bilibili,
             new ChangZhangVodProvider(http, browser is null ? null : browser.ReadPageHtmlAsync),

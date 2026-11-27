@@ -48,7 +48,6 @@ public sealed partial class JsSpiderClient
         Dictionary<string, string> Headers);
 
     private static readonly string[] BuiltInJavaDrpyScripts = ["虎牙.js", "斗鱼直播.js", "兔小贝.js"];
-    private static readonly string[] GitHubMirrors = ["https://ghfast.top/", "https://gh-proxy.com/"];
     private static readonly TimeSpan ScriptCacheTtl = TimeSpan.FromHours(6);
 
     private readonly SourceHttpClient _http;
@@ -243,20 +242,9 @@ public sealed partial class JsSpiderClient
 
     private async Task<string> DownloadScriptWithMirrorsAsync(string url, CancellationToken token)
     {
-        var candidates = new List<string> { url };
-        if (url.StartsWith("https://raw.githubusercontent.com/", StringComparison.OrdinalIgnoreCase) ||
-            url.StartsWith("https://github.com/", StringComparison.OrdinalIgnoreCase))
-        {
-            foreach (var mirror in GitHubMirrors) candidates.Add(mirror + url);
-        }
         var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) { ["User-Agent"] = "okhttp/4.12.0" };
-        Exception? last = null;
-        foreach (var candidate in candidates)
-        {
-            try { return await _http.GetStringAsync(candidate, headers, token).ConfigureAwait(false); }
-            catch (Exception ex) when (ex is not OperationCanceledException) { last = ex; }
-        }
-        throw last ?? new HttpRequestException("JS 爬虫脚本下载失败。");
+        var (content, _) = await GitHubMirrorService.GetTextWithMirrorsAsync(_http, url, headers, cancellationToken: token).ConfigureAwait(false);
+        return content;
     }
 
     private static void ValidateScript(string raw, string source)
@@ -425,6 +413,13 @@ public sealed partial class JsSpiderClient
                 ? ResolveTemplateUrl(rule.Host, rule.DetailUrl.Replace("fyid", id, StringComparison.Ordinal))
                 : ResolveTemplateUrl(rule.Host, id));
         var (html, pageUri) = await FetchDrpyPageAsync(target, rule.Headers, token).ConfigureAwait(false);
+
+        if (rule.SecondLevelRaw.StartsWith("js:", StringComparison.OrdinalIgnoreCase))
+        {
+            var jsDetail = await ExecuteDrpyJsDetailAsync(site, rule, html, pageUri, id, rule.SecondLevelRaw[3..], token).ConfigureAwait(false);
+            if (jsDetail is not null) return jsDetail;
+        }
+
         var doc = await new HtmlParser().ParseDocumentAsync(html, token).ConfigureAwait(false);
 
         if (rule.SecondLevelObj.ValueKind == JsonValueKind.Object)
@@ -483,6 +478,36 @@ public sealed partial class JsSpiderClient
         var (names, urls) = NativeSiteToolkit.ExtractStuiPlaylists(
             doc, pageUri, ".stui-pannel__head h3, .stui-vodlist__head h3, .nav-tabs li a, .module-tab-item",
             ".stui-content__playlist, .module-play-list-content, ul.play-list");
+        if (names.Count == 0)
+        {
+            var shareEps = new List<string>();
+            var seenShare = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var a in doc.QuerySelectorAll("a[href]"))
+            {
+                var href = NativeSiteToolkit.ResolveUrl(pageUri, a.GetAttribute("href"));
+                if (href.Length == 0 || !seenShare.Add(href)) continue;
+                var isCloudOrMedia =
+                    href.Contains("pan.quark.cn/s/", StringComparison.OrdinalIgnoreCase) ||
+                    href.Contains("drive.uc.cn/s/", StringComparison.OrdinalIgnoreCase) ||
+                    href.Contains("alipan.com/s/", StringComparison.OrdinalIgnoreCase) ||
+                    href.Contains("aliyundrive.com/s/", StringComparison.OrdinalIgnoreCase) ||
+                    href.Contains("pan.baidu.com/s/", StringComparison.OrdinalIgnoreCase) ||
+                    href.Contains("123pan.com/s/", StringComparison.OrdinalIgnoreCase) ||
+                    href.Contains("123684.com/s/", StringComparison.OrdinalIgnoreCase) ||
+                    href.Contains("123865.com/s/", StringComparison.OrdinalIgnoreCase) ||
+                    href.Contains("123912.com/s/", StringComparison.OrdinalIgnoreCase) ||
+                    PlayUrlResolver.IsDirectMediaUrl(href);
+                if (!isCloudOrMedia) continue;
+                var label = NativeSiteToolkit.SanitizeLabel(a.TextContent);
+                if (label.Length == 0) label = $"资源{shareEps.Count + 1}";
+                shareEps.Add($"{label}${href}");
+            }
+            if (shareEps.Count > 0)
+            {
+                names.Add("网盘/直链资源");
+                urls.Add(string.Join('#', shareEps));
+            }
+        }
         return new VodItem
         {
             Id = id, SiteKey = site.Key, SiteName = site.Name,
@@ -495,6 +520,13 @@ public sealed partial class JsSpiderClient
     {
         var target = id.StartsWith("http", StringComparison.OrdinalIgnoreCase) ? id : ResolveTemplateUrl(rule.Host, id);
         var headers = new Dictionary<string, string>(rule.Headers, StringComparer.OrdinalIgnoreCase);
+
+        if (rule.Lazy.StartsWith("js:", StringComparison.OrdinalIgnoreCase))
+        {
+            var lazyResult = await ExecuteDrpyJsLazyAsync(site, rule, target, flag, rule.Lazy[3..], token).ConfigureAwait(false);
+            if (lazyResult is not null) return lazyResult;
+        }
+
         if (PlayUrlResolver.IsDirectMediaUrl(target))
             return new SpiderPlayResult(target, headers, 0, 0);
 
@@ -516,12 +548,12 @@ public sealed partial class JsSpiderClient
         return new SpiderPlayResult(target, headers, 1, 0);
     }
 
-    private static async Task<List<VodItem>> ParseDrpyListRuleAsync(
+    private async Task<List<VodItem>> ParseDrpyListRuleAsync(
         string html, Uri pageUri, SourceSite site, DrpyRule rule, string ruleExpr, bool doubleMode, CancellationToken token)
     {
         if (string.IsNullOrWhiteSpace(ruleExpr)) return [];
         if (ruleExpr.StartsWith("js:", StringComparison.OrdinalIgnoreCase))
-            return [];
+            return await ExecuteDrpyJsListAsync(site, rule, html, pageUri, ruleExpr[3..], token).ConfigureAwait(false);
 
         var parts = ruleExpr.Split(';');
         if (parts.Length < 5) return [];
@@ -543,6 +575,122 @@ public sealed partial class JsSpiderClient
                 AddDrpyCard(items, seen, card, parts[1], parts[2], parts[3], parts[4], pageUri, site);
         }
         return items;
+    }
+
+    private Task<List<VodItem>> ExecuteDrpyJsListAsync(SourceSite site, DrpyRule rule, string html, Uri pageUri, string jsBody, CancellationToken token)
+    {
+        return Task.Run(() =>
+        {
+            using var engine = CreateSandboxedEngine(site, token);
+            BindDrpyJsGlobals(engine, rule, html, pageUri.AbsoluteUri);
+            engine.Execute("var VODS = []; var d = []; function setResult(arr) { if (Array.isArray(arr)) VODS = arr; }");
+            engine.Execute(jsBody);
+            var json = engine.Evaluate("""
+                (function() {
+                    var src = (Array.isArray(VODS) && VODS.length > 0) ? VODS : (Array.isArray(d) ? d : []);
+                    return JSON.stringify(src.map(function(x) {
+                        return {
+                            vod_id: String(x.vod_id || x.url || ''),
+                            vod_name: String(x.vod_name || x.title || ''),
+                            vod_pic: String(x.vod_pic || x.img || x.pic_url || ''),
+                            vod_remarks: String(x.vod_remarks || x.desc || x.content || '')
+                        };
+                    }));
+                })();
+                """).AsString();
+            var list = new List<VodItem>();
+            using var doc = JsonDocument.Parse(json);
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var el in doc.RootElement.EnumerateArray())
+            {
+                var id = NativeSiteToolkit.ReadJsonString(el, "vod_id");
+                var name = NativeSiteToolkit.ReadJsonString(el, "vod_name");
+                if (id.Length == 0 || name.Length == 0 || !seen.Add(id)) continue;
+                list.Add(new VodItem
+                {
+                    Id = id, SiteKey = site.Key, SiteName = site.Name, Name = name,
+                    Picture = NativeSiteToolkit.ReadJsonString(el, "vod_pic"),
+                    Remarks = NativeSiteToolkit.ReadJsonString(el, "vod_remarks")
+                });
+            }
+            return list;
+        }, token);
+    }
+
+    private Task<VodItem?> ExecuteDrpyJsDetailAsync(SourceSite site, DrpyRule rule, string html, Uri pageUri, string id, string jsBody, CancellationToken token)
+    {
+        return Task.Run(() =>
+        {
+            using var engine = CreateSandboxedEngine(site, token);
+            BindDrpyJsGlobals(engine, rule, html, pageUri.AbsoluteUri);
+            engine.Execute("var VOD = {}; var LISTS = [];");
+            engine.Execute(jsBody);
+            var json = engine.Evaluate("JSON.stringify(VOD || {})").AsString();
+            using var doc = JsonDocument.Parse(json);
+            var r = doc.RootElement;
+            if (r.ValueKind != JsonValueKind.Object) return null;
+            var name = NativeSiteToolkit.ReadJsonString(r, "vod_name");
+            var playUrl = NativeSiteToolkit.ReadJsonString(r, "vod_play_url");
+            if (name.Length == 0 && playUrl.Length == 0) return null;
+            return new VodItem
+            {
+                Id = id, SiteKey = site.Key, SiteName = site.Name,
+                Name = name.Length > 0 ? name : id,
+                Picture = NativeSiteToolkit.ReadJsonString(r, "vod_pic"),
+                TypeName = NativeSiteToolkit.ReadJsonString(r, "type_name"),
+                Remarks = NativeSiteToolkit.ReadJsonString(r, "vod_remarks"),
+                Year = NativeSiteToolkit.ReadJsonString(r, "vod_year"),
+                Area = NativeSiteToolkit.ReadJsonString(r, "vod_area"),
+                Actor = NativeSiteToolkit.ReadJsonString(r, "vod_actor"),
+                Director = NativeSiteToolkit.ReadJsonString(r, "vod_director"),
+                Content = PlaybackParsing.StripHtml(NativeSiteToolkit.ReadJsonString(r, "vod_content")),
+                PlayFrom = NativeSiteToolkit.FirstNonEmpty(NativeSiteToolkit.ReadJsonString(r, "vod_play_from"), "在线播放"),
+                PlayUrl = playUrl
+            };
+        }, token);
+    }
+
+    private Task<SpiderPlayResult?> ExecuteDrpyJsLazyAsync(SourceSite site, DrpyRule rule, string target, string flag, string jsBody, CancellationToken token)
+    {
+        return Task.Run(() =>
+        {
+            using var engine = CreateSandboxedEngine(site, token);
+            BindDrpyJsGlobals(engine, rule, string.Empty, target);
+            engine.SetValue("flag", flag);
+            engine.Execute(jsBody);
+            var raw = engine.Evaluate("typeof input === 'string' ? JSON.stringify({ url: input }) : JSON.stringify(input || {})").AsString();
+            using var doc = JsonDocument.Parse(raw);
+            var root = doc.RootElement;
+            var url = NativeSiteToolkit.ReadJsonString(root, "url");
+            if (string.IsNullOrWhiteSpace(url)) return null;
+            var parse = NativeSiteToolkit.ReadJsonInt(root, "parse", PlayUrlResolver.IsDirectMediaUrl(url) ? 0 : 1);
+            var headers = new Dictionary<string, string>(rule.Headers, StringComparer.OrdinalIgnoreCase);
+            if (root.TryGetProperty("header", out var hdr) && hdr.ValueKind == JsonValueKind.Object)
+            {
+                foreach (var prop in hdr.EnumerateObject())
+                    headers[prop.Name] = prop.Value.ValueKind == JsonValueKind.String ? prop.Value.GetString() ?? "" : prop.Value.GetRawText();
+            }
+            return new SpiderPlayResult(url, headers, parse, 0);
+        }, token);
+    }
+
+    private static void BindDrpyJsGlobals(Engine engine, DrpyRule rule, string html, string url)
+    {
+        engine.SetValue("html", html);
+        engine.SetValue("MY_URL", url);
+        engine.SetValue("input", url);
+        engine.SetValue("HOST", rule.Host);
+        engine.SetValue("rule_fetch_params", new { headers = rule.Headers });
+        engine.Execute("""
+            var jsp = { pdfh: pdfh, pdfa: pdfa, pd: function(h, expr, base) { return pd(h, expr, base || MY_URL); } };
+            function joinUrl(base, rel) { return pd('<a href="' + String(rel || '') + '"></a>', 'a&&href', String(base || MY_URL)); }
+            var urljoin = joinUrl;
+            var urljoin2 = joinUrl;
+            function post(u, opts) { opts = opts || {}; opts.method = 'POST'; return request(u, opts); }
+            function pdfl(h, listExpr, urlExpr, base) {
+                return pdfa(h, listExpr).map(function(it) { return pd(it, urlExpr, base || MY_URL); });
+            }
+            """);
     }
 
     private static void AddDrpyCard(
@@ -586,6 +734,18 @@ public sealed partial class JsSpiderClient
     {
         var result = new List<List<string>>();
         var containers = QueryDrpyList(doc, listsSel);
+        if (containers.Count > 0 && containers.All(c => c.TagName.Equals("A", StringComparison.OrdinalIgnoreCase)))
+        {
+            var eps = new List<string>();
+            foreach (var a in containers)
+            {
+                var label = NativeSiteToolkit.SanitizeLabel(a.TextContent);
+                var href = NativeSiteToolkit.ResolveUrl(pageUri, a.GetAttribute("href"));
+                if (label.Length > 0 && href.Length > 0) eps.Add($"{label}${href}");
+            }
+            if (eps.Count > 0) result.Add(eps);
+            return result;
+        }
         foreach (var container in containers)
         {
             var eps = new List<string>();
@@ -640,6 +800,7 @@ public sealed partial class JsSpiderClient
         List<IParentNode> current = [root];
         var buffer = new StringBuilder();
 
+        var isFirstFlush = true;
         void FlushBuffer()
         {
             var sel = buffer.ToString().Trim();
@@ -648,9 +809,17 @@ public sealed partial class JsSpiderClient
             var next = new List<IParentNode>();
             foreach (var node in current)
             {
-                try { next.AddRange(node.QuerySelectorAll(sel)); }
+                try
+                {
+                    var found = node.QuerySelectorAll(sel);
+                    if (found.Length > 0)
+                        next.AddRange(found);
+                    else if (isFirstFlush && node is IElement selfEl && selfEl.Matches(sel))
+                        next.Add(selfEl);
+                }
                 catch { }
             }
+            isFirstFlush = false;
             current = next;
         }
 
@@ -788,9 +957,91 @@ public sealed partial class JsSpiderClient
                     return JSON.stringify(res);
                 })();
                 """;
-            var val = engine.Evaluate(runner);
-            return val.IsString() ? val.AsString() : (val.IsNull() || val.IsUndefined() ? string.Empty : val.ToString());
+            var val = engine.Evaluate(runner).UnwrapIfPromise();
+            if (val.IsNull() || val.IsUndefined()) return string.Empty;
+            if (val.IsString()) return val.AsString();
+            return engine.Invoke("JSON.stringify", val).AsString();
         }, token);
+    }
+
+    public Task<CmsResponse> ExecuteInlineHomeAsync(SourceSite site, string scriptSource, CancellationToken token = default)
+    {
+        if (LooksLikeDrpyRule(scriptSource))
+            return ExecuteDrpyHomeAsync(site, ParseDrpyRule(scriptSource, site), token);
+        return InvokeInlineCatVodHomeAsync(site, scriptSource, token);
+    }
+
+    public Task<CmsResponse> ExecuteInlineCategoryAsync(SourceSite site, string scriptSource, string categoryId, int page, IReadOnlyDictionary<string, string>? filters, CancellationToken token = default)
+    {
+        if (LooksLikeDrpyRule(scriptSource))
+            return ExecuteDrpyCategoryAsync(site, ParseDrpyRule(scriptSource, site), categoryId, Math.Max(1, page), token);
+        return InvokeInlineCatVodCategoryAsync(site, scriptSource, categoryId, page, filters, token);
+    }
+
+    public Task<CmsResponse> ExecuteInlineSearchAsync(SourceSite site, string scriptSource, string keyword, int page, CancellationToken token = default)
+    {
+        if (LooksLikeDrpyRule(scriptSource))
+            return ExecuteDrpySearchAsync(site, ParseDrpyRule(scriptSource, site), keyword, Math.Max(1, page), token);
+        return InvokeInlineCatVodSearchAsync(site, scriptSource, keyword, page, token);
+    }
+
+    public Task<VodItem> ExecuteInlineDetailAsync(SourceSite site, string scriptSource, string id, CancellationToken token = default)
+    {
+        if (LooksLikeDrpyRule(scriptSource))
+            return ExecuteDrpyDetailAsync(site, ParseDrpyRule(scriptSource, site), id, token);
+        return InvokeInlineCatVodDetailAsync(site, scriptSource, id, token);
+    }
+
+    public Task<SpiderPlayResult> ExecuteInlinePlayAsync(SourceSite site, string scriptSource, string flag, string id, CancellationToken token = default)
+    {
+        if (LooksLikeDrpyRule(scriptSource))
+            return ExecuteDrpyPlayAsync(site, ParseDrpyRule(scriptSource, site), flag, id, token);
+        return InvokeInlineCatVodPlayAsync(site, scriptSource, flag, id, token);
+    }
+
+    private async Task<CmsResponse> InvokeInlineCatVodHomeAsync(SourceSite site, string source, CancellationToken token)
+    {
+        var raw = await InvokeCatVodJsAsync(site, site.Key, source, "home", [true], token).ConfigureAwait(false);
+        var resp = ParseCmsResponse(raw, site);
+        if (resp.List.Count == 0)
+        {
+            try
+            {
+                var homeVod = await InvokeCatVodJsAsync(site, site.Key, source, "homeVod", [], token).ConfigureAwait(false);
+                var extra = ParseCmsResponse(homeVod, site);
+                if (extra.List.Count > 0) resp.List = extra.List;
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException) { }
+        }
+        return resp;
+    }
+
+    private async Task<CmsResponse> InvokeInlineCatVodCategoryAsync(SourceSite site, string source, string tid, int page, IReadOnlyDictionary<string, string>? filters, CancellationToken token)
+    {
+        var filterObj = filters is null ? new Dictionary<string, string>() : new Dictionary<string, string>(filters);
+        var raw = await InvokeCatVodJsAsync(site, site.Key, source, "category", [tid, Math.Max(1, page).ToString(CultureInfo.InvariantCulture), true, filterObj], token).ConfigureAwait(false);
+        return ParseCmsResponse(raw, site);
+    }
+
+    private async Task<CmsResponse> InvokeInlineCatVodSearchAsync(SourceSite site, string source, string keyword, int page, CancellationToken token)
+    {
+        var raw = await InvokeCatVodJsAsync(site, site.Key, source, "search", [keyword, false, Math.Max(1, page).ToString(CultureInfo.InvariantCulture)], token).ConfigureAwait(false);
+        return ParseCmsResponse(raw, site);
+    }
+
+    private async Task<VodItem> InvokeInlineCatVodDetailAsync(SourceSite site, string source, string id, CancellationToken token)
+    {
+        var raw = await InvokeCatVodJsAsync(site, site.Key, source, "detail", [id], token).ConfigureAwait(false);
+        return ParseCmsResponse(raw, site).List.FirstOrDefault() ?? throw new InvalidDataException("JS 规则未返回视频详情。");
+    }
+
+    private async Task<SpiderPlayResult> InvokeInlineCatVodPlayAsync(SourceSite site, string source, string flag, string id, CancellationToken token)
+    {
+        var raw = await InvokeCatVodJsAsync(site, site.Key, source, "play", [flag, id, Array.Empty<string>()], token).ConfigureAwait(false);
+        if (string.IsNullOrWhiteSpace(raw))
+            return new SpiderPlayResult(id, NativeSiteToolkit.CreateBrowserHeaders(null, site.GetHeaders()), PlayUrlResolver.IsDirectMediaUrl(id) ? 0 : 1, 0);
+        using var doc = JsonDocument.Parse(raw);
+        return SpiderVodClient.ReadPlayResult(doc.RootElement);
     }
 
     private Engine CreateSandboxedEngine(SourceSite site, CancellationToken token)
@@ -935,23 +1186,98 @@ public sealed partial class JsSpiderClient
             })
         });
 
-        // Minimal CryptoJS + module shims
+        engine.SetValue("__aesEncrypt", new Func<string, string, string, string, string, string>((plain, keyStr, ivStr, mode, pad) =>
+        {
+            using var aes = Aes.Create();
+            aes.Key = NormalizeAesBytes(keyStr, 16);
+            aes.Mode = mode.Equals("ECB", StringComparison.OrdinalIgnoreCase) ? CipherMode.ECB : CipherMode.CBC;
+            aes.Padding = pad.Equals("ZeroPadding", StringComparison.OrdinalIgnoreCase) ? PaddingMode.Zeros : PaddingMode.PKCS7;
+            if (aes.Mode == CipherMode.CBC) aes.IV = NormalizeAesBytes(ivStr, 16);
+            var bytes = Encoding.UTF8.GetBytes(plain ?? string.Empty);
+            var cipher = aes.CreateEncryptor().TransformFinalBlock(bytes, 0, bytes.Length);
+            return Convert.ToBase64String(cipher);
+        }));
+        engine.SetValue("__aesDecrypt", new Func<string, string, string, string, string, string>((cipherText, keyStr, ivStr, mode, pad) =>
+        {
+            using var aes = Aes.Create();
+            aes.Key = NormalizeAesBytes(keyStr, 16);
+            aes.Mode = mode.Equals("ECB", StringComparison.OrdinalIgnoreCase) ? CipherMode.ECB : CipherMode.CBC;
+            aes.Padding = pad.Equals("ZeroPadding", StringComparison.OrdinalIgnoreCase) ? PaddingMode.Zeros : PaddingMode.PKCS7;
+            if (aes.Mode == CipherMode.CBC) aes.IV = NormalizeAesBytes(ivStr, 16);
+            var raw = DecodeCipherBytes(cipherText ?? string.Empty);
+            var plain = aes.CreateDecryptor().TransformFinalBlock(raw, 0, raw.Length);
+            return Encoding.UTF8.GetString(plain).TrimEnd('\0');
+        }));
+        engine.SetValue("__hexEncode", new Func<string, string>(s => Convert.ToHexString(Encoding.UTF8.GetBytes(s ?? "")).ToLowerInvariant()));
+        engine.SetValue("__hexDecode", new Func<string, string>(s =>
+        {
+            try { return Encoding.UTF8.GetString(Convert.FromHexString((s ?? "").Trim())); }
+            catch { return string.Empty; }
+        }));
+
+        // CryptoJS (MD5/SHA1/SHA256/AES-CBC/AES-ECB/Utf8/Base64/Hex) + CommonJS module shims
         engine.Execute("""
             var module = { exports: {} };
             var exports = module.exports;
+            function __wordVal(v) { return (v && typeof v === 'object' && v.__v !== undefined) ? String(v.__v) : String(v || ''); }
             var CryptoJS = {
-                MD5: function(s) { var h = md5(String(s)); return { toString: function() { return h; } }; },
-                SHA1: function(s) { var h = sha1(String(s)); return { toString: function() { return h; } }; },
-                SHA256: function(s) { var h = sha256(String(s)); return { toString: function() { return h; } }; },
+                MD5: function(s) { var h = md5(__wordVal(s)); return { __v: h, toString: function() { return h; } }; },
+                SHA1: function(s) { var h = sha1(__wordVal(s)); return { __v: h, toString: function() { return h; } }; },
+                SHA256: function(s) { var h = sha256(__wordVal(s)); return { __v: h, toString: function() { return h; } }; },
+                mode: { CBC: 'CBC', ECB: 'ECB' },
+                pad: { Pkcs7: 'Pkcs7', ZeroPadding: 'ZeroPadding' },
                 enc: {
-                    Utf8: { parse: function(s) { return String(s); }, stringify: function(s) { return String(s); } },
-                    Base64: { parse: function(s) { return base64Decode(String(s)); }, stringify: function(s) { return base64Encode(String(s)); } }
+                    Utf8: {
+                        parse: function(s) { return { __v: String(s || ''), toString: function() { return String(s || ''); } }; },
+                        stringify: function(w) { return __wordVal(w); }
+                    },
+                    Base64: {
+                        parse: function(s) { var d = base64Decode(String(s || '')); return { __v: d, toString: function() { return d; } }; },
+                        stringify: function(w) { return base64Encode(__wordVal(w)); }
+                    },
+                    Hex: {
+                        parse: function(s) { var d = __hexDecode(String(s || '')); return { __v: d, toString: function() { return d; } }; },
+                        stringify: function(w) { return __hexEncode(__wordVal(w)); }
+                    }
+                },
+                AES: {
+                    encrypt: function(data, key, cfg) {
+                        cfg = cfg || {};
+                        var out = __aesEncrypt(__wordVal(data), __wordVal(key), __wordVal(cfg.iv || ''), String(cfg.mode || 'CBC'), String(cfg.padding || 'Pkcs7'));
+                        return { __v: out, ciphertext: { __v: out }, toString: function() { return out; } };
+                    },
+                    decrypt: function(data, key, cfg) {
+                        cfg = cfg || {};
+                        var raw = (data && data.ciphertext) ? __wordVal(data.ciphertext) : __wordVal(data);
+                        var out = __aesDecrypt(raw, __wordVal(key), __wordVal(cfg.iv || ''), String(cfg.mode || 'CBC'), String(cfg.padding || 'Pkcs7'));
+                        return { __v: out, toString: function() { return out; } };
+                    }
                 }
             };
             function require(name) { return {}; }
             """);
 
         return engine;
+    }
+
+    private static byte[] NormalizeAesBytes(string value, int defaultLength)
+    {
+        var raw = Encoding.UTF8.GetBytes(value ?? string.Empty);
+        var targetLen = raw.Length <= 16 ? 16 : raw.Length <= 24 ? 24 : 32;
+        if (raw.Length == targetLen) return raw;
+        var padded = new byte[Math.Max(defaultLength, targetLen)];
+        Array.Copy(raw, padded, Math.Min(raw.Length, padded.Length));
+        return padded;
+    }
+
+    private static byte[] DecodeCipherBytes(string input)
+    {
+        var trimmed = input.Trim();
+        if (trimmed.Length >= 32 && trimmed.Length % 2 == 0 && trimmed.All(Uri.IsHexDigit))
+            return Convert.FromHexString(trimmed);
+        var b64 = trimmed.Replace('-', '+').Replace('_', '/');
+        while (b64.Length % 4 != 0) b64 += '=';
+        return Convert.FromBase64String(b64);
     }
 
     private static string StripJsImports(string source) =>
@@ -1031,7 +1357,7 @@ public sealed partial class JsSpiderClient
     [GeneratedRegex(@"(?:^|\n)\s*(?:var|let|const)\s+rule\s*=", RegexOptions.CultureInvariant)]
     private static partial Regex DrpyRuleDeclRegex();
 
-    [GeneratedRegex(@":eq\((-?\d+)\)(.*)$", RegexOptions.CultureInvariant)]
+    [GeneratedRegex(@"^(.*?):eq\((-?\d+)\)(.*)$", RegexOptions.CultureInvariant)]
     private static partial Regex EqSelectorRegex();
 
     [GeneratedRegex(@"^\s*import\s+[\s\S]*?from\s+['""][^'""]+['""]\s*;?\s*$", RegexOptions.Multiline | RegexOptions.CultureInvariant)]

@@ -246,23 +246,42 @@ public sealed class DanmakuOverlay : Canvas
 
     public void SetPreferences(DanmakuPreferences preferences)
     {
-        var previousOffset = _prefs.TimeOffsetSeconds;
+        var previous = _prefs;
         _prefs = preferences.Normalize();
         Opacity = _prefs.Opacity;
-
-        // Live-update styling on currently visible items without clearing or rewinding them
-        foreach (var node in _active)
+        if (!_prefs.Enabled)
         {
-            ApplyNodeStyle(node, node.RawRgb);
-            if (node.Mode != DanmakuMode.Scroll)
+            ClearActive();
+            UpdateRenderingHook();
+            return;
+        }
+
+        var changedMetrics = previous.Size != _prefs.Size || previous.Bold != _prefs.Bold ||
+            previous.TextOutline != _prefs.TextOutline;
+        var changedStyle = changedMetrics || previous.Color != _prefs.Color;
+        var changedTypes = previous.ShowScroll != _prefs.ShowScroll || previous.ShowTop != _prefs.ShowTop ||
+            previous.ShowBottom != _prefs.ShowBottom || previous.ShowColor != _prefs.ShowColor;
+
+        if (changedStyle || changedTypes)
+        {
+            for (var i = _active.Count - 1; i >= 0; i--)
             {
+                var node = _active[i];
+                if (changedTypes && !IsAllowed(node.Mode, node.RawRgb))
+                {
+                    RecycleNode(i);
+                    continue;
+                }
+                if (changedStyle) ApplyNodeStyle(node, node.RawRgb);
+                if (!changedMetrics) continue;
                 node.Root.Measure(InfiniteSize);
-                node.WidthPx = node.Root.DesiredSize.Width;
-                node.Transform.X = Math.Max(8, (ActualWidth - node.WidthPx) * 0.5);
+                node.WidthPx = Math.Max(20, node.Root.DesiredSize.Width);
+                if (node.Mode != DanmakuMode.Scroll)
+                    node.Transform.X = Math.Max(8, (ActualWidth - node.WidthPx) * 0.5);
             }
         }
 
-        if (Math.Abs(previousOffset - _prefs.TimeOffsetSeconds) > 0.01 && _clock.IsInitialized)
+        if (_clock.IsInitialized && (!previous.Enabled || previous.TimeOffsetSeconds != _prefs.TimeOffsetSeconds))
             ResetCursor(_clock.ClockSec);
 
         UpdateRenderingHook();
@@ -270,6 +289,7 @@ public sealed class DanmakuOverlay : Canvas
 
     public void SetComments(DanmakuEntry[] comments)
     {
+        if (ReferenceEquals(_comments, comments)) return;
         ClearActive();
         _comments = comments;
         _nextIndex = 0;
@@ -308,6 +328,11 @@ public sealed class DanmakuOverlay : Canvas
             ClearActive();
             ResetCursor(mediaTimeSec);
         }
+        else if (!_renderingHooked && _active.Count == 0)
+        {
+            // No frame callbacks run for a disabled or exhausted overlay. Keep its clock current for the next enable or reload.
+            _clock.SeekTo(mediaTimeSec, nowTs);
+        }
         UpdateRenderingHook();
     }
 
@@ -329,7 +354,8 @@ public sealed class DanmakuOverlay : Canvas
 
     private void UpdateRenderingHook()
     {
-        var shouldRun = _prefs.Enabled && _comments.Length > 0 && _clock.IsPlaying && !_clock.IsBuffering;
+        var hasWork = _nextIndex < _comments.Length || _active.Count > 0;
+        var shouldRun = _prefs.Enabled && hasWork && _clock.IsPlaying && !_clock.IsBuffering;
         if (shouldRun && !_renderingHooked)
         {
             CompositionTarget.Rendering += OnRendering;
@@ -429,7 +455,7 @@ public sealed class DanmakuOverlay : Canvas
             // Skip stale entries that are already too old (e.g. burst after lag)
             if (effectiveNow - entry.Seconds > 0.8) continue;
             if (_active.Count >= maxOnScreen || spawnedThisFrame >= 6) continue;
-            if (!IsAllowed(entry)) continue;
+            if (!IsAllowed(entry.Mode, entry.Rgb)) continue;
 
             var node = RentNode(entry);
             node.Root.Measure(InfiniteSize);
@@ -482,6 +508,8 @@ public sealed class DanmakuOverlay : Canvas
             _active.Add(node);
             spawnedThisFrame++;
         }
+
+        if (_nextIndex >= _comments.Length && _active.Count == 0) UnhookRendering();
     }
 
     private int FindScrollLane(int laneCount, double canvasWidth, double newSpeed, double gapPx)
@@ -530,14 +558,13 @@ public sealed class DanmakuOverlay : Canvas
         return -1;
     }
 
-    private bool IsAllowed(DanmakuEntry entry)
+    private bool IsAllowed(DanmakuMode mode, uint rgb) => (_prefs.ShowColor || rgb == 0xFFFFFFu) && mode switch
     {
-        if (entry.Mode == DanmakuMode.Scroll && !_prefs.ShowScroll) return false;
-        if (entry.Mode == DanmakuMode.Top && !_prefs.ShowTop) return false;
-        if (entry.Mode == DanmakuMode.Bottom && !_prefs.ShowBottom) return false;
-        if (!_prefs.ShowColor && entry.Rgb != 0xFFFFFFu) return false;
-        return true;
-    }
+        DanmakuMode.Scroll => _prefs.ShowScroll,
+        DanmakuMode.Top => _prefs.ShowTop,
+        DanmakuMode.Bottom => _prefs.ShowBottom,
+        _ => true
+    };
 
     private DanmakuNode RentNode(DanmakuEntry entry)
     {

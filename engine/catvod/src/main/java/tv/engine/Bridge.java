@@ -62,22 +62,22 @@ public final class Bridge {
             String ext = request.has("ext") && !request.get("ext").isJsonNull() ? request.get("ext").getAsString() : "";
             String jar = text(request, "jar");
             String site = text(request, "key");
-            Object spider = SPIDERS.computeIfAbsent(new SpiderKey(site, api, jar), key -> create(jarLoader, api, ext, jar));
+            SpiderKey spiderKey = new SpiderKey(site, api, jar);
+            Object spider = SPIDERS.computeIfAbsent(spiderKey, key -> create(jarLoader, api, ext, jar));
             String raw;
-            synchronized (spider) {
-                if (!Objects.equals(EXTENSIONS.get(spider), ext)) {
-                    if (spider instanceof ExternalJarLoader.ReflectiveSpider external) {
-                        external.init(app, ext);
-                    } else if (spider instanceof Spider builtin) {
-                        builtin.init(app, ext);
+            try {
+                raw = invokeSpider(app, spider, ext, request);
+            } catch (Throwable ex) {
+                if (spider instanceof ExternalJarLoader.ReflectiveSpider && isNativeLibraryFailure(ex)) {
+                    Spider builtinFallback = tryCreateBuiltin(api, ext);
+                    if (builtinFallback != null) {
+                        SPIDERS.put(spiderKey, builtinFallback);
+                        raw = invokeSpider(app, builtinFallback, ext, request);
+                    } else {
+                        throw new IllegalStateException("该站点依赖 Android ARM 原生库（.so），桌面端无法直接执行；请检查仓库资源包或切换其他站点。", ex);
                     }
-                    EXTENSIONS.put(spider, ext);
-                }
-                String action = request.get("action").getAsString();
-                if (spider instanceof ExternalJarLoader.ReflectiveSpider external) {
-                    raw = dispatchExternal(external, action, request);
                 } else {
-                    raw = dispatchBuiltin((Spider) spider, action, request);
+                    throw ex;
                 }
             }
             JsonObject response = new JsonObject();
@@ -93,6 +93,35 @@ public final class Bridge {
             writeError(ipc, requestId, error);
             error.printStackTrace();
         }
+    }
+
+    private static String invokeSpider(DesktopApplication app, Object spider, String ext, JsonObject request) throws Exception {
+        synchronized (spider) {
+            if (!Objects.equals(EXTENSIONS.get(spider), ext)) {
+                if (spider instanceof ExternalJarLoader.ReflectiveSpider external) {
+                    external.init(app, ext);
+                } else if (spider instanceof Spider builtin) {
+                    builtin.init(app, ext);
+                }
+                EXTENSIONS.put(spider, ext);
+            }
+            String action = request.get("action").getAsString();
+            if (spider instanceof ExternalJarLoader.ReflectiveSpider external) {
+                return dispatchExternal(external, action, request);
+            }
+            return dispatchBuiltin((Spider) spider, action, request);
+        }
+    }
+
+    private static boolean isNativeLibraryFailure(Throwable error) {
+        Throwable cur = error;
+        for (int depth = 0; cur != null && depth < 10; depth++) {
+            if (cur instanceof UnsatisfiedLinkError || cur instanceof ExceptionInInitializerError) return true;
+            String msg = cur.getMessage();
+            if (msg != null && (msg.contains(".so") || msg.contains("UnsatisfiedLinkError") || msg.contains("FishNative"))) return true;
+            cur = cur.getCause();
+        }
+        return false;
     }
 
     private static String dispatchBuiltin(Spider spider, String action, JsonObject request) throws Exception {
@@ -189,7 +218,47 @@ public final class Bridge {
         return "{\"list\":[]}";
     }
 
+    private static Spider tryCreateBuiltin(String api, String ext) {
+        try {
+            if (api.startsWith("http")) {
+                String script = ext;
+                try { script = URLDecoder.decode(ext, StandardCharsets.UTF_8); } catch (Exception ignored) { }
+                if (script.contains("虎牙.js")) return new com.github.catvod.spider.Huya();
+                if (script.contains("斗鱼直播.js")) return new com.github.catvod.spider.Douyu();
+                if (script.contains("兔小贝.js")) return new com.github.catvod.spider.Tuxiaobei();
+                return null;
+            }
+            String name = api.startsWith("csp_") ? api.substring(4) : api;
+            if (name.endsWith("Guard")) name = name.substring(0, name.length() - 5);
+            name = switch (name.toLowerCase(Locale.ROOT)) {
+                case "wogg" -> "Wogg";
+                case "sixv" -> "Xb6v";
+                case "jpj", "jianpian" -> "Jianpian";
+                case "newcz", "cz" -> "ChangZhang";
+                case "doudou", "douban", "piandan" -> "Douban";
+                case "alllive", "livegz" -> "Live88";
+                case "music" -> "Kugou";
+                case "sssp" -> "ShortVideo";
+                case "yueting" -> "AudioBook";
+                case "bpanso" -> "PanTa";
+                case "aidj" -> "ShortDrama";
+                case "tuxiaobei" -> "Tuxiaobei";
+                case "wwys", "nmyswv" -> "Nmyswv";
+                default -> name;
+            };
+            Class<?> type = Class.forName("com.github.catvod.spider." + name);
+            return (Spider) type.getDeclaredConstructor().newInstance();
+        } catch (Throwable ignored) {
+            return null;
+        }
+    }
+
     private static Object create(ExternalJarLoader jarLoader, String api, String ext, String jar) {
+        // Prefer desktop-verified built-in Java spiders first to avoid downloading/DEX-translating
+        // multi-MB Android ARM (.so) JARs when a fast native desktop implementation already exists.
+        Spider builtin = tryCreateBuiltin(api, ext);
+        if (builtin != null) return builtin;
+
         Throwable externalError = null;
         if (jar != null && !jar.isBlank() && api.startsWith("csp_")) {
             try {
@@ -200,40 +269,13 @@ public final class Bridge {
             }
         }
 
-        try {
-            if (api.startsWith("http")) {
-                String script = ext;
-                try { script = URLDecoder.decode(ext, StandardCharsets.UTF_8); } catch (Exception ignored) { }
-                if (script.contains("虎牙.js")) return new com.github.catvod.spider.Huya();
-                if (script.contains("斗鱼直播.js")) return new com.github.catvod.spider.Douyu();
-                if (script.contains("兔小贝.js")) return new com.github.catvod.spider.Tuxiaobei();
-                throw new IllegalArgumentException("Unsupported JavaScript source: " + ext);
+        if (externalError != null) {
+            if (isNativeLibraryFailure(externalError)) {
+                throw new IllegalStateException("该站点依赖 Android ARM 原生库（.so），桌面端无法直接执行；请检查仓库资源包或切换其他站点。", externalError);
             }
-            String name = api.startsWith("csp_") ? api.substring(4) : api;
-            if (name.endsWith("Guard")) name = name.substring(0, name.length() - 5);
-            name = switch (name.toLowerCase(Locale.ROOT)) {
-                case "wogg" -> "Wogg";
-                case "sixv" -> "Xb6v";
-                case "jpj" -> "Jianpian";
-                case "newcz" -> "ChangZhang";
-                case "doudou" -> "Douban";
-                case "alllive" -> "Live88";
-                case "music" -> "Kugou";
-                case "sssp" -> "ShortVideo";
-                case "yueting" -> "AudioBook";
-                case "bpanso" -> "PanTa";
-                case "aidj" -> "ShortDrama";
-                case "livegz" -> "Live88";
-                default -> name;
-            };
-            Class<?> type = Class.forName("com.github.catvod.spider." + name);
-            return (Spider) type.getDeclaredConstructor().newInstance();
-        } catch (Throwable error) {
-            if (externalError != null) {
-                throw new IllegalStateException("External jar and built-in fallback both failed for " + api + ": " + externalError.getMessage(), externalError);
-            }
-            throw new IllegalStateException("No compatible public spider implementation for " + api, error);
+            throw new IllegalStateException("External jar and built-in fallback both failed for " + api + ": " + externalError.getMessage(), externalError);
         }
+        throw new IllegalStateException("No compatible public spider implementation for " + api);
     }
 
     private static String text(JsonObject object, String name) {

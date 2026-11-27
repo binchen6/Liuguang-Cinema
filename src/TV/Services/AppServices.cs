@@ -7,6 +7,7 @@ using TV.Services.Live;
 using TV.Services.Library;
 using TV.Services.Maintenance;
 using TV.Services.Metadata;
+using TV.Services.Packs;
 using TV.Services.Persistence;
 using TV.Services.Playback;
 using TV.Services.Spider;
@@ -64,7 +65,12 @@ public sealed class AppServices : IDisposable
         _bilibili = new Lazy<BilibiliVodProvider>(() => bilibili);
         Sniffer = new SniffService(Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread());
         NativeVod = NativeVodProviderRouter.CreateDefault(http, Cloud, bilibili, Sniffer);
-        Vod = new VodClientRouter(Cms, new SpiderVodClient(SpiderRuntime), NativeVod, new JsSpiderClient(http), new PySpiderClient(http));
+        RepoPacks = new RepoPackService(http, dns);
+        var jsSpider = new JsSpiderClient(http);
+        var pySpider = new PySpiderClient(http);
+        var autoHtml = new UniversalAutoHtmlVodProvider(http, Cloud);
+        var repoPackVod = new RepoPackVodProvider(RepoPacks, NativeVod, bilibili, jsSpider, Cms);
+        Vod = new VodClientRouter(Cms, new SpiderVodClient(SpiderRuntime), NativeVod, jsSpider, pySpider, autoHtml, repoPackVod);
         Live = new LiveService(http);
         Epg = new EpgService(http);
         Douban = new DoubanService(http, Database);
@@ -92,6 +98,7 @@ public sealed class AppServices : IDisposable
     public BilibiliAccountService BilibiliAccount => _bilibiliAccount.Value;
     public CloudLoginCoordinator CloudLogin { get; } = null!;
     public TV.Services.Vod.Native.NativeVodProviderRouter NativeVod { get; } = null!;
+    public RepoPackService RepoPacks { get; } = null!;
     public LiveService Live { get; } = null!;
     public EpgService Epg { get; } = null!;
     public DoubanService Douban { get; } = null!;
@@ -129,6 +136,7 @@ public sealed class AppServices : IDisposable
             CloudLogin.Dispose();
             Cloud.Dispose();
             Config.Dispose();
+            RepoPacks.Dispose();
             SpiderRuntime.Dispose();
         }
         if (_bilibiliAccount.IsValueCreated) _bilibiliAccount.Value.Dispose();

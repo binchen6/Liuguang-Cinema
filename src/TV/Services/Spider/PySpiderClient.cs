@@ -17,11 +17,11 @@ namespace TV.Services.Spider;
 /// </summary>
 public sealed class PySpiderClient
 {
-    private static readonly string[] GitHubMirrors = ["https://ghfast.top/", "https://gh-proxy.com/"];
     private static readonly TimeSpan ScriptCacheTtl = TimeSpan.FromHours(6);
+    private static readonly Encoding Utf8WithoutBom = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
     private readonly SourceHttpClient _http;
-    private string? _pythonExe;
-    private bool _pythonChecked;
+    private readonly Lazy<Task<(string Exe, string? Prefix)?>> _python = new(() => Task.Run(FindPython));
+    private readonly Lazy<string> _runtimeDirectory = new(EnsureRuntimeFiles);
 
     public PySpiderClient(SourceHttpClient http) => _http = http;
 
@@ -87,11 +87,10 @@ public sealed class PySpiderClient
 
     private async Task<string> InvokeAsync(SourceSite site, string method, string[] args, CancellationToken token)
     {
-        var python = FindPython();
-        if (python is null)
-            throw new NotSupportedException("该站点是 Python (.py) 爬虫，需要本机安装 Python 3（并在 PATH 中可用）才能运行。");
-
-        var runtimeDir = EnsureRuntimeFiles();
+        token.ThrowIfCancellationRequested();
+        var python = await _python.Value.WaitAsync(token).ConfigureAwait(false) ??
+            throw new NotSupportedException("该站点需要本机安装 Python 3，并通过 py 启动器或 PATH 访问。");
+        var runtimeDir = _runtimeDirectory.Value;
         var scriptPath = await EnsureScriptFileAsync(site, token).ConfigureAwait(false);
         var ext = site.Ext.ValueKind switch
         {
@@ -110,17 +109,19 @@ public sealed class PySpiderClient
 
         var start = new ProcessStartInfo
         {
-            FileName = python,
+            FileName = python.Exe,
             UseShellExecute = false,
             CreateNoWindow = true,
             RedirectStandardInput = true,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
-            StandardInputEncoding = Encoding.UTF8,
+            StandardInputEncoding = Utf8WithoutBom,
             StandardOutputEncoding = Encoding.UTF8,
             StandardErrorEncoding = Encoding.UTF8,
             WorkingDirectory = runtimeDir
         };
+        if (python.Prefix is { } prefix)
+            start.ArgumentList.Add(prefix);
         start.ArgumentList.Add(Path.Combine(runtimeDir, "py_runner.py"));
         start.Environment["PYTHONIOENCODING"] = "utf-8";
         start.Environment["PYTHONUTF8"] = "1";
@@ -129,13 +130,12 @@ public sealed class PySpiderClient
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(token);
         timeout.CancelAfter(TimeSpan.FromSeconds(Math.Clamp(site.Timeout, 8, 45)));
 
-        await process.StandardInput.WriteLineAsync(payload.AsMemory(), timeout.Token).ConfigureAwait(false);
-        process.StandardInput.Close();
-
         var outTask = process.StandardOutput.ReadToEndAsync(timeout.Token);
         var errTask = process.StandardError.ReadToEndAsync(timeout.Token);
         try
         {
+            await process.StandardInput.WriteLineAsync(payload.AsMemory(), timeout.Token).ConfigureAwait(false);
+            process.StandardInput.Close();
             await process.WaitForExitAsync(timeout.Token).ConfigureAwait(false);
         }
         catch (OperationCanceledException)
@@ -173,58 +173,69 @@ public sealed class PySpiderClient
         if (!Uri.TryCreate(rawTarget, UriKind.Absolute, out var uri) || uri.Scheme is not ("http" or "https"))
             throw new InvalidDataException($"不支持的 Python 爬虫地址：{rawTarget}");
 
-        var dir = Path.Combine(AppPaths.Root, "spider", "py-cache");
+        var dir = Path.Combine(AppPaths.Root, "spider", "py-origin-cache");
         Directory.CreateDirectory(dir);
         var key = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(uri.AbsoluteUri)))[..24].ToLowerInvariant();
         var cachePath = Path.Combine(dir, key + ".py");
         if (File.Exists(cachePath) && DateTimeOffset.UtcNow - File.GetLastWriteTimeUtc(cachePath) < ScriptCacheTtl)
             return cachePath;
 
-        var candidates = new List<string> { uri.AbsoluteUri };
-        if (uri.AbsoluteUri.StartsWith("https://raw.githubusercontent.com/", StringComparison.OrdinalIgnoreCase) ||
-            uri.AbsoluteUri.StartsWith("https://github.com/", StringComparison.OrdinalIgnoreCase))
-        {
-            foreach (var mirror in GitHubMirrors) candidates.Add(mirror + uri.AbsoluteUri);
-        }
         var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) { ["User-Agent"] = "okhttp/4.12.0" };
-        Exception? last = null;
-        foreach (var candidate in candidates)
+        try
         {
+            // Python runs with the app user's permissions. Download executable scripts from their configured origin.
+            var payload = await _http.GetBytesAsync(uri.AbsoluteUri, headers, maxBytes: 4 * 1024 * 1024,
+                cancellationToken: token, scopeRedirectHeaders: true).ConfigureAwait(false);
+            var content = SourceHttpClient.DecodeText(payload.Content);
+            if (string.IsNullOrWhiteSpace(content) || content.TrimStart().StartsWith('<'))
+                throw new InvalidDataException("Python 爬虫地址返回了网页内容。");
+            var temporary = cachePath + "." + Guid.NewGuid().ToString("N") + ".tmp";
             try
             {
-                var content = await _http.GetStringAsync(candidate, headers, token).ConfigureAwait(false);
-                if (content.TrimStart().StartsWith('<'))
-                    throw new InvalidDataException("Python 爬虫地址返回了网页内容。");
-                await File.WriteAllTextAsync(cachePath, content, Encoding.UTF8, token).ConfigureAwait(false);
-                return cachePath;
+                await File.WriteAllTextAsync(temporary, content, Utf8WithoutBom, token).ConfigureAwait(false);
+                File.Move(temporary, cachePath, overwrite: true);
             }
-            catch (Exception ex) when (ex is not OperationCanceledException) { last = ex; }
+            finally
+            {
+                try { File.Delete(temporary); } catch (IOException) { }
+            }
+            return cachePath;
         }
-        if (File.Exists(cachePath)) return cachePath;
-        throw last ?? new HttpRequestException("Python 爬虫脚本下载失败。");
+        catch (Exception) when (!token.IsCancellationRequested && File.Exists(cachePath))
+        {
+            return cachePath;
+        }
     }
 
-    private string? FindPython()
+    private static (string Exe, string? Prefix)? FindPython()
     {
-        if (_pythonChecked) return _pythonExe;
-        _pythonChecked = true;
-        foreach (var candidate in new[] { "python", "python3" })
+        foreach (var (exe, prefixArg) in new[] { ("py", "-3"), ("python", (string?)null), ("python3", (string?)null) })
         {
             try
             {
-                var p = Process.Start(new ProcessStartInfo
+                var psi = new ProcessStartInfo
                 {
-                    FileName = candidate,
-                    Arguments = "--version",
+                    FileName = exe,
+                    Arguments = prefixArg is null ? "--version" : $"{prefixArg} --version",
                     UseShellExecute = false,
                     CreateNoWindow = true,
                     RedirectStandardOutput = true,
                     RedirectStandardError = true
-                });
-                if (p is not null && p.WaitForExit(2000) && p.ExitCode == 0)
+                };
+                using var p = Process.Start(psi);
+                if (p is null) continue;
+                if (!p.WaitForExit(2000))
                 {
-                    _pythonExe = candidate;
-                    return _pythonExe;
+                    p.Kill(entireProcessTree: true);
+                    continue;
+                }
+                if (p.ExitCode == 0)
+                {
+                    var output = (p.StandardOutput.ReadToEnd() + p.StandardError.ReadToEnd()).Trim();
+                    if (output.StartsWith("Python 3.", StringComparison.OrdinalIgnoreCase))
+                    {
+                        return (exe, prefixArg);
+                    }
                 }
             }
             catch { }
@@ -311,8 +322,32 @@ public sealed class PySpiderClient
                         text = resp.read().decode("utf-8", errors="replace")
                         return type("Resp", (), {"text": text, "status_code": resp.status, "json": lambda self=None: json.loads(text)})()
             def post(self, url, params=None, data=None, json_data=None, headers=None, timeout=15):
-                import requests
-                return requests.post(url, params=params, data=data, json=json_data, headers=headers, timeout=timeout)
+                try:
+                    import requests
+                    return requests.post(url, params=params, data=data, json=json_data, headers=headers, timeout=timeout)
+                except ImportError:
+                    if params:
+                        url = url + ("&" if "?" in url else "?") + urllib.parse.urlencode(params)
+                    hdrs = dict(headers or {})
+                    if json_data is not None:
+                        raw = json.dumps(json_data).encode("utf-8")
+                        hdrs.setdefault("Content-Type", "application/json")
+                    elif isinstance(data, dict):
+                        raw = urllib.parse.urlencode(data).encode("utf-8")
+                        hdrs.setdefault("Content-Type", "application/x-www-form-urlencoded")
+                    else:
+                        raw = (str(data or "")).encode("utf-8")
+                    req = urllib.request.Request(url, data=raw, headers=hdrs, method="POST")
+                    with urllib.request.urlopen(req, timeout=timeout) as resp:
+                        text = resp.read().decode("utf-8", errors="replace")
+                        return type("Resp", (), {"text": text, "status_code": resp.status, "json": lambda self=None: json.loads(text)})()
+            _cache = {}
+            def getCache(self, key):
+                return self._cache.get(key)
+            def setCache(self, key, value):
+                self._cache[key] = value
+            def getProxyUrl(self, local=True):
+                return "http://127.0.0.1:9978/proxy"
             def regStr(self, reg, src, group=1):
                 m = re.search(reg, src)
                 return m.group(group) if m else ""

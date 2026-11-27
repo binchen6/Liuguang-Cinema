@@ -131,6 +131,43 @@ public sealed partial class SettingsPage : Page
         await ViewModel.SelectImportedRepositoryCommand.ExecuteAsync(repository);
     }
 
+    private async void OnRenameSourceClick(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { Tag: Models.ImportedRepository repository } || XamlRoot is null) return;
+        var input = new TextBox
+        {
+            Header = "仓库名称",
+            Text = repository.Name,
+            PlaceholderText = "输入自定义仓库名称",
+            MaxLength = 60
+        };
+        input.SelectAll();
+        var dialog = new ContentDialog
+        {
+            XamlRoot = XamlRoot,
+            Title = "重命名仓库",
+            Content = input,
+            PrimaryButtonText = "保存",
+            CloseButtonText = "取消",
+            DefaultButton = ContentDialogButton.Primary
+        };
+        if (await dialog.ShowAsync() == ContentDialogResult.Primary && !string.IsNullOrWhiteSpace(input.Text))
+            await ViewModel.RenameSourceAsync(repository, input.Text);
+    }
+
+    private async void OnDownloadRepoPackClick(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { Tag: RepoPackItemViewModel item }) return;
+        await ViewModel.InstallRepoPackAsync(item);
+    }
+
+    private async void OnRemoveRepoPackClick(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { Tag: RepoPackItemViewModel item }) return;
+        if (await ConfirmAsync("卸载资源包", $"将删除本地安装的「{item.Name}」，不会影响已导入的片源仓库。", "卸载"))
+            await ViewModel.RemoveRepoPackAsync(item);
+    }
+
     private async void OnRemoveSourceClick(object sender, RoutedEventArgs e)
     {
         if (sender is not Button { Tag: Models.ImportedRepository repository }) return;

@@ -34,7 +34,40 @@ public sealed partial class LibraryPage : Page
         if (SegmentList.SelectedIndex != ViewModel.SelectedTab)
             SegmentList.SelectedIndex = Math.Clamp(ViewModel.SelectedTab, 0, 3);
         _segmentNav.Sync(animate: false);
+        UpdateHistoryGridLayout();
         await ViewModel.LoadCommand.ExecuteAsync(null);
+        UpdateHistoryGridLayout();
+    }
+
+    private void OnHistoryGridLoaded(object sender, RoutedEventArgs e) => UpdateHistoryGridLayout();
+
+    private void OnHistoryViewportChanged(object sender, SizeChangedEventArgs e) => UpdateHistoryGridLayout(e.NewSize.Width);
+
+    private void UpdateHistoryGridLayout(double explicitWidth = 0)
+    {
+        if (HistoryGrid?.ItemsPanelRoot is not ItemsWrapGrid wrap) return;
+        var viewportWidth = explicitWidth > 0 ? explicitWidth : HistoryGrid.ActualWidth;
+        if (viewportWidth <= 0) return;
+
+        // Subtract right scrollbar clearance + minor rounding margin so items never wrap early and leave zero right-edge gap
+        const double cellGap = 16;
+        const double minCardWidth = 264;
+        const double idealCardWidth = 318;
+        var usableWidth = Math.Max(0, viewportWidth - 14);
+        if (usableWidth < 200) return;
+
+        var columns = Math.Clamp((int)Math.Round(usableWidth / idealCardWidth), 1, 6);
+        while (columns > 1 && (usableWidth / columns) - cellGap < minCardWidth)
+            columns--;
+
+        var cellWidth = Math.Floor(usableWidth / columns);
+        var cardWidth = Math.Max(180, cellWidth - cellGap);
+        var aspect = columns == 1 ? 0.45 : (columns == 2 ? 0.545 : 0.568);
+        var cardHeight = Math.Clamp(Math.Round(cardWidth * aspect), 164, 246);
+        var cellHeight = cardHeight + cellGap;
+
+        if (Math.Abs(wrap.ItemWidth - cellWidth) > 0.5) wrap.ItemWidth = cellWidth;
+        if (Math.Abs(wrap.ItemHeight - cellHeight) > 0.5) wrap.ItemHeight = cellHeight;
     }
 
     private void OnSegmentSelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -45,6 +78,8 @@ public sealed partial class LibraryPage : Page
             ViewModel.SelectedTab = SegmentList.SelectedIndex;
             var dir = SegmentList.SelectedIndex > previous ? 18 : -18;
             MotionService.EnterSection(ContentHost, offsetY: 0, offsetX: dir);
+            if (ViewModel.IsHistoryTab)
+                DispatcherQueue.TryEnqueue(() => UpdateHistoryGridLayout());
         }
     }
 
@@ -115,6 +150,7 @@ public sealed partial class LibraryPage : Page
         Grid.SetRow(SearchBox, narrow ? 1 : 0);
         Grid.SetColumn(SearchBox, narrow ? 0 : 1);
         Grid.SetColumnSpan(SearchBox, narrow ? 4 : 1);
+        DispatcherQueue.TryEnqueue(() => UpdateHistoryGridLayout());
     }
 
     private async void OnRefreshClick(object sender, RoutedEventArgs e)

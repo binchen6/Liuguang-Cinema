@@ -2,7 +2,7 @@
 
 ## 1. 环境与构建
 
-项目基于 **C#、WinUI 3、Windows App SDK 1.8、.NET 10 与 LibVLC**，目标为 Windows x64 非打包桌面应用。完整打包还需要 JDK 17+、Maven 与 Inno Setup 6。
+项目基于 **C#、WinUI 3、Windows App SDK 1.8、.NET 10 与 LibVLC**，目标为 Windows x64 非打包桌面应用。完整打包另需 JDK 17+（推荐 Microsoft Build of OpenJDK 21）、Maven 与 Inno Setup 6。
 
 ```powershell
 New-Item -ItemType Directory -Force 'artifacts/tmp' | Out-Null
@@ -11,11 +11,11 @@ $env:TMP = $env:TEMP = (Resolve-Path 'artifacts/tmp').Path
 .\.dotnet\dotnet.exe build src/TV/TV.csproj -c Release -p:Platform=x64 -p:RuntimeIdentifier=win-x64 --no-restore
 ```
 
-开发产物位于 `src/TV/bin/x64/Release/net10.0-windows10.0.19041.0/win-x64/TV.exe`（若使用系统 .NET 10 SDK，可将 `.\.dotnet\dotnet.exe` 替换为 `dotnet`）。
+构建产物位于 `src/TV/bin/x64/Release/net10.0-windows10.0.19041.0/win-x64/TV.exe`（使用系统 SDK 可将 `.\.dotnet\dotnet.exe` 换为 `dotnet`）。
 
 ## 2. 隔离运行与数据目录
 
-开发与测试必须通过 `TV_DATA_ROOT` 隔离数据，避免污染正式用户配置：
+开发与测试必须通过 `TV_DATA_ROOT` 隔离用户数据：
 
 ```powershell
 $env:TV_DATA_ROOT = Join-Path $PWD 'artifacts/tmp/dev-profile'
@@ -27,96 +27,80 @@ $env:TV_DATA_ROOT = Join-Path $PWD 'artifacts/tmp/dev-profile'
 | 路径 | 说明 |
 | --- | --- |
 | `tv.db` | 设置、历史、收藏、下载、本地媒体索引及 DPAPI 加密凭据 |
-| `config/last-good.json` | 最近成功的配置缓存 |
-| `cache` | 图片、字幕与临时媒体缓存 |
-| `diagnostic.log`、`diagnostic.log.1` | 轮转诊断日志（单份上限 2 MB，已自动脱敏） |
-| `last-error.log` | 未处理异常记录 |
+| `config/last-good.json` | 最近一次成功的配置缓存 |
+| `packs/` | 已下载的仓库资源包与清单缓存（支持按包热重载/卸载） |
+| `spider/jar-cache/` | 外部 Android DEX 实时转译的 JVM 字节码缓存 |
+| `cache/` | 图片、字幕与临时媒体缓存 |
+| `diagnostic.log`、`last-error.log` | 轮转诊断日志（上限 2 MB，已自动脱敏）与未处理异常记录 |
 
-> 提交 Issue 日志前仍请检查并移除私人路径与媒体地址，切勿上传 `tv.db` 或真实凭据。
+> 提交 Issue 日志前请复查并移除私人路径与媒体地址，切勿上传 `tv.db` 或真实凭据。
 
 ## 3. 代码结构
 
 | 路径 | 职责 |
 | --- | --- |
-| `src/TV/MainWindow.xaml(.cs)` | 窗口壳、磨砂导航栏、返回栈、播放页进出与退出顺序 |
-| `src/TV/Styles/`、`Controls/` | 设计令牌、24×24 几何图标库、`GlassSurface`、`BrandMark`、`LineIcon`、弹幕层、导航与滚轮控制器 |
-| `src/TV/Views/`、`ViewModels/` | 页面 XAML、状态绑定、命令与 `MotionService` Compositor 动效编排 |
-| `src/TV/Models/` | 媒体、站点配置、网盘、播放解析与持久化模型 |
-| `src/TV/Services/AI/` | 阿里云百炼 AI 字幕生成（`paraformer-v2` / `qwen3-asr-flash-filetrans`）、翻译（`qwen-mt-flash` / `qwen-mt-plus`）、无头音轨提取与 WASAPI 实时字幕 |
-| `src/TV/Services/Playback/` | 地址解析、HLS/DASH、LibVLC 优先级控制泵、跨源弹幕规范化匹配（`MediaMatching` + 弹弹play/B 站）、字幕与离线下载 |
-| `src/TV/Services/Cloud/` | 四网盘账号/文件接口、纯 C# secp256k1 阿里设备签名、分块预读与回环安全媒体代理 |
-| `src/TV/Services/Vod/`、`Spider/` | CMS、22 个原生 C# 站点适配器、跨站搜索评分、换源恢复与 Java CatVod JSON IPC |
-| `src/TV/Services/Live/`、`Casting/` | 直播源聚合、EPG 节目单、DLNA/UPnP 与扫码投屏接收 |
+| `src/TV/MainWindow.xaml(.cs)` | 窗口壳、光学磨砂侧栏、返回栈与播放页进出 |
+| `src/TV/Styles/`、`Controls/` | 设计令牌、24×24 图标库、`GlassSurface`、`GlassOpticsEngine`、`NavigationMotion`、`ScrollWheelBehavior`、弹幕层 |
+| `src/TV/Views/`、`ViewModels/` | 页面 XAML（含 `LibraryPage` 自适应宽屏历史网格、`SettingsPage` 自定义命名与资源包管理）、状态绑定与 `MotionService` |
+| `src/TV/Models/` | 媒体、站点、多仓库、资源包、网盘与持久化模型 |
+| `src/TV/Services/Vod/`、`Spider/` | `VodClientRouter` 三层调度、22 个原生站点适配器、`UniversalProtocolVodProvider`、`UniversalAutoHtmlVodProvider`、`JsSpiderClient`（`drpy2 js:` + `CryptoJS.AES` + T3）、`PySpiderClient` 与 Java IPC |
+| `src/TV/Services/Packs/` | `RepoPackService` / `RepoPackVodProvider`：独立 GitHub 资源包清单解析、自动匹配安装、SHA-256 与 Zip-Slip 校验、热重载 |
+| `src/TV/Services/Http/`、`Imaging/` | `GitHubMirrorService`（5 条国内镜像加速 + 流式 SHA-256）、自定义 DNS、跨域请求头隔离与 HTTP/2 图片池 |
+| `src/TV/Services/Playback/` | `PlaybackSeekCoordinator` 无回弹状态机、LibVLC 优先级控制泵、字幕、弹幕匹配（`MediaMatching`）、防休眠与离线下载 |
+| `src/TV/Services/Cloud/` | 四网盘接口、纯 C# secp256k1 阿里设备签名、跳转感知 `CloudBlockCache` 与回环安全媒体代理 |
+| `src/TV/Services/AI/` | 阿里云百炼字幕生成、双语翻译、无头音轨提取与 WASAPI 进程环回实时字幕 |
+| `src/TV/Services/Live/`、`Casting/` | 直播源聚合、EPG 节目单、DLNA/UPnP 与手机扫码投屏接收 |
 | `src/TV/Services/Library/`、`Metadata/` | 本地媒体索引、侧车字幕/弹幕、目录监视与豆瓣公开元数据 |
-| `src/TV/Services/Http/`、`Imaging/` | 自定义 DNS 解析、跨域请求头过滤、高速 HTTP/2 图片连接池与有界内存/磁盘缓存 |
-| `src/TV/Services/Persistence/`、`Maintenance/` | SQLite（8 MB 页缓存）、Windows DPAPI `SecretStore`、分类扫描与显式安全清理 |
-| `src/TV/Services/Updates/` | GitHub 正式版检查、限流网页兜底、国内多镜并行测速、多路 Range 断点下载与 SHA-256 校验 |
-| `engine/catvod/` | Java 17 CatVod JSON IPC 引擎与上游站点修正 |
-| `installer/`、`scripts/` | Inno Setup 完整/增量安装器（含中文语言包）、构建签名与启动耗时校验脚本 |
-| `artifacts/qa-fixture/` | 隔离测试夹具、协议回归与桌面 UIA 回归脚本 |
+| `src/TV/Services/Persistence/`、`Maintenance/` | SQLite（8 MB 页缓存）、Windows DPAPI `SecretStore` 与分类安全清理 |
+| `src/TV/Services/Updates/` | GitHub Release 检查、复用 `GitHubMirrorService` 多镜分片下载与双向差异增量升级 |
+| `engine/catvod/` | Java 17/21 CatVod JSON IPC 引擎、`ExternalJarLoader`（DEX 转译 + 5 条国内镜像）与 Android 兼容层 |
+| `installer/`、`scripts/` | Inno Setup 完整/增量安装脚本、打包签名、启动测速、84 项协议回归与后台站点探测 |
 
-## 4. 密钥与开源安全约定
+## 4. 安全与仓库资源包约定
 
-- **仓库严禁提交任何明文 API Key、AppSecret、Cookie、Token 或本机绝对路径**。
-- **弹弹play 开放弹幕库凭证**的默认 AppId 和 AppSecret 存放于签名服务的加密绑定。客户端构建只接收 HTTPS 服务端地址 `DANDANPLAY_RELAY_URL`。用户可在「设置 → 弹幕与 AI」提供自定义凭据，AppSecret 使用当前 Windows 用户的 DPAPI 加密。
-- **阿里云百炼 API Key**：不随源码或安装包内置，由用户在设置页跳转百炼控制台自助生成后填入，仅以当前 Windows 用户 DPAPI 加密存储于 `tv.db`。
-- **日志脱敏**：`Diagnostics.Log` 自动掩码 `sk-*`、`Bearer *`、`X-Signature`、`AppSecret`、`Cookie`、`token` 等敏感字段。
+- **零明文凭据入仓**：严禁提交 API Key、AppSecret、Cookie、Token 或本机绝对路径；网盘凭据、百炼 API Key 与自定义弹幕凭证统一经 Windows DPAPI 落库，`Diagnostics.Log` 自动脱敏敏感字段。
+- **仓库资源包安全（`binchen6/Liuguang-RepoPacks`）**：
+  - `RepoPackService` 从配置的 HTTPS 来源读取清单。ZIP 可通过国内镜像下载，安装前按清单校验 SHA-256、资源包标识和版本。
+  - 解压前由 `ExtractZipSafely` 严格拦截 Zip-Slip 路径穿越，校验通过后通过临时 staging 目录原子切换并热重载；
+  - 资源包仅允许声明式规则（`alias` / `js` / `cms` / `bili-preset` / `info`），不执行任意原生二进制，不破解闭源 DRM / `.so`。
+- **请求与解码守卫**：页面异步任务必带取消令牌与代际守卫；LibVLC 仅经 `PlayerService` 串行队列访问；跨域重定向经 `MediaRequestHeaders.ForTarget` 剥离敏感头；本地代理仅监听 `127.0.0.1`；XML 禁用 DTD；本地清理绝不删除未勾选磁盘文件。
+- **UI 边界**：修改界面须遵循 [视觉与材质规范](brand-design-system.md)、[设计契约](design-guide.md) 与 [动效工程规范](motion-spec.md)，保留全部 UIA 名称。
 
-## 5. 工程实现守卫
-
-- 页面异步任务须带取消令牌与代际守卫，过期结果绝不回写新页面、新选集或新来源。
-- LibVLC 对象仅经 `PlayerService` 后台串行路径访问；离页先停播并释放交换链再销毁视图。
-- 所有代理媒体、音轨与字幕句柄均需明确所有权并在替换、取消与离页时释放。
-- 跨域重定向、分片与下载须通过 `MediaRequestHeaders.ForTarget` 剥离敏感头，严禁将原站 Cookie/Authorization 泄露至第三方 CDN。
-- 网盘凭据统一走 `SecretStore`（DPAPI）；本地媒体代理仅监听 `127.0.0.1`。
-- XML 输入禁用 DTD 并限制体积；JSON、图片、播放列表与下载均须边界校验。
-- UI 修改遵循 [视觉与材质规范](brand-design-system.md)、[设计契约](design-guide.md) 与 [动效工程规范](motion-spec.md)，保留全部 UIA 名称。
-- 本地媒体索引移除与清理功能绝不删除用户未显式勾选的磁盘原文件。
-
-## 6. Java 引擎与安装器打包
-
-JDK 优先使用 `JAVA_HOME`；安装器简体中文界面固定使用仓库内 `installer/Languages/ChineseSimplified.isl`。
+## 5. Java 引擎与安装器打包
 
 ```powershell
-# 仅修改 Java 引擎后重新编译
+# 仅修改 Java 引擎后重新编译（需 JDK 17+，指定 JAVA_HOME）
 mvn -o -q -DskipTests -f engine/catvod/pom.xml package
 
-# 构建完整安装器、便携包与文件级增量更新器（本机已有缓存可加 -MavenOffline -NoRestore）
+# 构建完整安装器、便携包与文件级双向增量包（输出至 artifacts/installers/）
 $env:TMP = $env:TEMP = (Resolve-Path 'artifacts/tmp').Path
 & .\scripts\build-installer.ps1 -MavenOffline -NoRestore
 ```
 
-统一产物位于 `artifacts/installers/`：
-- `TV-Setup-<version>-x64.exe`（及 `.sha256`）
-- `TV-<version>-win-x64-portable.zip`（及 `.sha256`）
-- `TV-Update-<version>-from-<base>-x64.exe`（及 `.sha256`）
-
-打包脚本关键机制（版本取自 `Directory.Build.props`）：
-1. **双向差异增量包**：对比上一版便携包（或 `-IncrementalBaseZip`）逐文件 SHA-256，仅打包变更/新增文件，并自动生成 `[InstallDelete]` 清理废弃文件与空目录；`TV-Update.iss` 同步更新文件关联、快捷方式、卸载元数据、等待进程退出并通过 `SHChangeNotify` 刷新系统图标缓存，升级后目录与完整版 100% 逐字节一致。
-2. **高签名覆盖与免提权运行库**：`jlink` 后从 Microsoft Build of OpenJDK 还原全部 Microsoft 签名 PE 文件，并内置 6 个 Microsoft 签名应用本地 VC++ x64 CRT DLL（免嵌套 `vc_redist.x64.exe` 与 UAC）。
-3. **双层 Authenticode 签名**：支持 `-CertThumbprint` / `-PfxPath`（或环境变量 `TV_SIGN_THUMBPRINT` / `TV_SIGN_PFX` / `TV_SIGN_PASSWORD`），详见 [智能应用控制与签名说明](smart-app-control.md)。
-4. **安装器启动耗时守卫**：`installer/TV.iss` 必须保持 `InternalCompressLevel=none`、`SolidCompression=no` 且不嵌套外部 `.exe`。发版前必须通过启动耗时校验：
+打包核心机制（版本取自 `Directory.Build.props`）：
+1. **双向差异增量包**：对比上一版便携包逐文件 SHA-256，仅打包变更项并自动生成 `[InstallDelete]`，升级后与完整包逐字节一致。
+2. **高签名覆盖与免提权**：`jlink` 后还原微软官方签名 OpenJDK PE 文件并附带 6 个微软签名本地 VC++ CRT DLL（免 UAC，98.4% 已签名）。
+3. **双层 Authenticode 签名与启动耗时守卫**：`installer/TV.iss` 必须保持 `InternalCompressLevel=none`、`SolidCompression=no` 且不嵌套外部 `.exe`，发版前执行：
 
 ```powershell
 pwsh -NoProfile -File .\scripts\Test-InstallerLaunchSpeed.ps1 -InstallerPath .\artifacts\installers\TV-Setup-<version>-x64.exe -AssertIssSettings -Runs 3 -MaxColdMs 1500 -MaxWarmMs 600
 ```
 
-## 7. 回归与验收
-
-Release x64 编译后可运行独立协议回归。桌面回归使用本机的 Python、UIA 依赖和隔离测试夹具。
+## 6. 回归与验收
 
 ```powershell
+# 84 项 C# 离线协议、三层路由、JS/AES、镜像与资源包回归
 pwsh -NoProfile -File ./scripts/run-release-regressions.ps1
-& .\scripts\run-site-regressions.ps1 -Python (Get-Command python).Source -OutputDirectory 'artifacts/qa-current'
+
+# 后台多站探测（支持 -ImportUrl 与 -DecodeSample，不抢焦点）
+pwsh -NoProfile -File ./scripts/run-site-probe.ps1 -OutputDirectory 'artifacts/probe-current'
+
+# 桌面 UIA 回归（须在空闲桌面串行运行）
+& .\scripts\run-site-regressions.ps1 -Python (Get-Command py).Source -OutputDirectory 'artifacts/qa-current'
 ```
 
-桌面回归可以通过 `-AppPath` 指定发布包中的程序。窗口对照需要通过 `-WindowBaseline` 提供旧版本程序。传统桌面脚本会激活窗口，须在空闲桌面串行运行。布局与后台检查优先使用 UIA 模式。站点探测命令与验收层级见 [站点适配与验收](site-verification.md)。
+## 7. 弹弹play 签名中继（功能模块）
 
-## 8. 默认弹幕服务
-
-签名服务源码与多平台部署配置位于 `server/dandanplay-relay/`（公共核心为 `relay-core.mjs`）。服务只转发对 `api.dandanplay.net` 的剧集搜索、弹幕查询和文件匹配，严格拒绝任意路由与异常请求体，签名请求头绝不发给第三方域名。
-
-- **国内直连免费部署**：优先推荐部署到国内直连友好的边缘/Serverless 平台（[阿里云 ESA Pages](server/dandanplay-relay/esa/standalone.mjs) 支持独立子域名 CNAME 接入而不影响主域名与现有站点、或 [腾讯云 EdgeOne Pages](server/dandanplay-relay/edgeone/functions/%5B%5Bdefault%5D%5D.js)、[Laf](server/dandanplay-relay/laf/dandanplay-relay.ts)、自建 [Node.js 服务](server/dandanplay-relay/node-server.mjs)），并将原有 Cloudflare Workers（`worker.mjs`）保留在多地址列表末尾作为海外兜底。
-- **弹幕直连国内 CDN 省流**：客户端请求 `/api/v2/comment/{id}` 时附加 `X-Relay-Delivery: direct`，中继仅回传经过白名单校验的官方国内 CDN 地址（`https://cas2.dandanplay.net/api/comment/{id}?...`），大体积弹幕 JSON 由桌面端直连国内 CDN 下载，可节省 95% 以上中继流量。
-- **密钥与多节点配置**：在对应平台加密环境变量中配置 `DANDANPLAY_APP_ID`、`DANDANPLAY_APP_SECRET` 和可选的 `DANDANPLAY_BACKUP_SECRET`。GitHub Actions 变量与本地环境变量 `DANDANPLAY_RELAY_URL` 支持英文逗号分隔多个公网 HTTPS 地址（例如 `https://cn-primary.example.com,https://backup.workers.dev`），客户端自动故障转移并记住健康节点；用户也可在「设置 → 弹幕与 AI → 签名中继地址」自助覆盖。
-- 本地测试运行 `node --test server/dandanplay-relay/worker.test.mjs`。发布包可运行 `scripts/run-release-regressions.ps1 -AppDirectory <发布目录> -VerifyDefaultService`，同时验证自定义 DPAPI 凭据、多中继故障转移、国内 CDN 直连校验与真实默认服务。
+默认在线弹幕功能的签名中继源码位于 `server/dandanplay-relay/`（核心 `relay-core.mjs`），仅转发对 `api.dandanplay.net` 的剧集搜索、文件匹配与弹幕查询，不泄露签名头至第三方域名：
+- 支持阿里云 ESA Pages、腾讯云 EdgeOne Pages、Laf、自建 Node.js 与 Cloudflare Workers 兜底，通过 `X-Relay-Delivery: direct` 让客户端直连 `cas2.dandanplay.net` 下载弹幕主体；
+- 环境变量 `DANDANPLAY_RELAY_URL` 支持英文逗号分隔多节点自动故障转移，单测运行 `node --test server/dandanplay-relay/worker.test.mjs`，实网验证可附带 `run-release-regressions.ps1 -VerifyDefaultService`。

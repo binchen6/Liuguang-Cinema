@@ -44,8 +44,11 @@ import java.util.zip.ZipOutputStream;
 final class ExternalJarLoader {
     private static final long MAX_JAR_BYTES = 32L * 1024 * 1024;
     private static final String[] GITHUB_MIRRORS = {
-        "https://ghfast.top/",
-        "https://gh-proxy.com/"
+        "https://gh-proxy.com/",
+        "https://cdn.gh-proxy.org/",
+        "https://edgeone.gh-proxy.org/",
+        "https://gh-proxy.org/",
+        "https://ghfast.top/"
     };
 
     private static final OkHttpClient HTTP = new OkHttpClient.Builder()
@@ -64,6 +67,7 @@ final class ExternalJarLoader {
         this.app = app;
         this.cacheRoot = new File(app.getFilesDir(), "jar-cache");
         new File(cacheRoot, "raw").mkdirs();
+        new File(cacheRoot, "raw-origin").mkdirs();
         new File(cacheRoot, "jvm").mkdirs();
     }
 
@@ -140,15 +144,18 @@ final class ExternalJarLoader {
         if (spec.url.startsWith("file://")) {
             File local = new File(URI.create(spec.url));
             if (!local.isFile()) throw new IOException("Local spider jar not found: " + local);
+            if (!spec.md5.isEmpty() && !spec.md5.equalsIgnoreCase(md5File(local))) {
+                throw new IOException("Local spider JAR checksum does not match the source configuration");
+            }
             return local;
         }
-        File cached = new File(new File(cacheRoot, "raw"), cacheKey + ".jar");
+        File cached = new File(new File(cacheRoot, spec.md5.isEmpty() ? "raw-origin" : "raw"), cacheKey + ".jar");
         if (cached.isFile() && cached.length() > 128) {
             if (spec.md5.isEmpty() || spec.md5.equalsIgnoreCase(md5File(cached))) {
                 return cached;
             }
         }
-        List<String> candidates = buildDownloadCandidates(spec.url);
+        List<String> candidates = buildDownloadCandidates(spec);
         IOException lastError = null;
         for (String candidate : candidates) {
             try {
@@ -156,32 +163,31 @@ final class ExternalJarLoader {
                 if (!isZipArchive(bytes)) {
                     throw new IOException("Downloaded spider is not a valid JAR/ZIP archive: " + candidate);
                 }
-                if (!spec.md5.isEmpty()) {
-                    String actual = md5Bytes(bytes);
-                    if (!spec.md5.equalsIgnoreCase(actual)) {
-                        // Still allow if host updated jar without updating config md5, unless corrupted
-                        System.err.println("[ExternalJarLoader] MD5 mismatch for " + candidate + " (expected " + spec.md5 + ", got " + actual + ")");
-                    }
-                }
+                if (!spec.md5.isEmpty() && !spec.md5.equalsIgnoreCase(md5Bytes(bytes)))
+                    throw new IOException("Spider JAR checksum does not match the source configuration");
                 File tmp = new File(cached.getParentFile(), cached.getName() + "." + System.nanoTime() + ".tmp");
-                Files.write(tmp.toPath(), bytes);
-                Files.move(tmp.toPath(), cached.toPath(), StandardCopyOption.REPLACE_EXISTING);
+                try {
+                    Files.write(tmp.toPath(), bytes);
+                    Files.move(tmp.toPath(), cached.toPath(), StandardCopyOption.REPLACE_EXISTING);
+                } finally {
+                    Files.deleteIfExists(tmp.toPath());
+                }
                 return cached;
             } catch (IOException ex) {
                 lastError = ex;
             }
         }
-        if (cached.isFile() && cached.length() > 128) return cached;
         throw lastError != null ? lastError : new IOException("Failed to download spider jar: " + spec.url);
     }
 
-    private static List<String> buildDownloadCandidates(String url) {
+    private static List<String> buildDownloadCandidates(ParsedSpec spec) {
         List<String> list = new ArrayList<>();
-        list.add(url);
-        String lower = url.toLowerCase(Locale.ROOT);
-        if (lower.startsWith("https://raw.githubusercontent.com/") || lower.startsWith("https://github.com/")) {
+        list.add(spec.url);
+        String lower = spec.url.toLowerCase(Locale.ROOT);
+        if (!spec.md5.isEmpty() &&
+                (lower.startsWith("https://raw.githubusercontent.com/") || lower.startsWith("https://github.com/"))) {
             for (String mirror : GITHUB_MIRRORS) {
-                list.add(mirror + url);
+                list.add(mirror + spec.url);
             }
         }
         return list;
@@ -237,12 +243,14 @@ final class ExternalJarLoader {
         }
 
         File tmpOut = new File(converted.getParentFile(), converted.getName() + "." + System.nanoTime() + ".tmp");
-        List<Path> tempDexJars = new ArrayList<>();
+        List<Path> tempDirs = new ArrayList<>();
         try (ZipFile sourceZip = new ZipFile(rawFile);
              ZipOutputStream outZip = new ZipOutputStream(new FileOutputStream(tmpOut))) {
             Set<String> written = new HashSet<>();
 
-            // Translate every classes*.dex entry into JVM bytecode via Apache-2.0 dex2jar
+            // Translate every classes*.dex entry into JVM bytecode via Apache-2.0 dex2jar.
+            // Output to a temp directory rather than a pre-created .jar file to avoid JDK 17/21
+            // ZipFileSystem ReadOnlyFileSystemException inside Dex2jar.to(Path).
             for (String dexName : dexEntries) {
                 ZipEntry dexEntry = sourceZip.getEntry(dexName);
                 if (dexEntry == null) continue;
@@ -250,23 +258,46 @@ final class ExternalJarLoader {
                 try (InputStream in = sourceZip.getInputStream(dexEntry)) {
                     dexBytes = in.readAllBytes();
                 }
-                Path singleOut = Files.createTempFile(converted.getParentFile().toPath(), "d2j-", ".jar");
-                tempDexJars.add(singleOut);
-                Dex2jar.from(dexBytes).skipExceptions(true).to(singleOut);
-                try (ZipFile dexJar = new ZipFile(singleOut.toFile())) {
-                    copyZipEntries(dexJar, outZip, written, false);
-                }
+                Path singleDir = Files.createTempDirectory(converted.getParentFile().toPath(), "d2j-");
+                tempDirs.add(singleDir);
+                Dex2jar.from(dexBytes).skipExceptions(true).to(singleDir);
+                copyDirectoryEntries(singleDir, outZip, written);
             }
 
             // Copy original non-dex, non-signature resources (assets, properties, etc.)
             copyZipEntries(sourceZip, outZip, written, true);
         } finally {
-            for (Path temp : tempDexJars) {
-                try { Files.deleteIfExists(temp); } catch (IOException ignored) { }
+            for (Path dir : tempDirs) {
+                deleteDirectoryQuietly(dir);
             }
         }
         Files.move(tmpOut.toPath(), converted.toPath(), StandardCopyOption.REPLACE_EXISTING);
         return converted;
+    }
+
+    private static void copyDirectoryEntries(Path rootDir, ZipOutputStream dest, Set<String> written) throws IOException {
+        try (var stream = Files.walk(rootDir)) {
+            List<Path> files = stream.filter(Files::isRegularFile).toList();
+            byte[] buf = new byte[16384];
+            for (Path file : files) {
+                String entryName = rootDir.relativize(file).toString().replace('\\', '/');
+                if (!written.add(entryName)) continue;
+                dest.putNextEntry(new ZipEntry(entryName));
+                try (InputStream in = Files.newInputStream(file)) {
+                    int read;
+                    while ((read = in.read(buf)) != -1) dest.write(buf, 0, read);
+                }
+                dest.closeEntry();
+            }
+        }
+    }
+
+    private static void deleteDirectoryQuietly(Path dir) {
+        try (var stream = Files.walk(dir)) {
+            stream.sorted(java.util.Comparator.reverseOrder()).forEach(path -> {
+                try { Files.deleteIfExists(path); } catch (IOException ignored) { }
+            });
+        } catch (IOException ignored) { }
     }
 
     private static void copyZipEntries(ZipFile source, ZipOutputStream dest, Set<String> written, boolean skipDexAndMetaSig) throws IOException {

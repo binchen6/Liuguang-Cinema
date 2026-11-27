@@ -1,7 +1,9 @@
+using System.Collections.Concurrent;
 using System.Globalization;
 using System.Text;
 using System.Text.Json;
 using TV.Models;
+using TV.Services.Cloud;
 using TV.Services.Http;
 using TV.Services.Spider;
 
@@ -9,18 +11,26 @@ namespace TV.Services.Vod.Native;
 
 /// <summary>
 /// Universal native C# adapter for widely used Android TVBox JSON/HTTP protocols:
-/// 1. AppYsV2 / AppV2 / AppGet / AppQi / AppRJ mobile CMS APIs (/api.php/app/* and /xgapp.php/v1..v3/*)
+/// 1. AppYsV2 / AppV2 / AppGet / AppQi / AppRJ / App3Q / AppFox / AppMao mobile CMS APIs (/api.php/app/*, /xgapp.php/v1..v3/*, /api.php/v1.vod/*)
 /// 2. AList v3 directory/media servers (csp_AList / csp_AListGuard)
+/// 3. CloudShare Catalogs (csp_Market with `ext.categories`, csp_Local with remote `share.json`)
+/// 4. 360Kan Public Video API (csp_Kan360 / csp_360 / csp_SP360 / csp_360kan)
 /// </summary>
-public sealed class UniversalProtocolVodProvider(SourceHttpClient http) : INativePlaybackProvider
+public sealed class UniversalProtocolVodProvider(SourceHttpClient http, CloudDriveService? cloud = null) : INativePlaybackProvider
 {
+    private readonly ConcurrentDictionary<string, string> _appBasePrefixCache = new(StringComparer.OrdinalIgnoreCase);
+
     private static readonly HashSet<string> AppApiNames = new(StringComparer.OrdinalIgnoreCase)
     {
         "csp_AppYsV2", "csp_AppYsV2Guard",
+        "csp_AppYs", "csp_AppYsGuard",
         "csp_AppV2", "csp_AppV2Guard",
         "csp_AppGet", "csp_AppGetGuard",
         "csp_AppQi", "csp_AppQiGuard",
-        "csp_AppRJ", "csp_AppRJGuard"
+        "csp_AppRJ", "csp_AppRJGuard",
+        "csp_App3Q", "csp_App3QGuard",
+        "csp_AppFox", "csp_AppFoxGuard",
+        "csp_AppMao", "csp_AppMaoGuard"
     };
 
     private static readonly HashSet<string> AListApiNames = new(StringComparer.OrdinalIgnoreCase)
@@ -28,8 +38,13 @@ public sealed class UniversalProtocolVodProvider(SourceHttpClient http) : INativ
         "csp_AList", "csp_AListGuard", "csp_AListV3"
     };
 
+    private static readonly HashSet<string> Kan360ApiNames = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "csp_Kan360", "csp_Kan360Guard", "csp_360", "csp_SP360", "csp_360kan"
+    };
+
     public static bool Supports(SourceSite site) =>
-        IsAppApiSite(site) || IsAListSite(site);
+        IsAppApiSite(site) || IsAListSite(site) || IsCloudCatalogSite(site) || IsKan360Site(site);
 
     public bool CanHandle(SourceSite site) => Supports(site);
 
@@ -39,20 +54,56 @@ public sealed class UniversalProtocolVodProvider(SourceHttpClient http) : INativ
     private static bool IsAListSite(SourceSite site) =>
         site.Type == 3 && AListApiNames.Contains(site.Api) && ParseAListDrives(site).Count > 0;
 
+    private static bool IsKan360Site(SourceSite site) =>
+        site.Type == 3 && Kan360ApiNames.Contains(site.Api);
+
+    public static bool IsCloudCatalogSite(SourceSite site)
+    {
+        if (site.Type != 3) return false;
+        if (site.Api.Equals("csp_Market", StringComparison.OrdinalIgnoreCase) &&
+            site.Ext.ValueKind == JsonValueKind.Object &&
+            site.Ext.TryGetProperty("categories", out var cats) &&
+            cats.ValueKind == JsonValueKind.Array && cats.GetArrayLength() > 0)
+            return true;
+        if ((site.Api.Equals("csp_Local", StringComparison.OrdinalIgnoreCase) ||
+             site.Api.Equals("csp_PanList", StringComparison.OrdinalIgnoreCase)) &&
+            site.Ext.ValueKind == JsonValueKind.String &&
+            Uri.TryCreate(site.Ext.GetString()?.Trim(), UriKind.Absolute, out var uri) &&
+            uri.Scheme is "http" or "https" &&
+            uri.AbsolutePath.EndsWith(".json", StringComparison.OrdinalIgnoreCase))
+            return true;
+        return false;
+    }
+
     public Task<CmsResponse> GetHomeAsync(SourceSite site, CancellationToken cancellationToken = default) =>
-        IsAListSite(site) ? AListHomeAsync(site, cancellationToken) : AppHomeAsync(site, cancellationToken);
+        IsAListSite(site) ? AListHomeAsync(site, cancellationToken)
+        : IsCloudCatalogSite(site) ? CloudCatalogHomeAsync(site, cancellationToken)
+        : IsKan360Site(site) ? Kan360HomeAsync(site, cancellationToken)
+        : AppHomeAsync(site, cancellationToken);
 
     public Task<CmsResponse> GetCategoryAsync(SourceSite site, string categoryId, int page, CancellationToken cancellationToken = default) =>
-        IsAListSite(site) ? AListCategoryAsync(site, categoryId, page, cancellationToken) : AppCategoryAsync(site, categoryId, page, cancellationToken);
+        IsAListSite(site) ? AListCategoryAsync(site, categoryId, page, cancellationToken)
+        : IsCloudCatalogSite(site) ? CloudCatalogCategoryAsync(site, categoryId, page, cancellationToken)
+        : IsKan360Site(site) ? Kan360CategoryAsync(site, categoryId, page, cancellationToken)
+        : AppCategoryAsync(site, categoryId, page, cancellationToken);
 
     public Task<CmsResponse> SearchAsync(SourceSite site, string keyword, int page, CancellationToken cancellationToken = default) =>
-        IsAListSite(site) ? AListSearchAsync(site, keyword, page, cancellationToken) : AppSearchAsync(site, keyword, page, cancellationToken);
+        IsAListSite(site) ? AListSearchAsync(site, keyword, page, cancellationToken)
+        : IsCloudCatalogSite(site) ? CloudCatalogSearchAsync(site, keyword, page, cancellationToken)
+        : IsKan360Site(site) ? Kan360SearchAsync(site, keyword, page, cancellationToken)
+        : AppSearchAsync(site, keyword, page, cancellationToken);
 
     public Task<VodItem> GetDetailAsync(SourceSite site, string id, CancellationToken cancellationToken = default) =>
-        IsAListSite(site) ? AListDetailAsync(site, id, cancellationToken) : AppDetailAsync(site, id, cancellationToken);
+        IsAListSite(site) ? AListDetailAsync(site, id, cancellationToken)
+        : IsCloudCatalogSite(site) ? CloudCatalogDetailAsync(site, id, cancellationToken)
+        : IsKan360Site(site) ? Kan360DetailAsync(site, id, cancellationToken)
+        : AppDetailAsync(site, id, cancellationToken);
 
     public Task<SpiderPlayResult> ResolvePlayAsync(SourceSite site, string flag, string id, CancellationToken token) =>
-        IsAListSite(site) ? AListPlayAsync(site, id, token) : AppPlayAsync(site, flag, id, token);
+        IsAListSite(site) ? AListPlayAsync(site, id, token)
+        : IsCloudCatalogSite(site) ? CloudCatalogPlayAsync(site, id, token)
+        : IsKan360Site(site) ? Kan360PlayAsync(site, flag, id, token)
+        : AppPlayAsync(site, flag, id, token);
 
     #region AppYsV2 / AppV2 / xgapp Protocol
 
@@ -503,6 +554,359 @@ public sealed class UniversalProtocolVodProvider(SourceHttpClient http) : INativ
 
     private static bool IsVideoFileName(string name) =>
         VideoExtensions.Any(ext => name.EndsWith(ext, StringComparison.OrdinalIgnoreCase));
+
+    #endregion
+
+    #region CloudShare Catalog Protocol (csp_Market / csp_Local share.json)
+
+    private sealed record CloudCatalogEntry(string CategoryKey, string CategoryName, string Title, string ShareUrl, string Remarks);
+
+    private readonly ConcurrentDictionary<string, (List<CloudCatalogEntry> Entries, DateTimeOffset ExpiresAt)> _cloudCatalogCache = new(StringComparer.OrdinalIgnoreCase);
+
+    private async Task<List<CloudCatalogEntry>> LoadCloudCatalogAsync(SourceSite site, CancellationToken token)
+    {
+        if (_cloudCatalogCache.TryGetValue(site.Key, out var cached) && cached.ExpiresAt > DateTimeOffset.UtcNow)
+            return cached.Entries;
+
+        var entries = new List<CloudCatalogEntry>();
+
+        // Pattern A: csp_Market with ext.categories = [{ name, url }]
+        if (site.Ext.ValueKind == JsonValueKind.Object &&
+            site.Ext.TryGetProperty("categories", out var catArr) && catArr.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var item in catArr.EnumerateArray())
+            {
+                var name = NativeSiteToolkit.ReadJsonStringAny(item, "name", "title");
+                var url = NativeSiteToolkit.ReadJsonStringAny(item, "url", "link");
+                if (name.Length == 0 || url.Length == 0 || !CloudShareLink.TryParse(url, out var parsed)) continue;
+                var provider = CloudSearchDetail.ProviderName(parsed.Provider);
+                entries.Add(new CloudCatalogEntry(provider, $"{provider}合集", name, parsed.ToShareUrl(), provider));
+            }
+        }
+        // Pattern B: csp_Local / remote share.json = { shares: { quark: [...], uc: [...], ali: [...], baidu: [...] } }
+        else if (site.Ext.ValueKind == JsonValueKind.String &&
+                 Uri.TryCreate(site.Ext.GetString()?.Trim(), UriKind.Absolute, out var jsonUri) &&
+                 jsonUri.Scheme is "http" or "https")
+        {
+            var raw = await http.GetStringAsync(jsonUri.AbsoluteUri, NativeSiteToolkit.CreateBrowserHeaders(jsonUri, site.GetHeaders()), token).ConfigureAwait(false);
+            using var doc = JsonDocument.Parse(raw.TrimStart('\uFEFF'));
+            if (doc.RootElement.TryGetProperty("shares", out var shares) && shares.ValueKind == JsonValueKind.Object)
+            {
+                ParseShareBucket(shares, "quark", "夸克合集", "https://pan.quark.cn/s/", entries);
+                ParseShareBucket(shares, "uc", "UC合集", "https://drive.uc.cn/s/", entries);
+                ParseShareBucket(shares, "ali", "阿里云盘", "https://www.alipan.com/s/", entries);
+                ParseShareBucket(shares, "baidu", "百度网盘", "https://pan.baidu.com/s/", entries);
+            }
+        }
+
+        _cloudCatalogCache[site.Key] = (entries, DateTimeOffset.UtcNow.AddMinutes(10));
+        return entries;
+    }
+
+    private static void ParseShareBucket(JsonElement shares, string prop, string categoryName, string urlPrefix, List<CloudCatalogEntry> dest)
+    {
+        if (!shares.TryGetProperty(prop, out var arr) || arr.ValueKind != JsonValueKind.Array) return;
+        foreach (var el in arr.EnumerateArray())
+        {
+            if (el.ValueKind != JsonValueKind.String) continue;
+            var line = el.GetString()?.Trim() ?? string.Empty;
+            if (line.Length == 0 || line.StartsWith("self", StringComparison.OrdinalIgnoreCase)) continue;
+            var space = line.IndexOf(' ');
+            var token = space > 0 ? line[..space].Trim() : line;
+            var label = space > 0 ? line[(space + 1)..].Trim() : token;
+            if (token.Length < 4) continue;
+            // Strip trailing flag digits like " 1" or " 0"
+            if (label.EndsWith(" 1", StringComparison.Ordinal) || label.EndsWith(" 0", StringComparison.Ordinal))
+                label = label[..^2].Trim();
+            var fullUrl = token.StartsWith("http", StringComparison.OrdinalIgnoreCase) ? token : urlPrefix + token;
+            if (!CloudShareLink.TryParse(fullUrl, out var parsed)) continue;
+            var shareUrl = parsed.ToShareUrl();
+            var cleanTitle = label.Replace('|', '·').Trim();
+            if (cleanTitle.Length == 0) cleanTitle = categoryName;
+            dest.Add(new CloudCatalogEntry(prop, categoryName, cleanTitle, shareUrl, CloudSearchDetail.ProviderName(parsed.Provider)));
+        }
+    }
+
+    private async Task<CmsResponse> CloudCatalogHomeAsync(SourceSite site, CancellationToken token)
+    {
+        var entries = await LoadCloudCatalogAsync(site, token).ConfigureAwait(false);
+        var categories = entries
+            .GroupBy(e => e.CategoryKey, StringComparer.OrdinalIgnoreCase)
+            .Select(g => new VodCategory { Id = g.Key, Name = g.First().CategoryName })
+            .ToList();
+        var items = entries.Take(60).Select(e => ToCloudCatalogVod(site, e)).ToList();
+        return new CmsResponse
+        {
+            HomeCategoryName = "网盘精选",
+            Categories = categories,
+            List = items,
+            Page = 1,
+            PageCount = 1,
+            Total = entries.Count
+        };
+    }
+
+    private async Task<CmsResponse> CloudCatalogCategoryAsync(SourceSite site, string categoryId, int page, CancellationToken token)
+    {
+        if (page > 1) return new CmsResponse { Page = page, PageCount = 1 };
+        var entries = await LoadCloudCatalogAsync(site, token).ConfigureAwait(false);
+        var items = entries
+            .Where(e => e.CategoryKey.Equals(categoryId, StringComparison.OrdinalIgnoreCase))
+            .Select(e => ToCloudCatalogVod(site, e))
+            .ToList();
+        return new CmsResponse { List = items, Page = 1, PageCount = 1, Total = items.Count };
+    }
+
+    private async Task<CmsResponse> CloudCatalogSearchAsync(SourceSite site, string keyword, int page, CancellationToken token)
+    {
+        if (page > 1 || string.IsNullOrWhiteSpace(keyword)) return new CmsResponse { Page = page, PageCount = 1 };
+        var entries = await LoadCloudCatalogAsync(site, token).ConfigureAwait(false);
+        var kw = keyword.Trim();
+        var items = entries
+            .Where(e => e.Title.Contains(kw, StringComparison.OrdinalIgnoreCase) || e.CategoryName.Contains(kw, StringComparison.OrdinalIgnoreCase))
+            .Select(e => ToCloudCatalogVod(site, e))
+            .ToList();
+        return new CmsResponse { List = items, Page = 1, PageCount = 1, Total = items.Count };
+    }
+
+    private Task<VodItem> CloudCatalogDetailAsync(SourceSite site, string id, CancellationToken token)
+    {
+        if (cloud is null)
+            throw new InvalidOperationException("云盘服务尚未就绪。");
+        var parts = id.Split('|', 2);
+        var shareUrl = parts[0];
+        var title = parts.Length > 1 ? parts[1] : site.Name;
+        return CloudSearchDetail.ReadAsync(cloud, site, id, shareUrl, title, token);
+    }
+
+    private async Task<SpiderPlayResult> CloudCatalogPlayAsync(SourceSite site, string id, CancellationToken token)
+    {
+        if (cloud is not null && await NativeSiteToolkit.TryResolveDirectCloudShareAsync(cloud, id, token).ConfigureAwait(false) is { } direct)
+            return direct;
+        return new SpiderPlayResult(id, NativeSiteToolkit.CreateBrowserHeaders(null, site.GetHeaders()), 1, 0);
+    }
+
+    private static VodItem ToCloudCatalogVod(SourceSite site, CloudCatalogEntry entry) => new()
+    {
+        Id = $"{entry.ShareUrl}|{entry.Title}",
+        SiteKey = site.Key,
+        SiteName = site.Name,
+        Name = entry.Title,
+        Remarks = entry.Remarks,
+        TypeName = entry.CategoryName
+    };
+
+    #endregion
+
+    #region 360Kan Public Video API (csp_Kan360 / csp_SP360)
+
+    private static readonly VodCategory[] Kan360Categories =
+    [
+        new() { Id = "1", Name = "电影" },
+        new() { Id = "2", Name = "电视剧" },
+        new() { Id = "4", Name = "动漫" },
+        new() { Id = "3", Name = "综艺" }
+    ];
+
+    private static readonly Dictionary<string, string> Kan360PlatformNames = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["qq"] = "腾讯视频", ["qiyi"] = "爱奇艺", ["youku"] = "优酷", ["imgo"] = "芒果TV",
+        ["bilibili1"] = "哔哩哔哩", ["sohu"] = "搜狐", ["leshi"] = "乐视", ["m1905"] = "1905电影网", ["douyin"] = "抖音"
+    };
+
+    private async Task<CmsResponse> Kan360HomeAsync(SourceSite site, CancellationToken token)
+    {
+        var resp = await Kan360CategoryAsync(site, "1", 1, token).ConfigureAwait(false);
+        resp.HomeCategoryName = "360热门";
+        resp.Categories = [.. Kan360Categories];
+        return resp;
+    }
+
+    private async Task<CmsResponse> Kan360CategoryAsync(SourceSite site, string categoryId, int page, CancellationToken token)
+    {
+        page = Math.Max(1, page);
+        var cat = string.IsNullOrWhiteSpace(categoryId) ? "1" : categoryId;
+        var url = $"https://api.web.360kan.com/v1/filter/list?catid={Uri.EscapeDataString(cat)}&size=24&pageno={page.ToString(CultureInfo.InvariantCulture)}";
+        var headers = NativeSiteToolkit.CreateBrowserHeaders(new Uri("https://www.360kan.com/"), site.GetHeaders());
+        var raw = await http.GetStringAsync(url, headers, token).ConfigureAwait(false);
+        using var doc = JsonDocument.Parse(raw);
+        var items = new List<VodItem>();
+        var total = 0;
+        if (doc.RootElement.TryGetProperty("data", out var data) && data.ValueKind == JsonValueKind.Object)
+        {
+            total = NativeSiteToolkit.ReadJsonInt(data, "total");
+            if (data.TryGetProperty("movies", out var movies) && movies.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var m in movies.EnumerateArray())
+                {
+                    var id = NativeSiteToolkit.ReadJsonString(m, "id");
+                    var title = NativeSiteToolkit.ReadJsonString(m, "title");
+                    if (id.Length == 0 || title.Length == 0) continue;
+                    var pic = NativeSiteToolkit.FirstNonEmpty(
+                        NativeSiteToolkit.ReadJsonString(m, "cdncover"),
+                        NativeSiteToolkit.ReadJsonString(m, "cover"));
+                    if (pic.StartsWith("//", StringComparison.Ordinal)) pic = "https:" + pic;
+                    var score = NativeSiteToolkit.ReadJsonString(m, "doubanscore");
+                    var upinfo = NativeSiteToolkit.ReadJsonString(m, "upinfo");
+                    var remark = upinfo.Length > 0 ? upinfo : (score.Length > 0 && score != "0.00" ? $"豆瓣 {score}" : NativeSiteToolkit.ReadJsonString(m, "pubdate"));
+                    items.Add(new VodItem
+                    {
+                        Id = $"{cat}|{id}",
+                        SiteKey = site.Key,
+                        SiteName = site.Name,
+                        Name = title,
+                        Picture = pic,
+                        Remarks = remark,
+                        Year = NativeSiteToolkit.ReadJsonString(m, "pubdate") is { Length: >= 4 } pd ? pd[..4] : string.Empty,
+                        Content = NativeSiteToolkit.ReadJsonString(m, "description")
+                    });
+                }
+            }
+        }
+        var pageCount = total > 0 ? Math.Max(page, (int)Math.Ceiling(total / 24.0)) : (items.Count >= 24 ? page + 1 : page);
+        return new CmsResponse { List = items, Page = page, PageCount = pageCount, Total = total > 0 ? total : items.Count };
+    }
+
+    private async Task<CmsResponse> Kan360SearchAsync(SourceSite site, string keyword, int page, CancellationToken token)
+    {
+        keyword = keyword.Trim();
+        if (keyword.Length == 0 || page > 1) return new CmsResponse { Page = page, PageCount = 1 };
+        var url = $"https://api.so.360kan.com/index?force_v=1&kw={Uri.EscapeDataString(keyword)}&from=&pageno=1&v_ap=1&tab=all";
+        var headers = NativeSiteToolkit.CreateBrowserHeaders(new Uri("https://so.360kan.com/"), site.GetHeaders());
+        var raw = await http.GetStringAsync(url, headers, token).ConfigureAwait(false);
+        using var doc = JsonDocument.Parse(raw);
+        var items = new List<VodItem>();
+        if (doc.RootElement.TryGetProperty("data", out var data) &&
+            data.TryGetProperty("longData", out var longData) &&
+            longData.TryGetProperty("rows", out var rows) && rows.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var row in rows.EnumerateArray())
+            {
+                var catId = NativeSiteToolkit.ReadJsonString(row, "cat_id");
+                var enId = NativeSiteToolkit.ReadJsonString(row, "en_id");
+                var title = PlaybackParsing.StripHtml(NativeSiteToolkit.ReadJsonString(row, "titleTxt"));
+                if (enId.Length == 0 || title.Length == 0) continue;
+                var pic = NativeSiteToolkit.ReadJsonString(row, "cover");
+                if (pic.StartsWith("//", StringComparison.Ordinal)) pic = "https:" + pic;
+                items.Add(new VodItem
+                {
+                    Id = $"{(catId.Length > 0 ? catId : "1")}|{enId}",
+                    SiteKey = site.Key,
+                    SiteName = site.Name,
+                    Name = title,
+                    Picture = pic,
+                    Year = NativeSiteToolkit.ReadJsonString(row, "year"),
+                    Remarks = NativeSiteToolkit.ReadJsonString(row, "coverInfo"),
+                    Content = NativeSiteToolkit.ReadJsonString(row, "description")
+                });
+            }
+        }
+        return new CmsResponse { List = items, Page = 1, PageCount = 1, Total = items.Count };
+    }
+
+    private async Task<VodItem> Kan360DetailAsync(SourceSite site, string id, CancellationToken token)
+    {
+        var parts = id.Split('|', 2);
+        var cat = parts.Length == 2 ? parts[0] : "1";
+        var itemId = parts.Length == 2 ? parts[1] : id;
+        var url = $"https://api.web.360kan.com/v1/detail?cat={Uri.EscapeDataString(cat)}&id={Uri.EscapeDataString(itemId)}";
+        var headers = NativeSiteToolkit.CreateBrowserHeaders(new Uri("https://www.360kan.com/"), site.GetHeaders());
+        var raw = await http.GetStringAsync(url, headers, token).ConfigureAwait(false);
+        using var doc = JsonDocument.Parse(raw);
+        if (!doc.RootElement.TryGetProperty("data", out var data) || data.ValueKind != JsonValueKind.Object)
+            throw new InvalidDataException("360影视未返回详情数据。");
+
+        var title = NativeSiteToolkit.ReadJsonString(data, "title");
+        var pic = NativeSiteToolkit.FirstNonEmpty(NativeSiteToolkit.ReadJsonString(data, "cdncover"), NativeSiteToolkit.ReadJsonString(data, "cover"));
+        if (pic.StartsWith("//", StringComparison.Ordinal)) pic = "https:" + pic;
+
+        var fromList = new List<string>();
+        var urlList = new List<string>();
+
+        if (data.TryGetProperty("playlinksdetail", out var pld) && pld.ValueKind == JsonValueKind.Object)
+        {
+            foreach (var plat in pld.EnumerateObject())
+            {
+                var lineName = Kan360PlatformNames.GetValueOrDefault(plat.Name, plat.Name);
+                var eps = new List<string>();
+                if (plat.Value.ValueKind == JsonValueKind.Object &&
+                    plat.Value.TryGetProperty("default_url", out var defUrl) && defUrl.ValueKind == JsonValueKind.String &&
+                    !string.IsNullOrWhiteSpace(defUrl.GetString()))
+                {
+                    eps.Add($"正片${defUrl.GetString()!.Trim()}");
+                }
+                if (eps.Count > 0)
+                {
+                    fromList.Add(lineName);
+                    urlList.Add(string.Join('#', eps));
+                }
+            }
+        }
+
+        if (data.TryGetProperty("allepidetail", out var allEp) && allEp.ValueKind == JsonValueKind.Object)
+        {
+            foreach (var plat in allEp.EnumerateObject())
+            {
+                if (plat.Value.ValueKind != JsonValueKind.Array) continue;
+                var lineName = Kan360PlatformNames.GetValueOrDefault(plat.Name, plat.Name);
+                var eps = new List<string>();
+                foreach (var ep in plat.Value.EnumerateArray())
+                {
+                    var epUrl = NativeSiteToolkit.ReadJsonString(ep, "url");
+                    var epNum = NativeSiteToolkit.FirstNonEmpty(NativeSiteToolkit.ReadJsonString(ep, "playlink_num"), $"第{eps.Count + 1}集");
+                    if (epUrl.StartsWith("http", StringComparison.OrdinalIgnoreCase))
+                        eps.Add($"{NativeSiteToolkit.SanitizeLabel(epNum)}${epUrl}");
+                }
+                if (eps.Count > 0)
+                {
+                    var idx = fromList.IndexOf(lineName);
+                    if (idx >= 0) urlList[idx] = string.Join('#', eps);
+                    else { fromList.Add(lineName); urlList.Add(string.Join('#', eps)); }
+                }
+            }
+        }
+
+        string JoinArr(string prop) =>
+            data.TryGetProperty(prop, out var a) && a.ValueKind == JsonValueKind.Array
+                ? string.Join(" / ", a.EnumerateArray().Select(e => e.GetString()?.Trim()).Where(s => !string.IsNullOrEmpty(s)))
+                : string.Empty;
+
+        return new VodItem
+        {
+            Id = id,
+            SiteKey = site.Key,
+            SiteName = site.Name,
+            Name = title.Length > 0 ? title : itemId,
+            Picture = pic,
+            Year = NativeSiteToolkit.ReadJsonString(data, "pubdate") is { Length: >= 4 } pd ? pd[..4] : string.Empty,
+            Area = JoinArr("area"),
+            TypeName = JoinArr("moviecategory"),
+            Director = JoinArr("director"),
+            Actor = JoinArr("actor"),
+            SiteRating = NativeSiteToolkit.ReadJsonString(data, "doubanscore"),
+            Content = NativeSiteToolkit.ReadJsonString(data, "description"),
+            PlayFrom = string.Join("$$$", fromList),
+            PlayUrl = string.Join("$$$", urlList)
+        };
+    }
+
+    private Task<SpiderPlayResult> Kan360PlayAsync(SourceSite site, string flag, string id, CancellationToken token)
+    {
+        token.ThrowIfCancellationRequested();
+        var headers = NativeSiteToolkit.CreateBrowserHeaders(null, site.GetHeaders());
+        // Check if site ext supplies a parser prefix (e.g. ext.fishjx)
+        if (site.Ext.ValueKind == JsonValueKind.Object &&
+            site.Ext.TryGetProperty("fishjx", out var jxArr) && jxArr.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var jx in jxArr.EnumerateArray())
+            {
+                var prefix = jx.GetString()?.Trim();
+                if (!string.IsNullOrWhiteSpace(prefix) && prefix.StartsWith("http", StringComparison.OrdinalIgnoreCase))
+                    return Task.FromResult(new SpiderPlayResult(prefix + Uri.EscapeDataString(id), headers, 1, 0));
+            }
+        }
+        return Task.FromResult(new SpiderPlayResult(id, headers, 1, 0));
+    }
 
     #endregion
 }

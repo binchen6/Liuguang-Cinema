@@ -1,97 +1,73 @@
 # 站点适配与验收
 
-本文记录流光影院当前版本的内置源适配现状、分级验收标准、探测与回归命令及验收边界。逐站实测明细见 [站点矩阵](site-matrix.csv)；早期过程日志归档于 [历史站点验收](archive/site-verification-history.md)。
+本文记录流光影院当前的三层站点适配架构、最新验证基线、分级验收标准与回归探测命令。逐站实测明细见 [站点矩阵](site-matrix.csv)；早期日志归档于 [历史站点验收](archive/site-verification-history.md)。
 
 ---
 
-## 1. 当前验证基线 1.9.6
+## 1. 三层适配优先级架构
 
-- **构建状态**为 Windows x64 Release 与 CatVod Java 打包成功。NuGet 锁定还原通过。
-- **厂长本版抽样**在 Windows 客户端读取 58 张首页卡片和新版选集页。样本第二条 1080P 线路解码后持续播放了 35 秒。样本第一条线路当次未提供可用媒体。
-- **UC 网盘本版回归**覆盖原画可用、提示视频拦截、会员拒绝、低一档回退、会话过期和请求提示。测试使用隔离的协议样本，真实媒体能否播放取决于账号和资源授权。
-- **弹弹play本版抽样**通过默认签名服务完成新版剧集搜索、文件匹配与弹幕下载。
-- **内置公开配置历史样本**覆盖 50 个点播或工具项和 5 个直播源：
-  - **45 项已接入原生 C#（22 个站点适配器）或 Java CatVod 兼容层**：
-    - 1.9.4 将 `❤️AI剧┃弹幕`（`csp_AiDjGuard`，原 Java 适配器指向失效域名 `zzdj.cc`）迁移为原生 `ShortDramaVodProvider`（首页 2 分类 20 条、分类 1398 页、5 组搜索关键词全中、直链后台解码 4307 ms / 254 帧）；
-    - 修复 `🎈盘搜┃四盘`（`ZPan`）与 `🦋易搜┃四盘`（`JPan`）因固定 20 秒超时截断与默认 UA 卡死导致的搜索失败（实网「流浪地球」返回 38 条、「庆余年」返回 5 条，上游冷查偶发超时仍受第三方服务影响）；
-    - 修复 `🏝奥特┃多线`（`csp_AueteGuard`）首页失效 `/aeete5so.php` 404 问题，改用 `/so.php?searchword=` 并准确触发应用内图片验证码；
-    - 为 `csp_T4` / `csp_T4Guard` 增加明文 HTTP/HTTPS URL 配置支持；将内置防骗占位项 `cc`（`请勿信视频中任何广告`）由 `PushVodProvider` 降级为空目录并从搜索与联想列表中排除；
-    - 需交互验证的站点：`💡聚剧┃四盘`（`seed`）、`🌟立播┃不卡`（`立播`）需通过应用内浏览器安全验证弹窗，`🏝奥特┃多线` 搜索需输入图片验证码；
-    - 第三方上游当前不可达的站点：`🥝荐片┃多线`（`api2.rinhome.com` 上游异常）、`🍓糯米┃秒播`（`m.wwgz.cn` TLS 握手失败）、`🎧有声┃小说`（TLS 失败）、`♻️爱刷┃短视`（配置列表 404），以及网盘播放需对应账号会话。
-  - **5 项无公开实现（界面标注为 `（无公开实现）`）**：
-    - `🌞光影┃不卡`、`🧀奶酪┃秒播`（`csp_T4Guard`，内置配置 `ext` 为仅能由外部闭源 DEX 解密的密文）；
-    - `🦊粤迷┃港剧`（`csp_MaiDuiDuiGuard`，对应版权/DRM 应用埋堆堆且依赖外部闭源 DEX）；
-    - `🥜花生┃不卡`（`csp_HuashuGuard`）、`☁️风云┃多线`（`csp_FyGuard`）（外部闭源混淆 DEX，无公开接口）。
-- **桌面实机 UIA 回归（1.9.4）**：`popup_regression`（19 处弹层与弹幕锚点）、`cast_regression`（SSDP/投屏播放/扫码确认）、`workspace_layout_regression`（窗口尺寸恢复/吸顶筛选/跨页搜索切换）、`library_regression`（4 分段筛选与检索状态保持）及播放器 3 秒自动隐藏与透明光标验证全部通过。
+`VodClientRouter` 严格按 **原生 > 通用 > 仓库资源包** 分层调度，确保性能、兼容性与可维护性的最佳平衡：
 
-### 近期版本验证摘要
-
-| 版本 | 主要验证项（详见对应 [发行说明](releases/)） |
-| --- | --- |
-| **1.9.6** | 厂长新版浏览器渲染与备用线路桌面解码、UC 画质回退与请求提示、弹弹play默认签名服务、跨域凭据隔离、`1.9.5 → 1.9.6` 增量升级逐文件校验 |
-| **1.9.5** | 阿里云盘分享目录与转存原画修复、UC 网盘 `ut` 设备令牌与提示视频识别/回退、弹弹play/DNS 超时取消治理、`CloudRegression`（34 项）/`LocalMediaRegression`（24 项）/`UpdateRegression`（13 项）与实网探测、及 `1.9.4 → 1.9.5` 增量升级校验 |
-| **1.9.4** | 播放器鼠标快路径与跨环境兼容、`AI剧`/`盘搜`/`奥特` 搜索修复与实网解码抽样、4 项核心 UIA 回归与 `1.9.3 → 1.9.4` 增量升级校验 |
-| **1.9.3** | 统一横竖导航（单选残留与切回「最新影片」胶囊修复）、全站弹层单滚动条治理、浅色主题调整、WinUI 原生透明光标隐藏与 `1.9.2 → 1.9.3` 962 文件逐字节校验 |
-| **1.9.2** | 内核级播放防息屏/防休眠、`GlassSurface` 控件与 3 秒悬停感知隐藏 |
-| **1.9.1** | 阿里云盘双盘与 ECDSA 设备签名（25 项协议回归）、多镜分片更新（13 项回归）与跨源弹幕规范化匹配（24 项回归） |
-| **1.9.0** | 视觉体系重构、九档 `App.ico` 与矢量图标库、Composition 动效与深浅/高对比主题切换 |
+| 优先级 | 适配层 | 核心能力 |
+| --- | --- | --- |
+| **Tier 1 · 原生** | 22 个 C# 原生站点适配器（含 `Wogg` / `FishCloud`、`Bili`、`ChangZhang`、`Jpys/WenCai`、`Guazi`、`Douban/PianDan`、`ShortDrama/DJHub`、`Kanqiu/Sir88`、`Rebo`、`Seedhub`、`Libvio` 等） | 零外部进程、最高解析速度与最完整元数据/网盘线路支持 |
+| **Tier 2 · 通用** | `UniversalProtocolVodProvider`（AppYs/AList/360Kan/网盘合集）→ `JsSpiderClient`（`drpy2 js:` + `CryptoJS.AES` + T3）→ `PySpiderClient` → `UniversalAutoHtmlVodProvider`（3 段式自动探测）→ Java 17/21 内置爬虫与 `ExternalJarLoader` DEX 动态转译 | 开箱兼容绝大多数第三方 TVBox 单仓、多仓、加密配置与主流站型 |
+| **Tier 3 · 资源包** | `RepoPackService` + `RepoPackVodProvider`（托管于 [Liuguang-RepoPacks](https://github.com/binchen6/Liuguang-RepoPacks)，复用 5 条国内 GitHub 镜像加速 + SHA-256 + Zip-Slip 校验） | 针对特定外部仓库的专属规则补齐；导入源自动下载热启用，亦可在设置页手动更新/卸载；对闭源 `.so` 站点展示诚实说明卡 |
 
 ---
 
-## 2. 分级验证标准
+## 2. 当前验证基线（1.9.7+）
 
-站点「存在适配器」「能返回内容」「与原站一致」「能解析地址」「能持续播放」分属不同验收层级：
+- **构建状态**：Java `catvod-engine-1.0.0.jar`（JDK 21 Maven 离线打包）与 C# `TV.csproj` `Release x64` 均 0 错误通过。
+- **84 项 C# 离线回归全部通过（`scripts/run-release-regressions.ps1`）**：
+  - 覆盖 UC 网盘原画/转码/提示视频拦截与跨域头隔离、阿里云盘/分块缓存跳转取消（`CloudBlockCache`）、无回弹进度条状态机（`PlaybackSeekCoordinator`）；
+  - 覆盖多仓隔离与自定义命名/重命名持久化、多域名 `ext.site` 解析、`UniversalAutoHtmlVodProvider` 通用抽取、`drpy2 js:` + 真实 `CryptoJS.AES` + `:eq()` / 自节点 `a&&href`、5 条国内 GitHub 镜像路由、Zip-Slip 拦截、SHA-256 校验与资源包热加载/卸载；
+  - 覆盖弹弹play DPAPI 凭据、多节点故障转移与国内 CDN 白名单校验。
+- **Java Android DEX 实时转译实测**：`ExternalJarLoader` 在 JDK 21 下成功将 `y456y` 4 MB 外部 Android DEX JAR 完整转换为 4.1 MB JVM JAR（已修复 `ReadOnlyFileSystemException` 并接入 5 条国内加速镜像）。
+- **外部典型大仓实网抽样（`http://www.y456y.com`，104 站点 + 1 直播源，抽样 35 站）**：
+  - 导入 `http://www.y456y.com` 自动匹配并通过「国内加速 A」下载并校验启用 `y456y` 专属资源包 `v1.0.0`；
+  - **Tier 1 原生通过**：`Douban`、`YGP`、`Wogg`、`FishDuoduo`、`FishHuban`、`CZ`、`wencai`、`Guazi`、`Kanqiu`、`Sir88`、`DJHub`、`bili`、`少儿教育`；
+  - **Tier 2 通用通过**：`Kan360`、`Local`（自动展开 33 集夸克合集）、`Market`、`WoNiu`；
+  - **Tier 3 资源包通过**：`Rebo`、`HonHon`、`Duboku`、`TvDy`、`XgAnime`、`TingBookJinXia`（1,085 集音频目录解析）、`PanWebShare123`、`fishhxq`、`FishPs`、`Music24bit`、`BeiLeHu`，以及 `FishConfig`/`bl` 等诚实说明卡；
+  - **内置 Java 优先通过**：`TuXiaoBei` 毫秒级直连播放（跳过 4 MB `.so` 外部 JAR 阻塞）。
+- **内置公开配置基线**：50 项点播/工具与 5 项直播源中 45 项已由原生 C# 或 Java 兼容层接入；5 项闭源混淆 DEX / 密文站点（`光影`、`奶酪`、`粤迷`、`花生`、`风云`）明确标注 `（无公开实现）`；部分站点需应用内验证码或网盘会话。
+
+---
+
+## 3. 分级验证标准
 
 | 环节 | 通过标准 |
 | --- | --- |
-| 首页 | 核对栏目、分类、卡片 ID、标题、封面与顺序，不以 HTTP 200 代替 |
-| 分类 | 校验首、次、末页分页与组合筛选，确认末页正确停止 |
-| 搜索 | 核对多组关键词、空结果、单站重试、取消、聚合排序与返回定位 |
-| 详情 | 对照片名、年份、地区、演职员、简介、多线路与集数 |
-| 播放 | 记录真实解码时钟、视频帧/音频缓冲、换轨、倍速、拖动与停播释放 |
-| 直播 | 核对分组、频道、台标、EPG、多线路与实际切台 |
-| 网盘 | 区分扫码成功、凭据有效、目录可读、地址可解析与实际播放 |
+| 首页 / 分类 | 核对栏目、分类、卡片 ID、标题、封面与末页终止，不以 HTTP 200 代替 |
+| 搜索 | 核对多组关键词、空结果、单站重试、取消与并发聚合 |
+| 详情 / 播放 | 对照多线路、选集、解码时钟、视频帧/音频缓冲、拖拽与停播释放 |
+| 直播 / 网盘 | 核对分组、EPG、多线路切台；区分扫码成功、目录可读与实际播放 |
 
-矩阵状态定义：`SAMPLE`（已有局部样本通过）、`FAIL`（明确差异）、`BLOCKED`（账号/上游/反爬/无公开实现限制）、`PENDING`（待采样）、`N/A`（协议不提供该能力）。
+状态标记：`SAMPLE`（局部样本通过）、`FAIL`（明确差异）、`BLOCKED`（账号/上游/反爬/闭源限制）、`PENDING`（待采样）、`N/A`（协议不提供）。
 
 ---
 
-## 3. 探测与回归命令
-
-### 后台站点探测（不抢焦点）
+## 4. 探测与回归命令
 
 ```powershell
-# 全量探测
-& .\scripts\run-site-probe.ps1 -OutputDirectory 'artifacts/probe-current'
+# 84 项离线协议与核心引擎回归（加 -VerifyDefaultService 可同步实测在线弹幕服务）
+pwsh -NoProfile -File ./scripts/run-release-regressions.ps1
 
-# 单站点或单直播频道抽样（可加 -VodId 或 -DecodeSample）
-& .\scripts\run-site-probe.ps1 -SiteKey 'AiDj' -DecodeSample -OutputDirectory 'artifacts/probe-one'
-& .\scripts\run-site-probe.ps1 -SiteKey 'live:0' -LiveChannel '频道名' -DecodeSample -OutputDirectory 'artifacts/probe-live'
+# 后台全量 / 指定仓库 / 单站抽样探测（不抢焦点，可加 -DecodeSample 实播解码）
+pwsh -NoProfile -File ./scripts/run-site-probe.ps1 -OutputDirectory 'artifacts/probe-current'
+pwsh -NoProfile -File ./scripts/run-site-probe.ps1 -OutputDirectory 'artifacts/probe-y456y' -ImportUrl 'http://www.y456y.com' -SiteKey @('Douban','FishDuoduo','Kan360','TingBookJinXia')
 
 # 将探测结果回写站点矩阵
 py scripts/update-site-matrix.py artifacts/probe-current/probe.jsonl
-```
 
-### 桌面回归
-
-```powershell
+# 桌面 UIA 回归（须使用独立 TV_DATA_ROOT 并在空闲桌面串行运行）
 & .\scripts\run-site-regressions.ps1 -Python (Get-Command py).Source -OutputDirectory 'artifacts/qa-current'
-```
-
-执行约定：使用独立 `TV_DATA_ROOT`、音量置 0、独立安装 `AppId`（不覆盖正式安装）；桌面回归脚本会激活窗口，须在空闲桌面串行运行；严禁将带凭据的仓库地址、Cookie、Token 或私人视频写入共享日志。
-
-协议回归使用 Release 应用目录。官方发行构建可以加 `-VerifyDefaultService` 实测默认弹幕搜索和下载。
-
-```powershell
-& .\scripts\run-release-regressions.ps1 -AppDirectory 'artifacts/publish-example' -VerifyDefaultService
-node --test server/dandanplay-relay/worker.test.mjs
 ```
 
 ---
 
-## 4. 验收边界
+## 5. 验收边界
 
-- 第三方站、CDN、会员权限、验证码与地区策略随时变动，历史通过记录不代表永久可用。
-- 未重新扫码登录的账号不视为当前实机账号验收。
-- 后台解码抽样通过不等同于所有 GPU 驱动、HDR 显示器与桌面渲染均无异常。
-- 弱网缓冲与预读只能降低卡顿概率，不能保证极端网络下无中断。
+- 第三方站点、CDN、反爬、验证码与账号权益随时变化，历史样本通过不代表永久可用；
+- 后台解码抽样通过不等同于所有显卡驱动、HDR 显示器与远程桌面均无差异；
+- 弱网缓存与分块预读可显著降低卡顿，但不能保证极端网络下绝对零中断。

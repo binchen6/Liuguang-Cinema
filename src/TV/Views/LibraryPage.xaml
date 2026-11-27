@@ -4,15 +4,14 @@
       xmlns:controls="using:TV.Controls"
       Background="Transparent" Loaded="OnLoaded" SizeChanged="OnPageSizeChanged">
     <Page.Resources>
-        <x:Double x:Key="WatchCardWidth">312</x:Double>
-        <x:Double x:Key="WatchCardHeight">182</x:Double>
         <x:Double x:Key="ThumbnailWidth">56</x:Double>
         <x:Double x:Key="ThumbnailHeight">84</x:Double>
         <x:Double x:Key="LibraryRowMinHeight">56</x:Double>
 
         <LinearGradientBrush x:Key="CardBottomScrim" StartPoint="0,0" EndPoint="0,1">
-            <GradientStop Color="Transparent" Offset="0.28" />
-            <GradientStop Color="#EB0B0B0D" Offset="1" />
+            <GradientStop Color="#000B0B0D" Offset="0.18" />
+            <GradientStop Color="#6E0B0B0D" Offset="0.56" />
+            <GradientStop Color="#F009090C" Offset="1" />
         </LinearGradientBrush>
 
         <Style x:Key="LibraryRowItemStyle" TargetType="ListViewItem">
@@ -140,32 +139,40 @@
         <!-- 内容区 -->
         <Grid x:Name="ContentHost" Grid.Row="2">
 
-            <!-- 继续观看 -->
+            <!-- 继续观看（自适应行列与宽屏信息流） -->
             <Grid Visibility="{Binding IsHistoryTab, Converter={StaticResource BoolToVisibility}}">
-                <GridView ItemsSource="{Binding History}" SelectionMode="None" IsItemClickEnabled="True"
-                          ItemClick="OnHistoryClick" ContainerContentChanging="OnWatchContainerChanging" Padding="0"
+                <GridView x:Name="HistoryGrid" ItemsSource="{Binding History}" SelectionMode="None" IsItemClickEnabled="True"
+                          Loaded="OnHistoryGridLoaded" SizeChanged="OnHistoryViewportChanged"
+                          ItemClick="OnHistoryClick" ContainerContentChanging="OnWatchContainerChanging" Padding="0,0,12,0"
                           Background="Transparent" BorderThickness="0"
+                          HorizontalContentAlignment="Stretch"
                           ScrollViewer.HorizontalScrollMode="Disabled"
+                          ScrollViewer.HorizontalScrollBarVisibility="Disabled"
                           ScrollViewer.VerticalScrollBarVisibility="Auto">
                     <GridView.ItemsPanel>
                         <ItemsPanelTemplate>
-                            <ItemsWrapGrid Orientation="Horizontal" ItemWidth="330" ItemHeight="200" />
+                            <ItemsWrapGrid Orientation="Horizontal" ItemWidth="320" ItemHeight="192" />
                         </ItemsPanelTemplate>
                     </GridView.ItemsPanel>
                     <GridView.ItemContainerStyle>
                         <Style TargetType="GridViewItem">
                             <Setter Property="Padding" Value="0" />
-                            <Setter Property="Margin" Value="0,4,18,18" />
+                            <Setter Property="Margin" Value="0,4,16,16" />
+                            <Setter Property="HorizontalAlignment" Value="Stretch" />
+                            <Setter Property="VerticalAlignment" Value="Stretch" />
                             <Setter Property="HorizontalContentAlignment" Value="Stretch" />
                             <Setter Property="VerticalContentAlignment" Value="Stretch" />
                         </Style>
                     </GridView.ItemContainerStyle>
                     <GridView.ItemTemplate>
                         <DataTemplate>
-                            <Grid Width="{StaticResource WatchCardWidth}" Height="{StaticResource WatchCardHeight}"
+                            <Grid HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
                                   PointerEntered="OnWatchCardIn" PointerExited="OnWatchCardOut"
                                   PointerPressed="OnWatchCardPressed" PointerReleased="OnWatchCardReleased" PointerCanceled="OnWatchCardReleased">
                                 <Border CornerRadius="{StaticResource RadiusPanel}"
+                                        controls:GlassOpticsEngine.Mode="Interactive"
+                                        controls:GlassOpticsEngine.Profile="Card"
+                                        controls:GlassOpticsEngine.RadiusOverride="14"
                                         Background="{ThemeResource PosterPlaceholderBrush}"
                                         BorderBrush="{ThemeResource GlassEdgeBrush}" BorderThickness="1">
                                     <Grid>
@@ -174,19 +181,22 @@
                                             <Image x:Name="WatchArt" controls:PosterImage.CachedSource="{Binding Picture}" Stretch="UniformToFill" controls:PosterImage.AutoFit="True" />
                                         </Grid>
                                         <Rectangle Fill="{StaticResource CardBottomScrim}" />
-                                        <StackPanel VerticalAlignment="Bottom" Padding="14,12,14,14" Spacing="4">
+                                        <Border Height="1" VerticalAlignment="Top" Margin="14,0"
+                                                Background="{ThemeResource GlassCausticBrush}" Opacity="0.72" IsHitTestVisible="False" />
+                                        <StackPanel VerticalAlignment="Bottom" Padding="14,10,14,13" Spacing="4">
                                             <TextBlock Text="{Binding Title}" Style="{StaticResource CardTitleText}"
                                                        Foreground="#FFF4F3EE" MaxLines="1" TextTrimming="CharacterEllipsis" />
                                             <TextBlock Text="{Binding Subtitle}" Style="{StaticResource MetaText}"
-                                                       Foreground="#B8F4F3EE" TextTrimming="CharacterEllipsis" />
-                                            <Grid Margin="0,6,0,0" ColumnSpacing="{StaticResource SpaceMini}">
+                                                       Foreground="#CCF4F3EE" MaxLines="1" TextTrimming="CharacterEllipsis" />
+                                            <Grid Margin="0,5,0,0" ColumnSpacing="{StaticResource SpaceMini}">
                                                 <Grid.ColumnDefinitions>
                                                     <ColumnDefinition Width="*" />
                                                     <ColumnDefinition Width="Auto" />
                                                 </Grid.ColumnDefinitions>
-                                                <ProgressBar Value="{Binding Progress}" Maximum="100" Height="3"
+                                                <ProgressBar Value="{Binding Progress}" Maximum="100" Height="3.5"
+                                                             CornerRadius="2"
                                                              VerticalAlignment="Center"
-                                                             Background="#33FFFFFF"
+                                                             Background="#3DFFFFFF"
                                                              Foreground="{ThemeResource VermilionBrush}"
                                                              Visibility="{Binding HasProgress, Converter={StaticResource BoolToVisibility}}" />
                                                 <TextBlock Grid.Column="1" Text="已看完"
@@ -198,7 +208,7 @@
                                         <Button Style="{StaticResource IconButtonStyle}" Width="34" Height="34" MinWidth="34" MinHeight="34" Margin="10"
                                                 HorizontalAlignment="Right" VerticalAlignment="Top"
                                                 CornerRadius="17"
-                                                Background="{ThemeResource GlassDarkBadgeBrush}" BorderBrush="#33FFFFFF" BorderThickness="1"
+                                                Background="{ThemeResource GlassDarkBadgeBrush}" BorderBrush="#3BFFFFFF" BorderThickness="1"
                                                 Tag="{Binding}" Click="OnDeleteHistoryClick"
                                                 AutomationProperties.Name="删除记录"
                                                 ToolTipService.ToolTip="删除记录">

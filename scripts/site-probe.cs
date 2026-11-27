@@ -16,6 +16,7 @@ using TV.Services.Cloud;
 using TV.Services.Configuration;
 using TV.Services.Http;
 using TV.Services.Live;
+using TV.Services.Packs;
 using TV.Services.Persistence;
 using TV.Services.Spider;
 using TV.Services.Vod;
@@ -35,6 +36,7 @@ await database.SetSettingAsync("source.autoRefresh", "false");
 var dns = new DnsResolverService(database);
 var http = new SourceHttpClient(dns);
 using var config = new SourceConfigService(http, database);
+using var repoPacks = new RepoPackService(http, dns);
 if (args[0] != "-")
     File.Copy(args[0], AppPaths.Config);
 
@@ -43,7 +45,13 @@ const string DecodeOption = "--decode-sample";
 const string LiveChannelOption = "--live-channel=";
 const string VodIdOption = "--vod-id=";
 foreach (var option in args.Skip(2).Where(value => value.StartsWith(ImportOption, StringComparison.Ordinal)))
-    await config.ImportAsync(option[ImportOption.Length..]);
+{
+    var importUrl = option[ImportOption.Length..];
+    await config.ImportAsync(importUrl);
+    var autoPack = await repoPacks.AutoInstallForRepositoryAsync(importUrl, config.Current);
+    if (autoPack.Matched)
+        Console.Error.WriteLine($"RepoPack: {autoPack.Message}");
+}
 var document = await config.LoadAsync();
 var decode = args.Contains(DecodeOption, StringComparer.Ordinal);
 var liveChannel = args.Skip(2).FirstOrDefault(value => value.StartsWith(LiveChannelOption, StringComparison.Ordinal))?[LiveChannelOption.Length..];
@@ -89,10 +97,22 @@ async Task<Row> ProbeSiteAsync(SourceSite site)
     using var cloud = new CloudDriveService(database, dns);
     using var bilibili = new BilibiliAccountService(database, dns);
     using var runtime = new SpiderRuntime(database);
-    var native = NativeVodProviderRouter.CreateDefault(http, cloud, new BilibiliVodProvider(http, cloud, bilibili));
-    var router = new VodClientRouter(new CmsClient(http), new SpiderVodClient(runtime), native);
-    var implementation = native.TryGet(site, out var provider) ? provider.GetType().Name :
-        !site.IsSupported ? "无公开实现" : site.Type == 3 ? "Java CatVod" : "CMS";
+    var bilibiliProvider = new BilibiliVodProvider(http, cloud, bilibili);
+    var native = NativeVodProviderRouter.CreateDefault(http, cloud, bilibiliProvider);
+    var cms = new CmsClient(http);
+    var jsSpider = new JsSpiderClient(http);
+    var pySpider = new PySpiderClient(http);
+    var autoHtml = new UniversalAutoHtmlVodProvider(http, cloud);
+    var repoPackVod = new RepoPackVodProvider(repoPacks, native, bilibiliProvider, jsSpider, cms);
+    var router = new VodClientRouter(cms, new SpiderVodClient(runtime), native, jsSpider, pySpider, autoHtml, repoPackVod);
+    var implementation = native.TryGet(site, out var provider)
+            ? (provider is UniversalProtocolVodProvider && repoPackVod.CanOverrideUniversal(site) ? "RepoPackVodProvider" : provider.GetType().Name)
+        : JsSpiderClient.Supports(site) ? "JsSpiderClient"
+        : PySpiderClient.Supports(site) ? "PySpiderClient"
+        : repoPackVod.CanOverrideUniversal(site) ? "RepoPackVodProvider"
+        : autoHtml.CanHandle(site) ? "UniversalAutoHtmlVodProvider"
+        : repoPackVod.CanHandle(site) ? "RepoPackVodProvider"
+        : !site.IsSupported ? "无公开实现" : site.Type == 3 ? "Java CatVod" : "CMS";
     var row = new Row(site.Key, site.Name, site.Type.ToString(), PublicAddress(site.Api), implementation);
     if (!site.IsSupported)
     {

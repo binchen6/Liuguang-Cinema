@@ -21,14 +21,22 @@ public sealed class ChangZhangVodProvider(SourceHttpClient http,
     private const string PlaybackReady = PlaybackFrame + ", video[src], video source[src]";
     private long _browserModeUntil;
 
-    internal static bool IsChangZhangApi(string api) => api.Equals("csp_NewCzGuard", StringComparison.OrdinalIgnoreCase) ||
-        api.Equals("csp_NewCz", StringComparison.OrdinalIgnoreCase);
+    internal static bool IsChangZhangApi(string api) =>
+        api.Equals("csp_NewCzGuard", StringComparison.OrdinalIgnoreCase) ||
+        api.Equals("csp_NewCz", StringComparison.OrdinalIgnoreCase) ||
+        api.Equals("csp_CZ", StringComparison.OrdinalIgnoreCase) ||
+        api.Equals("csp_CZGuard", StringComparison.OrdinalIgnoreCase) ||
+        api.Equals("csp_Czzy", StringComparison.OrdinalIgnoreCase) ||
+        api.Equals("csp_CzzyGuard", StringComparison.OrdinalIgnoreCase) ||
+        api.Equals("csp_Czsapp", StringComparison.OrdinalIgnoreCase);
 
-    public bool CanHandle(SourceSite site) => site.Type == 3 &&
+    public static bool Supports(SourceSite site) => site.Type == 3 &&
         IsChangZhangApi(site.Api) &&
-        (site.Ext.ValueKind is JsonValueKind.Undefined or JsonValueKind.Null ||
+        (site.Ext.ValueKind is JsonValueKind.Undefined or JsonValueKind.Null or JsonValueKind.Object ||
          site.Ext.ValueKind == JsonValueKind.String && (string.IsNullOrWhiteSpace(site.Ext.GetString()) ||
              ResolvePage(site.Ext.GetString()) is not null));
+
+    public bool CanHandle(SourceSite site) => Supports(site);
 
     public async Task<CmsResponse> GetHomeAsync(SourceSite site, CancellationToken cancellationToken = default)
     {

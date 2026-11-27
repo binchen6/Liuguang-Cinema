@@ -6,6 +6,8 @@ using TV.Models;
 using TV.Services;
 using TV.Services.AI;
 using TV.Services.Cloud;
+using TV.Services.Http;
+using TV.Services.Packs;
 using TV.Services.Persistence;
 using TV.Services.Maintenance;
 using TV.Services.Playback;
@@ -49,12 +51,18 @@ public sealed partial class SettingsViewModel : ObservableObject
 
     [ObservableProperty] private string _activeSource = "尚未加载";
     [ObservableProperty] private string _newSourceUrl = string.Empty;
+    [ObservableProperty] private string _newSourceName = string.Empty;
     [ObservableProperty] private string _statusMessage = string.Empty;
     [ObservableProperty] private bool _doubanEnabled = true;
     [ObservableProperty] private int _recommendationSourceIndex;
     [ObservableProperty] private bool _isBusy;
     public ObservableCollection<SourceRepository> Repositories { get; } = [];
     public ObservableCollection<ImportedRepository> ImportedRepositories { get; } = [];
+    public ObservableCollection<RepoPackItemViewModel> RepoPacks { get; } = [];
+    [ObservableProperty] private string _repoPackStatus = "点击刷新或导入仓库时自动匹配专属资源包";
+    [ObservableProperty] private bool _isLoadingRepoPacks;
+    [ObservableProperty] private bool _isDownloadingRepoPack;
+    [ObservableProperty] private double _repoPackDownloadProgress;
     [ObservableProperty, NotifyPropertyChangedFor(nameof(CanSwitchToBuiltIn))] private SourceRepository? _selectedRepository;
     public bool CanSwitchToBuiltIn => SelectedRepository is { IsBuiltIn: false };
     public ObservableCollection<CloudAccountInfo> CloudAccounts { get; } = [];
@@ -200,6 +208,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         UcCookie = string.Empty;
         BaiduCookie = string.Empty;
         await LoadAiAndDanmakuSettingsAsync();
+        _ = RefreshRepoPacksSafeAsync(forceRefresh: false);
         _loaded = true;
         _hasLoaded = true;
     }
@@ -456,17 +465,160 @@ public sealed partial class SettingsViewModel : ObservableObject
     [RelayCommand]
     private async Task AddSourceAsync()
     {
+        var rawUrl = NewSourceUrl.Trim();
+        var customName = NewSourceName.Trim();
         try
         {
-            await _services.Config.ImportAsync(NewSourceUrl);
+            StatusMessage = "正在导入片源仓库…";
+            await _services.Config.ImportAsync(rawUrl, string.IsNullOrWhiteSpace(customName) ? null : customName);
             NewSourceUrl = string.Empty;
+            NewSourceName = string.Empty;
             await LoadImportsAsync();
             SyncRepositories();
             ActiveSource = _services.Config.ActiveUrl;
             await UpdateSourceSummaryAsync();
-            StatusMessage = $"已导入并切换到「{_services.Config.ActiveRepository?.Name ?? "新仓库"}」";
+            var repoName = _services.Config.ActiveRepository?.Name ?? "新仓库";
+            StatusMessage = $"已导入并切换到「{repoName}」，正在检查匹配资源包…";
+
+            var progress = new Progress<GitHubDownloadProgress>(p =>
+            {
+                _dispatcher.TryEnqueue(() =>
+                {
+                    IsDownloadingRepoPack = p.Percent < 100;
+                    RepoPackDownloadProgress = p.Percent;
+                    var route = string.IsNullOrWhiteSpace(p.RouteLabel) ? "国内加速" : p.RouteLabel;
+                    RepoPackStatus = $"正在下载仓库资源包（{route} · {p.Percent:0}%）…";
+                });
+            });
+            var auto = await _services.RepoPacks.AutoInstallForRepositoryAsync(rawUrl, _services.Config.Current, progress);
+            IsDownloadingRepoPack = false;
+            if (auto.Matched)
+            {
+                RepoPackStatus = auto.Message;
+                StatusMessage = $"已导入「{repoName}」· {auto.Message}";
+                await RefreshRepoPacksSafeAsync(forceRefresh: false);
+            }
+            else
+            {
+                StatusMessage = $"已导入并切换到「{repoName}」";
+            }
         }
-        catch (Exception ex) { StatusMessage = ex.Message; }
+        catch (Exception ex)
+        {
+            IsDownloadingRepoPack = false;
+            StatusMessage = ex.Message;
+        }
+    }
+
+    public async Task RenameSourceAsync(ImportedRepository repository, string newName)
+    {
+        if (repository is null) return;
+        try
+        {
+            await _services.Config.RenameImportAsync(repository.Url, newName);
+            await LoadImportsAsync();
+            SyncRepositories();
+            await UpdateSourceSummaryAsync();
+            StatusMessage = $"仓库已重命名为「{newName.Trim()}」";
+        }
+        catch (Exception ex) { StatusMessage = "重命名失败：" + ex.Message; }
+    }
+
+    [RelayCommand]
+    private Task RefreshRepoPacksAsync() => RefreshRepoPacksSafeAsync(forceRefresh: true);
+
+    private async Task RefreshRepoPacksSafeAsync(bool forceRefresh)
+    {
+        if (IsLoadingRepoPacks) return;
+        IsLoadingRepoPacks = true;
+        if (forceRefresh) RepoPackStatus = "正在经国内加速通道获取仓库资源包清单…";
+        try
+        {
+            var manifest = await _services.RepoPacks.GetManifestAsync(forceRefresh);
+            SyncRepoPacksCollection(manifest);
+            var installedCount = _services.RepoPacks.InstalledPacks.Count;
+            RepoPackStatus = manifest.Packs.Count == 0
+                ? "当前清单暂无可用资源包"
+                : $"共发现 {manifest.Packs.Count} 个可用资源包 · 本机已启用 {installedCount} 个";
+        }
+        catch (Exception ex)
+        {
+            SyncInstalledPacksOnly();
+            RepoPackStatus = forceRefresh
+                ? ex.Message
+                : (_services.RepoPacks.InstalledPacks.Count > 0
+                    ? $"已启用 {_services.RepoPacks.InstalledPacks.Count} 个本地资源包（点刷新检查更新）"
+                    : "点击「刷新清单」获取在线仓库资源包");
+        }
+        finally { IsLoadingRepoPacks = false; }
+    }
+
+    public async Task InstallRepoPackAsync(RepoPackItemViewModel? item)
+    {
+        if (item?.Entry is null || IsDownloadingRepoPack) return;
+        IsDownloadingRepoPack = true;
+        RepoPackDownloadProgress = 0;
+        RepoPackStatus = $"正在下载「{item.Name}」…";
+        try
+        {
+            var progress = new Progress<GitHubDownloadProgress>(p =>
+            {
+                _dispatcher.TryEnqueue(() =>
+                {
+                    RepoPackDownloadProgress = p.Percent;
+                    var speedText = p.BytesPerSecond > 1024 ? $" · {p.BytesPerSecond / 1024:0} KB/s" : string.Empty;
+                    RepoPackStatus = $"正在下载「{item.Name}」（{p.RouteLabel ?? "国内加速"} · {p.Percent:0}%{speedText}）";
+                });
+            });
+            var route = await _services.RepoPacks.InstallPackAsync(item.Entry, progress);
+            RepoPackDownloadProgress = 100;
+            RepoPackStatus = $"已安装并启用「{item.Name}」v{item.Entry.Version}（经 {route}，SHA-256 校验通过）";
+            StatusMessage = RepoPackStatus;
+            await RefreshRepoPacksSafeAsync(forceRefresh: false);
+        }
+        catch (Exception ex)
+        {
+            RepoPackStatus = $"下载「{item.Name}」失败：{ex.Message}";
+            StatusMessage = RepoPackStatus;
+        }
+        finally { IsDownloadingRepoPack = false; }
+    }
+
+    public async Task RemoveRepoPackAsync(RepoPackItemViewModel? item)
+    {
+        if (item is null || string.IsNullOrWhiteSpace(item.Id)) return;
+        try
+        {
+            await _services.RepoPacks.RemovePackAsync(item.Id);
+            RepoPackStatus = $"已卸载资源包「{item.Name}」";
+            StatusMessage = RepoPackStatus;
+            await RefreshRepoPacksSafeAsync(forceRefresh: false);
+        }
+        catch (Exception ex) { RepoPackStatus = "卸载资源包失败：" + ex.Message; }
+    }
+
+    private void SyncRepoPacksCollection(RepoPackManifest manifest)
+    {
+        RepoPacks.Clear();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var entry in manifest.Packs)
+        {
+            seen.Add(entry.Id);
+            var installed = _services.RepoPacks.TryGetInstalled(entry.Id, out var local) ? local : null;
+            RepoPacks.Add(RepoPackItemViewModel.FromManifest(entry, installed));
+        }
+        foreach (var local in _services.RepoPacks.InstalledPacks)
+        {
+            if (seen.Add(local.Definition.Id))
+                RepoPacks.Add(RepoPackItemViewModel.FromInstalledOnly(local));
+        }
+    }
+
+    private void SyncInstalledPacksOnly()
+    {
+        RepoPacks.Clear();
+        foreach (var local in _services.RepoPacks.InstalledPacks)
+            RepoPacks.Add(RepoPackItemViewModel.FromInstalledOnly(local));
     }
 
     [RelayCommand]

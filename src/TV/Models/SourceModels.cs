@@ -78,7 +78,10 @@ public sealed class SourceSite
     [JsonIgnore] public bool IsSupported => Type is 0 or 1 or 4
         || Services.Vod.Native.HttpSpiderProvider.Supports(this)
         || Services.Vod.Native.HtmlVodProvider.Supports(this)
+        || Services.Vod.Native.WoggNativeProvider.Supports(this)
+        || Services.Vod.Native.BilibiliVodProvider.Supports(this)
         || Services.Vod.Native.UniversalProtocolVodProvider.Supports(this)
+        || Services.Vod.Native.UniversalAutoHtmlVodProvider.Supports(this)
         || Services.Vod.Native.NativeVodProviderRouter.IsSearchOnly(this)
         || Services.Vod.Native.MyDriveVodProvider.Supports(this)
         || Services.Vod.Native.PushVodProvider.Supports(this)

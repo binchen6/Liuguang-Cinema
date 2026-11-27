@@ -97,6 +97,55 @@ jobs:
           $setup = "artifacts/installers/TV-Setup-$version-x64.exe"
           pwsh -NoProfile -File ./scripts/Test-InstallerLaunchSpeed.ps1 -InstallerPath $setup -AssertIssSettings -Runs 2 -MaxColdMs 3500 -MaxWarmMs 1200
 
+      - name: Verify clean installation and incremental upgrade on Windows
+        shell: pwsh
+        run: |
+          $version = ([xml](Get-Content 'Directory.Build.props' -Raw)).Project.PropertyGroup.Version
+          $env:TV_DATA_ROOT = Join-Path $env:RUNNER_TEMP 'Liuguang release profile'
+          $installed = Join-Path $env:RUNNER_TEMP 'Liuguang Cinema 中文'
+          $setup = Get-Item -LiteralPath "artifacts/installers/TV-Setup-$version-x64.exe"
+          function Test-InstallPackage($exe, $destination) {
+            $log = Join-Path $env:RUNNER_TEMP ($exe.BaseName + '.log')
+            $installerArgs = @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/NOICONS',
+              ('/DIR="{0}"' -f $destination), ('/LOG="{0}"' -f $log))
+            $process = Start-Process -FilePath $exe.FullName -ArgumentList $installerArgs -WindowStyle Hidden -PassThru
+            if (-not $process.WaitForExit(180000)) {
+              $process.Kill($true)
+              throw "$($exe.Name) did not finish within 3 minutes"
+            }
+            if ($process.ExitCode -ne 0) {
+              Get-Content -LiteralPath $log -Tail 20 -ErrorAction SilentlyContinue
+              throw "$($exe.Name) failed with exit code $($process.ExitCode)"
+            }
+            $installedVersion = (Get-Item -LiteralPath (Join-Path $destination 'TV.dll')).VersionInfo.FileVersion
+            if ($installedVersion -ne "$version.0") { throw "Unexpected installed version $installedVersion" }
+          }
+          Test-InstallPackage $setup $installed
+          pwsh -NoProfile -File ./scripts/run-release-regressions.ps1 -AppDirectory $installed
+          if ($LASTEXITCODE -ne 0) { throw 'Installed application regression checks failed' }
+          node --test server/dandanplay-relay/worker.test.mjs
+          if ($LASTEXITCODE -ne 0) { throw 'DanDanPlay relay regression checks failed' }
+
+          $bases = @(Get-ChildItem -Path 'artifacts/prerequisites/update-base' -Filter '*-win-x64-portable.zip' -File -ErrorAction SilentlyContinue)
+          if ($bases.Count -gt 0) {
+            $updates = @(Get-ChildItem -LiteralPath 'artifacts/installers' -Filter "TV-Update-$version-from-*-x64.exe" -File)
+            if ($bases.Count -ne 1 -or $updates.Count -ne 1) { throw 'Expected a single incremental base and update package' }
+            $upgraded = Join-Path $env:RUNNER_TEMP 'Liuguang previous portable'
+            Expand-Archive -LiteralPath $bases[0].FullName -DestinationPath $upgraded
+            Test-InstallPackage $updates[0] $upgraded
+            Get-Process -Name TV -ErrorAction SilentlyContinue |
+              Where-Object { $_.Path -eq (Join-Path $upgraded 'TV.exe') } | Stop-Process
+            $expected = Join-Path $env:RUNNER_TEMP 'Liuguang current portable'
+            Expand-Archive -LiteralPath "artifacts/installers/TV-$version-win-x64-portable.zip" -DestinationPath $expected
+            foreach ($file in Get-ChildItem -LiteralPath $expected -File -Recurse) {
+              $relative = [IO.Path]::GetRelativePath($expected, $file.FullName)
+              $patchedFile = Join-Path $upgraded $relative
+              if ((Get-FileHash -LiteralPath $patchedFile).Hash -ne (Get-FileHash -LiteralPath $file.FullName).Hash) {
+                throw "Incremental file differs from the full release: $relative"
+              }
+            }
+          }
+
       - name: Clean temporary signing certificate
         if: always() && steps.cert.outputs.has_cert == 'true'
         shell: pwsh

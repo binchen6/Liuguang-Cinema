@@ -32,7 +32,8 @@ public sealed record DanmakuPreferences(
     bool ShowTop = true,
     bool ShowBottom = true,
     bool ShowColor = true,
-    double TimeOffsetSeconds = 0.0)
+    double TimeOffsetSeconds = 0.0,
+    string BlockedPatterns = "")
 {
     public DanmakuPreferences Normalize() => this with
     {
@@ -44,6 +45,7 @@ public sealed record DanmakuPreferences(
         Density = Math.Clamp(Density, 0, 3),
         TimeOffsetSeconds = double.IsFinite(TimeOffsetSeconds) ? Math.Clamp(TimeOffsetSeconds, -15.0, 15.0) : 0.0,
         BlockedWords = BlockedWords ?? string.Empty,
+        BlockedPatterns = BlockedPatterns ?? string.Empty,
         Source = NormalizeSource(Source)
     };
 
@@ -57,39 +59,50 @@ public sealed record DanmakuPreferences(
 
 public sealed class DanmakuService(SourceHttpClient http)
 {
+    private const int MaxContentBytes = 8 * 1024 * 1024;
+    private const int MaxCommentCount = 30_000;
+    private const int MaxCommentLength = 100;
+
     public async Task<IReadOnlyList<DanmakuEntry>> LoadAsync(Uri uri, CancellationToken token)
     {
         byte[] bytes;
         if (uri.IsFile)
         {
-            var file = new FileInfo(uri.LocalPath);
-            if (!file.Exists || file.Length > 8 * 1024 * 1024) throw new InvalidDataException("本地弹幕不存在或超过大小限制。");
-            bytes = await File.ReadAllBytesAsync(file.FullName, token).ConfigureAwait(false);
+            using var file = new FileStream(uri.LocalPath, FileMode.Open, FileAccess.Read, FileShare.Read,
+                4096, FileOptions.Asynchronous | FileOptions.SequentialScan);
+            var length = file.Length;
+            if (length > MaxContentBytes) throw new InvalidDataException("本地弹幕超过 8 MB。");
+            bytes = new byte[(int)length];
+            await file.ReadExactlyAsync(bytes, token).ConfigureAwait(false);
         }
         else
         {
             try
             {
-                bytes = (await http.GetBytesAsync(uri.AbsoluteUri, maxBytes: 8 * 1024 * 1024, cancellationToken: token).ConfigureAwait(false)).Content;
+                bytes = (await http.GetBytesAsync(uri.AbsoluteUri, maxBytes: MaxContentBytes, cancellationToken: token).ConfigureAwait(false)).Content;
             }
             catch (OperationCanceledException ex) when (!token.IsCancellationRequested)
             {
                 throw new TimeoutException("弹幕文件下载超时，请稍后重试。", ex);
             }
         }
-        return ParseContent(System.Text.Encoding.UTF8.GetString(bytes));
+        return ParseContent(System.Text.Encoding.UTF8.GetString(bytes), token);
     }
 
-    public static DanmakuEntry[] ParseContent(string raw)
+    public static DanmakuEntry[] ParseContent(string raw) => ParseContent(raw, CancellationToken.None);
+
+    internal static DanmakuEntry[] ParseContent(string raw, CancellationToken token)
     {
-        var content = raw.TrimStart('\uFEFF', '\r', '\n', ' ');
+        token.ThrowIfCancellationRequested();
+        var content = raw.TrimStart('\uFEFF', '\r', '\n', ' ', '\t');
         var comments = new List<DanmakuEntry>();
         if (content.StartsWith('<'))
         {
             using var input = new StringReader(content);
-            using var xml = XmlReader.Create(input, new XmlReaderSettings { DtdProcessing = DtdProcessing.Prohibit, MaxCharactersInDocument = 8 * 1024 * 1024 });
-            while (!xml.EOF && comments.Count < 30_000)
+            using var xml = XmlReader.Create(input, new XmlReaderSettings { DtdProcessing = DtdProcessing.Prohibit, MaxCharactersInDocument = MaxContentBytes });
+            while (!xml.EOF && comments.Count < MaxCommentCount)
             {
+                token.ThrowIfCancellationRequested();
                 if (xml.NodeType == XmlNodeType.Element && xml.LocalName == "d")
                 {
                     var fields = (xml.GetAttribute("p") ?? "").Split(',');
@@ -106,8 +119,9 @@ public sealed class DanmakuService(SourceHttpClient http)
             if (root.ValueKind == JsonValueKind.Object)
                 root = root.TryGetProperty("comments", out var items) || root.TryGetProperty("data", out items) ? items : default;
             if (root.ValueKind != JsonValueKind.Array) throw new InvalidDataException("无法识别弹幕格式。");
-            foreach (var item in root.EnumerateArray().Take(30_000))
+            foreach (var item in root.EnumerateArray().Take(MaxCommentCount))
             {
+                token.ThrowIfCancellationRequested();
                 if (item.ValueKind == JsonValueKind.Object)
                 {
                     var pAttr = Read(item, "p");
@@ -147,7 +161,12 @@ public sealed class DanmakuService(SourceHttpClient http)
             ? (uint.TryParse(color.AsSpan(1), NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var hex) ? hex : 0xFFFFFF)
             : (uint.TryParse(color, NumberStyles.Integer, CultureInfo.InvariantCulture, out var dec) ? dec : 0xFFFFFF);
         var parsedMode = ParseMode(mode);
-        target.Add(new DanmakuEntry(seconds, clean[..Math.Min(100, clean.Length)], rgb & 0xFFFFFF, parsedMode));
+        if (clean.Length > MaxCommentLength)
+        {
+            var length = char.IsSurrogatePair(clean, MaxCommentLength - 1) ? MaxCommentLength - 1 : MaxCommentLength;
+            clean = clean[..length];
+        }
+        target.Add(new DanmakuEntry(seconds, clean, rgb & 0xFFFFFF, parsedMode));
     }
 
     private static DanmakuMode ParseMode(string? mode)

@@ -392,6 +392,7 @@ public sealed partial class DanDanPlayService
     public async Task<DanmakuEntry[]> GetCommentsAsync(long episodeId, bool withRelated = true, int chConvert = 1, CancellationToken token = default)
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(episodeId);
+        token.ThrowIfCancellationRequested();
         var convert = Math.Clamp(chConvert, 0, 2);
         var cacheKey = (episodeId, withRelated, convert);
         if (_commentCache.TryGetValue(cacheKey, out var cached) && cached.Expires > DateTimeOffset.UtcNow)
@@ -413,7 +414,7 @@ public sealed partial class DanDanPlayService
             json = await SendSignedAsync(HttpMethod.Get, path, directUrl, bodyJson: null, token, CommentRequestTimeout).ConfigureAwait(false);
             cacheKey = (episodeId, false, convert);
         }
-        var comments = DanmakuService.ParseContent(json);
+        var comments = DanmakuService.ParseContent(json, token);
 
         if (_commentCache.Count >= 32)
         {

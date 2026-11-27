@@ -59,7 +59,10 @@ public sealed class DoubanVodProvider(SourceHttpClient http) : ICategoryFilterVo
     public static bool Supports(SourceSite site) => site.Type == 3 &&
         (site.Api.Equals("csp_DouDouGuard", StringComparison.OrdinalIgnoreCase) ||
          site.Api.Equals("csp_DouDou", StringComparison.OrdinalIgnoreCase) ||
-         site.Api.Equals("csp_Douban", StringComparison.OrdinalIgnoreCase));
+         site.Api.Equals("csp_Douban", StringComparison.OrdinalIgnoreCase) ||
+         site.Api.Equals("csp_DoubanGuard", StringComparison.OrdinalIgnoreCase) ||
+         site.Api.Equals("csp_PianDan", StringComparison.OrdinalIgnoreCase) ||
+         site.Api.Equals("csp_PianDanGuard", StringComparison.OrdinalIgnoreCase));
 
     public bool CanHandle(SourceSite site) => Supports(site);
 

@@ -47,11 +47,20 @@ public sealed class GlassSurface : ContentControl
     public static readonly DependencyProperty CausticMarginProperty =
         DependencyProperty.Register(nameof(CausticMargin), typeof(Thickness), typeof(GlassSurface), new PropertyMetadata(new Thickness(12, 0, 12, 0)));
 
+    public static readonly DependencyProperty OpticsModeProperty =
+        DependencyProperty.Register(nameof(OpticsMode), typeof(GlassOpticsMode), typeof(GlassSurface),
+            new PropertyMetadata(GlassOpticsMode.Interactive, OnOpticsChanged));
+
+    public static readonly DependencyProperty OpticsProfileProperty =
+        DependencyProperty.Register(nameof(OpticsProfile), typeof(GlassOpticsProfile), typeof(GlassSurface),
+            new PropertyMetadata(GlassOpticsProfile.Standard, OnOpticsChanged));
+
     private UIElement? _volumeLayer;
     private UIElement? _innerBevelLayer;
     private Border? _frostGrainLayer;
     private UIElement? _causticLine;
     private UIElement? _bottomBevel;
+    private FrameworkElement? _opticsHost;
 
     public GlassSurface()
     {
@@ -111,6 +120,18 @@ public sealed class GlassSurface : ContentControl
         private set => SetValue(CausticMarginProperty, value);
     }
 
+    public GlassOpticsMode OpticsMode
+    {
+        get => (GlassOpticsMode)GetValue(OpticsModeProperty);
+        set => SetValue(OpticsModeProperty, value);
+    }
+
+    public GlassOpticsProfile OpticsProfile
+    {
+        get => (GlassOpticsProfile)GetValue(OpticsProfileProperty);
+        set => SetValue(OpticsProfileProperty, value);
+    }
+
     protected override void OnApplyTemplate()
     {
         base.OnApplyTemplate();
@@ -119,8 +140,21 @@ public sealed class GlassSurface : ContentControl
         _frostGrainLayer = GetTemplateChild("FrostGrainLayer") as Border;
         _causticLine = GetTemplateChild("CausticLine") as UIElement;
         _bottomBevel = GetTemplateChild("BottomBevel") as UIElement;
+        _opticsHost = GetTemplateChild("OpticsHost") as FrameworkElement;
         UpdateDerivedGeometry();
         UpdateOpticalLayers();
+        SyncOpticsEngine();
+    }
+
+    private static void OnOpticsChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
+    {
+        if (d is GlassSurface surface) surface.SyncOpticsEngine();
+    }
+
+    private void SyncOpticsEngine()
+    {
+        if (_opticsHost is null) return;
+        GlassOpticsEngine.AttachOrUpdate(this, _opticsHost, OpticsMode, OpticsProfile);
     }
 
     private static void OnFrostGrainOpacityChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
@@ -146,6 +180,7 @@ public sealed class GlassSurface : ContentControl
         var insetLeft = Math.Clamp(r.TopLeft * 0.65, 6, 26);
         var insetRight = Math.Clamp(r.TopRight * 0.65, 6, 26);
         CausticMargin = new Thickness(insetLeft, 0, insetRight, 0);
+        GlassOpticsEngine.NotifyGeometryChanged(this);
     }
 
     private void UpdateOpticalLayers()

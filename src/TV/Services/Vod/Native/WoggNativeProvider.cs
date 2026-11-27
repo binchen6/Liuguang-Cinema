@@ -23,6 +23,7 @@ public sealed partial class WoggNativeProvider : ICategoryFilterVodProvider
     private readonly SourceHttpClient _http;
     private readonly CloudDriveService _cloud;
     private readonly ConcurrentDictionary<string, Uri> _workingOrigins = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, bool> _slashMacCmsStyle = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, DateTimeOffset> _forbiddenUntil = new(StringComparer.OrdinalIgnoreCase);
     private readonly SemaphoreSlim _requestGate = new(3, 3);
     private readonly SemaphoreSlim _searchGate = new(1);
@@ -32,28 +33,64 @@ public sealed partial class WoggNativeProvider : ICategoryFilterVodProvider
     private static readonly Uri[] PublicOrigins = [new("https://woggpan.888484.xyz/"), LegacyOrigin];
     private const string BrowserUserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36";
 
+    private static readonly HashSet<string> CloudCmsApis = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "csp_FishCloud", "csp_FishCloudGuard",
+        "csp_Muou", "csp_MuouGuard",
+        "csp_Duoduo", "csp_DuoduoGuard",
+        "csp_Ouge", "csp_OugeGuard",
+        "csp_Wax", "csp_WaxGuard",
+        "csp_Mogg", "csp_MoggGuard",
+        "csp_Huban", "csp_HubanGuard",
+        "csp_Huajuan", "csp_HuajuanGuard",
+        "csp_Shayang", "csp_ShayangGuard",
+        "csp_ErXiao", "csp_ErXiaoGuard",
+        "csp_XiaoMi", "csp_XiaoMiGuard"
+    };
+
     public WoggNativeProvider(SourceHttpClient http, CloudDriveService cloud)
     {
         _http = http;
         _cloud = cloud;
     }
 
-    public bool CanHandle(SourceSite site) => site.Api.Equals("csp_WoGGGuard", StringComparison.OrdinalIgnoreCase) || site.Api.Equals("csp_Wogg", StringComparison.OrdinalIgnoreCase);
+    private static bool IsWoggApi(string api) =>
+        api.Equals("csp_WoGGGuard", StringComparison.OrdinalIgnoreCase) ||
+        api.Equals("csp_Wogg", StringComparison.OrdinalIgnoreCase);
+
+    public static bool Supports(SourceSite site) =>
+        site.Type == 3 && (IsWoggApi(site.Api) || (CloudCmsApis.Contains(site.Api) && ConfiguredOrigins(site.Ext).Any()));
+
+    public bool CanHandle(SourceSite site) => Supports(site);
 
     public async Task<CmsResponse> GetHomeAsync(SourceSite site, CancellationToken cancellationToken = default)
     {
         var document = await OpenAsync(site, "/", cancellationToken).ConfigureAwait(false);
         var categories = new List<VodCategory>();
-        foreach (var link in document.QuerySelectorAll(".nav-link"))
+        var seenCat = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var usesSlashStyle = false;
+        foreach (var link in document.QuerySelectorAll(".nav-link, .nav-menu-item a[href], header a[href*='/vod']"))
         {
-            var match = CategoryRegex().Match(link.GetAttribute("href") ?? string.Empty);
-            if (match.Success) categories.Add(new VodCategory { Id = match.Groups[1].Value, Name = link.TextContent.Trim() });
+            var href = link.GetAttribute("href") ?? string.Empty;
+            var match = CategoryRegex().Match(href);
+            if (!match.Success)
+            {
+                match = SlashCategoryRegex().Match(href);
+                if (match.Success) usesSlashStyle = true;
+            }
+            var catName = link.TextContent.Trim();
+            if (match.Success && catName.Length > 0 && seenCat.Add(match.Groups[1].Value))
+                categories.Add(new VodCategory { Id = match.Groups[1].Value, Name = catName });
         }
-        var visible = document.QuerySelectorAll(".module-item").Where(card => card.Closest(".tab-list:not(.selected)") is null);
+        var visible = document.QuerySelectorAll(".module-item").Where(card => card.Closest(".tab-list:not(.selected)") is null).ToArray();
+        var items = ParseCards(visible);
+        if (items.Any(it => it.Id.Contains("/vod/detail/", StringComparison.OrdinalIgnoreCase)))
+            usesSlashStyle = true;
+        _slashMacCmsStyle[site.Key] = usesSlashStyle;
         return Prepare(new CmsResponse
         {
-            Categories = categories, List = ParseCards(visible),
-            HomeCategoryName = Text(document.QuerySelector("#index-main .module-heading .module-title"))
+            Categories = categories, List = items,
+            HomeCategoryName = Text(document.QuerySelector("#index-main .module-heading .module-title, .module-heading .module-title"))
         }, site, document.Url);
     }
 
@@ -63,13 +100,36 @@ public sealed partial class WoggNativeProvider : ICategoryFilterVodProvider
     public async Task<CmsResponse> GetCategoryAsync(SourceSite site, string categoryId, int page,
         IReadOnlyDictionary<string, string>? filters, CancellationToken cancellationToken)
     {
-        var parts = new string[12];
-        parts[0] = categoryId;
-        parts[8] = page.ToString(CultureInfo.InvariantCulture);
-        if (filters is not null)
-            foreach (var field in FilterFields)
-                if (filters.TryGetValue(field.Key, out var value)) parts[field.Slot] = Uri.EscapeDataString(value);
-        var path = $"/index.php/vodshow/{string.Join('-', parts)}.html";
+        string path;
+        if (_slashMacCmsStyle.TryGetValue(site.Key, out var slash) && slash)
+        {
+            var segs = new List<string> { "id", Uri.EscapeDataString(categoryId) };
+            if (filters is not null)
+            {
+                foreach (var field in FilterFields)
+                    if (filters.TryGetValue(field.Key, out var value) && !string.IsNullOrWhiteSpace(value))
+                    {
+                        segs.Add(field.Key);
+                        segs.Add(Uri.EscapeDataString(value));
+                    }
+            }
+            if (page > 1)
+            {
+                segs.Add("page");
+                segs.Add(page.ToString(CultureInfo.InvariantCulture));
+            }
+            path = $"/index.php/vod/show/{string.Join('/', segs)}.html";
+        }
+        else
+        {
+            var parts = new string[12];
+            parts[0] = categoryId;
+            parts[8] = page.ToString(CultureInfo.InvariantCulture);
+            if (filters is not null)
+                foreach (var field in FilterFields)
+                    if (filters.TryGetValue(field.Key, out var value)) parts[field.Slot] = Uri.EscapeDataString(value);
+            path = $"/index.php/vodshow/{string.Join('-', parts)}.html";
+        }
         var document = await OpenAsync(site, path, cancellationToken).ConfigureAwait(false);
         var response = ReadPage(document, ParseCards(document.QuerySelectorAll(".module-item")), page);
         if (page == 1 && filters is not { Count: > 0 }) response.Filters = ReadCategoryFilters(document, categoryId);
@@ -78,7 +138,10 @@ public sealed partial class WoggNativeProvider : ICategoryFilterVodProvider
 
     public async Task<CmsResponse> SearchAsync(SourceSite site, string keyword, int page, CancellationToken cancellationToken = default)
     {
-        var path = FormattableString.Invariant($"/index.php/vodsearch/----------{page}---.html?wd={Uri.EscapeDataString(keyword)}");
+        var slash = _slashMacCmsStyle.TryGetValue(site.Key, out var isSlash) && isSlash;
+        var path = slash
+            ? FormattableString.Invariant($"/index.php/vod/search/page/{page}/wd/{Uri.EscapeDataString(keyword)}.html")
+            : FormattableString.Invariant($"/index.php/vodsearch/----------{page}---.html?wd={Uri.EscapeDataString(keyword)}");
         IDocument document;
         await _searchGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
@@ -95,18 +158,20 @@ public sealed partial class WoggNativeProvider : ICategoryFilterVodProvider
         var items = new List<VodItem>();
         foreach (var card in document.QuerySelectorAll(".module-search-item"))
         {
-            var link = card.QuerySelector(".video-serial");
-            var name = link?.GetAttribute("title")?.Trim() ?? string.Empty;
+            var link = card.QuerySelector(".video-serial") ?? card.QuerySelector(".video-info-header h3 a, .module-item-pic a[href]");
+            var name = link?.GetAttribute("title")?.Trim() ?? card.QuerySelector(".video-info-header h3")?.TextContent.Trim() ?? string.Empty;
             if (link is null || name.Length == 0) continue;
             var item = new VodItem
             {
                 Id = link.GetAttribute("href") ?? string.Empty, Name = name,
                 Picture = Image(card.QuerySelector(".module-item-pic img"), document.Url),
-                Remarks = Text(link)
+                Remarks = Text(card.QuerySelector(".video-serial"))
             };
             FillInfo(item, card, fullPlot: false);
             items.Add(item);
         }
+        if (items.Count == 0)
+            items = ParseCards(document.QuerySelectorAll(".module-item"));
         return Prepare(ReadPage(document, items, page), site, document.Url);
     }
 
@@ -114,14 +179,15 @@ public sealed partial class WoggNativeProvider : ICategoryFilterVodProvider
     {
         var path = Uri.TryCreate(id, UriKind.Absolute, out var saved) && saved.Scheme is "http" or "https"
             ? saved.PathAndQuery : id;
-        if (!path.Contains("/voddetail/", StringComparison.OrdinalIgnoreCase))
-            throw new ArgumentException("玩偶详情地址无效。", nameof(id));
+        if (!path.Contains("/voddetail/", StringComparison.OrdinalIgnoreCase) &&
+            !path.Contains("/vod/detail/", StringComparison.OrdinalIgnoreCase))
+            throw new ArgumentException("云盘站点详情地址无效。", nameof(id));
         var document = await OpenAsync(site, path, cancellationToken).ConfigureAwait(false);
         var url = document.Url;
         var item = new VodItem
         {
             Id = id,
-            Name = document.QuerySelector(".video-info-header > .page-title")?.TextContent.Trim() ?? string.Empty,
+            Name = document.QuerySelector(".video-info-header > .page-title, .video-info-header h1, h1")?.TextContent.Trim() ?? string.Empty,
             Picture = Image(document.QuerySelector(".module-item-pic img"), url)
         };
         FillInfo(item, document, fullPlot: true);
@@ -203,14 +269,15 @@ public sealed partial class WoggNativeProvider : ICategoryFilterVodProvider
     {
         HttpRequestException? accessError = null;
         Uri? challengeTarget = null;
+        var isWogg = IsWoggApi(site.Api);
         var configured = ConfiguredOrigins(site.Ext).ToArray();
         var customConfigured = configured.Where(origin => !MediaRequestHeaders.SameOrigin(origin, LegacyOrigin)).ToArray();
         var ordered = new List<Uri>();
-        ordered.AddRange(customConfigured);
         if (_workingOrigins.TryGetValue(site.Key, out var working) &&
-            (configured.Contains(working) || PublicOrigins.Contains(working)))
+            (configured.Contains(working) || (isWogg && PublicOrigins.Contains(working))))
             ordered.Add(working);
-        ordered.AddRange(PublicOrigins);
+        ordered.AddRange(customConfigured);
+        if (isWogg) ordered.AddRange(PublicOrigins);
         ordered.AddRange(configured);
 
         var candidates = ordered.Distinct().Take(6).ToArray();
@@ -218,9 +285,9 @@ public sealed partial class WoggNativeProvider : ICategoryFilterVodProvider
         var preferred = candidates.Where(origin => !IsInCooldown(origin, now)).ToArray();
         var roots = preferred.Length > 0 ? preferred : candidates;
 
-        var detail = path.Contains("/voddetail/", StringComparison.OrdinalIgnoreCase);
-        var search = path.Contains("/vodsearch/", StringComparison.OrdinalIgnoreCase);
-        var selector = detail ? ".video-info-header h1, .module-row-text" : search ? ".search-stat, .module-search-item" : ".module-item, .library-stat, .nav-link";
+        var detail = path.Contains("/voddetail/", StringComparison.OrdinalIgnoreCase) || path.Contains("/vod/detail/", StringComparison.OrdinalIgnoreCase);
+        var search = path.Contains("/vodsearch/", StringComparison.OrdinalIgnoreCase) || path.Contains("/vod/search/", StringComparison.OrdinalIgnoreCase);
+        var selector = detail ? ".video-info-header h1, .module-row-text, [data-clipboard-text]" : search ? ".search-stat, .module-search-item, .module-item" : ".module-item, .library-stat, .nav-link";
 
         foreach (var root in roots)
         {
@@ -370,15 +437,20 @@ public sealed partial class WoggNativeProvider : ICategoryFilterVodProvider
     private static List<VodItem> ParseCards(IEnumerable<IElement> cards)
     {
         var result = new List<VodItem>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var card in cards)
         {
-            var link = card.QuerySelector(".video-name a");
-            var name = card.QuerySelector(".video-name")?.TextContent.Trim() ?? string.Empty;
-            if (link is null || name.Length == 0) continue;
+            var link = card.QuerySelector(".video-name a") ?? card.QuerySelector(".module-item-pic a[href]") ?? card.QuerySelector("a[href*='/vod']");
+            var href = link?.GetAttribute("href")?.Trim() ?? string.Empty;
+            var name = NativeSiteToolkit.FirstNonEmpty(
+                card.QuerySelector(".video-name")?.TextContent,
+                link?.GetAttribute("title"),
+                card.QuerySelector(".module-item-pic img")?.GetAttribute("alt"));
+            if (link is null || href.Length == 0 || name.Length == 0 || !seen.Add(href)) continue;
             var caption = card.QuerySelector(".module-item-caption .video-class");
             result.Add(new VodItem
             {
-                Id = link.GetAttribute("href") ?? string.Empty, Name = name,
+                Id = href, Name = name,
                 Picture = ImageSource(card.QuerySelector(".module-item-pic img")),
                 Remarks = Text(card.QuerySelector(".module-item-text")),
                 Year = Text(caption?.PreviousElementSibling), TypeName = Text(caption), Area = Text(caption?.NextElementSibling),
@@ -482,6 +554,8 @@ public sealed partial class WoggNativeProvider : ICategoryFilterVodProvider
 
     [GeneratedRegex(@"/vodtype/(\w+)\.html", RegexOptions.IgnoreCase)]
     private static partial Regex CategoryRegex();
+    [GeneratedRegex(@"/vod/type/id/(\w+)\.html", RegexOptions.IgnoreCase)]
+    private static partial Regex SlashCategoryRegex();
     [GeneratedRegex(@"mac_total.*?text\('(\d+)'\)", RegexOptions.IgnoreCase)]
     private static partial Regex PageTotalRegex();
     [GeneratedRegex(@"-(\d+)-(?:[^-/]*-){2}[^-/]*\.html(?:[?#].*)?$", RegexOptions.IgnoreCase)]

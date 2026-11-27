@@ -23,7 +23,9 @@ public sealed class GuaziVodProvider(SourceHttpClient http) : INativePlaybackPro
 
     public static bool Supports(SourceSite site) => site.Type == 3 &&
         (site.Api.Equals("csp_AppgzGuard", StringComparison.OrdinalIgnoreCase) ||
-         site.Api.Equals("csp_Appgz", StringComparison.OrdinalIgnoreCase));
+         site.Api.Equals("csp_Appgz", StringComparison.OrdinalIgnoreCase) ||
+         site.Api.Equals("csp_Guazi", StringComparison.OrdinalIgnoreCase) ||
+         site.Api.Equals("csp_GuaziGuard", StringComparison.OrdinalIgnoreCase));
 
     public bool CanHandle(SourceSite site) => Supports(site);
 

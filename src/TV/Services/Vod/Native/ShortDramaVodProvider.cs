@@ -37,7 +37,9 @@ public sealed class ShortDramaVodProvider(SourceHttpClient http) : INativePlayba
         (site.Api.Equals("csp_AiDjGuard", StringComparison.OrdinalIgnoreCase) ||
          site.Api.Equals("csp_AiDj", StringComparison.OrdinalIgnoreCase) ||
          site.Api.Equals("csp_ShortDrama", StringComparison.OrdinalIgnoreCase) ||
-         site.Api.Equals("csp_ShortDramaGuard", StringComparison.OrdinalIgnoreCase));
+         site.Api.Equals("csp_ShortDramaGuard", StringComparison.OrdinalIgnoreCase) ||
+         site.Api.Equals("csp_DJHub", StringComparison.OrdinalIgnoreCase) ||
+         site.Api.Equals("csp_DJHubGuard", StringComparison.OrdinalIgnoreCase));
 
     public bool CanHandle(SourceSite site) => Supports(site);
 

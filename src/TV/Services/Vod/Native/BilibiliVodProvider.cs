@@ -32,8 +32,25 @@ public sealed partial class BilibiliVodProvider(SourceHttpClient http, CloudDriv
         [240] = 6, [360] = 16, [480] = 32, [720] = 64, [1080] = 80, [2160] = 120, [4320] = 127
     };
 
+    private static readonly VodCategory[] DefaultBiliCategories =
+    [
+        new() { Id = "番剧推荐", Name = "番剧" },
+        new() { Id = "国创动画", Name = "国创" },
+        new() { Id = "高分电影解说", Name = "影视" },
+        new() { Id = "纪录片", Name = "纪录片" },
+        new() { Id = "华语经典音乐现场", Name = "音乐" },
+        new() { Id = "科技数码评测", Name = "科技" },
+        new() { Id = "科普知识", Name = "知识" },
+        new() { Id = "游戏实况", Name = "游戏" },
+        new() { Id = "美食探店", Name = "美食" },
+        new() { Id = "演唱会4K", Name = "演唱会" }
+    ];
+
     public static bool Supports(SourceSite site) => site.Type == 3 &&
-        site.Api.Equals("csp_BiliGuard", StringComparison.OrdinalIgnoreCase) && ChannelConfig(site) is not null;
+        (site.Api.Equals("csp_BiliGuard", StringComparison.OrdinalIgnoreCase) ||
+         site.Api.Equals("csp_Bili", StringComparison.OrdinalIgnoreCase) ||
+         site.Api.Equals("csp_Bilibili", StringComparison.OrdinalIgnoreCase) ||
+         site.Api.Equals("csp_BiliBili", StringComparison.OrdinalIgnoreCase));
 
     public static bool IsLoginCategory(string id) => id.Equals("peizhi", StringComparison.OrdinalIgnoreCase);
 
@@ -41,15 +58,29 @@ public sealed partial class BilibiliVodProvider(SourceHttpClient http, CloudDriv
 
     public async Task<CmsResponse> GetHomeAsync(SourceSite site, CancellationToken cancellationToken = default)
     {
-        var address = ChannelConfig(site) ?? throw new InvalidDataException("哔哩合集缺少分类配置地址。");
-        var payload = await http.GetBytesAsync(address.AbsoluteUri, PublicHeaders, maxBytes: 2 * 1024 * 1024,
-            cancellationToken: cancellationToken, scopeRedirectHeaders: true).ConfigureAwait(false);
-        var response = JsonSerializer.Deserialize<CmsResponse>(SourceHttpClient.DecodeText(payload.Content).TrimStart('\uFEFF'), JsonUtil.Options)
-            ?? throw new InvalidDataException("哔哩合集没有返回分类配置。");
+        var address = ChannelConfig(site);
+        CmsResponse response;
+        if (address is not null)
+        {
+            var payload = await http.GetBytesAsync(address.AbsoluteUri, PublicHeaders, maxBytes: 2 * 1024 * 1024,
+                cancellationToken: cancellationToken, scopeRedirectHeaders: true).ConfigureAwait(false);
+            response = JsonSerializer.Deserialize<CmsResponse>(SourceHttpClient.DecodeText(payload.Content).TrimStart('\uFEFF'), JsonUtil.Options)
+                ?? throw new InvalidDataException("哔哩合集没有返回分类配置。");
+        }
+        else
+        {
+            response = new CmsResponse
+            {
+                HomeCategoryName = "B站热门",
+                Categories = [.. DefaultBiliCategories]
+            };
+        }
         response.Categories ??= [];
         response.List ??= [];
         response.Categories.RemoveAll(static category => category is null);
         response.List.RemoveAll(static item => item is null);
+        if (response.Categories.Count == 0)
+            response.Categories.AddRange(DefaultBiliCategories);
         foreach (var item in response.List)
         {
             item.SiteKey = site.Key;
@@ -395,7 +426,12 @@ public sealed partial class BilibiliVodProvider(SourceHttpClient http, CloudDriv
     private static string? EpisodeEntry(string aid, string cid, string name) => NumericId(aid) && NumericId(cid)
         ? $"{(name.Length > 0 ? name.Replace('$', '＄').Replace('#', '＃') : "正片")}${aid}+{cid}" : null;
 
-    private static Uri? ChannelConfig(SourceSite site) => AsHttpUri(Text(site.Ext, "json"));
+    private static Uri? ChannelConfig(SourceSite site)
+    {
+        if (site.Ext.ValueKind == JsonValueKind.String)
+            return AsHttpUri(site.Ext.GetString() ?? string.Empty);
+        return AsHttpUri(Text(site.Ext, "json"));
+    }
     private static Uri? AsHttpUri(string text) => Uri.TryCreate(text, UriKind.Absolute, out var result) &&
         result.Scheme is "http" or "https" && result.UserInfo.Length == 0 ? result : null;
     private static bool NumericId(string value) => value.Length is > 0 and <= 20 && value.All(char.IsAsciiDigit);

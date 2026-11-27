@@ -1,31 +1,44 @@
 # 流光影院 · Liuguang Cinema
 
-基于 **C#、WinUI 3（Windows App SDK 1.8）、.NET 10 与 LibVLC** 的 Windows x64 原生桌面影音客户端，集成点播、直播、跨站搜索、四大个人网盘、本地媒体库、弹幕、AI 字幕、离线下载与投屏接收。
+基于 **C#、WinUI 3（Windows App SDK 1.8）、.NET 10 与 LibVLC** 的 Windows x64 原生桌面影音客户端。以光学液态玻璃美学、三层全源自适应生态与原生硬解播放为核心，在一扇窗口内整合点播、直播、四大个人网盘、自适应本地媒体库与投屏接收。
 
 ![流光影院主界面](./docs/assets/promo/01-hero-cinema.png)
 
-> **项目定位与边界**：本项目是原生 Windows 桌面应用，不是 Android TVBox 模拟器，也不是 FongMi/TV 官方分支。界面、播放控制与多数站点适配器由 C# 原生实现，部分 CatVod 站点通过随包分发的独立 Java 17 进程运行。应用本身不托管或提供任何影视资源，所有片源、直播、网盘、字幕与弹幕均来自用户配置或第三方公开服务。
+> **项目定位与边界**：本项目是原生 Windows 桌面应用，不是 Android TVBox 模拟器，也不是 FongMi/TV 官方分支。界面、播控与核心站点适配器由 C# 原生实现，部分 CatVod 站点通过随包分发的独立 Java 17 进程运行。应用本身不托管或提供任何影视资源，所有片源、直播、网盘、字幕与弹幕均来自用户配置或第三方公开服务。
 >
 > 图文功能导览见 [项目功能介绍](docs/showcase.md)。
 
 ---
 
-## 主要功能
+## 核心卖点
+
+1. **光学液态玻璃美学 × 专属玻璃光影引擎（`GlassOpticsEngine`）**
+   暗室素墨（`#0B0B0D`）与低眩光暖白宣纸（`#ECE9E1`）双主题，支持系统高对比度模式。玻璃折射、高光和点击波纹在交互时按需加载，指针更新上限约 120 Hz。关闭动效时使用基础样式。
+2. **三层全源自适应生态 × 仓库资源包（原生 > 通用 > 专属包）**
+   支持 C# 原生直连、通用多协议、自动 HTML、`drpy2 js:` 与 `CryptoJS`、Python 和 Android DEX 动态转译。导入仓库时可匹配专属资源包。独立资源包仓库提供 SHA-256，下载包体时可走国内镜像。支持按仓切换，导入时可自定义仓库名，也可随时重命名。 [Liuguang-RepoPacks](https://github.com/binchen6/Liuguang-RepoPacks)
+3. **LibVLC 原生硬解 × 零回弹精准播控**
+   默认 `:avcodec-hw=any` 硬件解码（不支持时自动降级软解），搭载 `PlaybackSeekCoordinator` 确定性状态机、悬浮时间预览胶囊与网盘跳转实时取消旧预读，消除进度条回弹与暂停抖动；支持 3 秒悬停感知隐藏控制栏与原生透明光标、播放期防息屏/防休眠与可选阿里云百炼 AI 双语/实时字幕。
+4. **四大网盘直连 × 自适应媒体库 × 直播与投屏**
+   阿里、夸克、UC、百度网盘通过本地 `127.0.0.1` 回环代理与分块缓存免转存直播；媒体库「继续观看」采用 1–6 列全宽自适应宽屏信息流，联动收藏、HLS/单集下载、本地目录递归监听与「打开方式」直达播放，并内置 M3U/TXT 直播（含 EPG）与 DLNA/扫码投屏接收。
+5. **纯净原生工程 × 本地优先隐私边界**
+   免管理员权限、免预装 .NET/Java/VC++ 运行库、98.4% 微软签名 PE 覆盖率、~300 ms 秒开安装器与便携 ZIP；支持 5 镜国内加速文件级双向差异增量更新与官方 SHA-256 校验；全部密钥经 Windows DPAPI 本机加密、跨域头隔离、日志自动脱敏、零遥测上报。
+
+---
+
+## 功能一览
 
 | 模块 | 实现说明 |
 | --- | --- |
-| **界面与主题** | 深色（暗室素墨）、浅色（暖白低眩光）与高对比度主题；使用 WinUI 3 `AcrylicBrush` 与自研多层光学玻璃控件 `GlassSurface`；全站横向/竖向导航样式收敛至 `Styles/Navigation.xaml` 与 `Controls/NavigationMotion.cs`，由 WinUI Composition 驱动可打断弹簧过渡 |
-| **点播与直播** | 兼容常见 TVBox 单仓、多仓、AES/Base64 加密配置、Type 0/1/4 与 M3U/TXT 直播源；支持**多仓库切换与站点隔离**；内置原生 C# 适配器、`AppYsV2/AList`、`Jint` JS 规则、`Python` 爬虫及支持外部安卓 DEX/JAR 动态转译加载的 Java 17 CatVod 引擎 |
-| **搜索与换源** | 支持多站并发搜索、本地历史/片库即时联想 + 防抖流式远端建议（不抢占中文 IME 焦点）、单站重试、应用内验证码/安全验证弹窗与同名片源切换 |
-| **播放器** | 基于 LibVLC，默认优先硬件解码（`:avcodec-hw=any`，不支持时自动回退软解）；支持无回弹拖拽与悬停时间预览、网盘跳转实时取消旧预读、倍速、画质、画面比例、多音轨/外挂字幕、片头片尾跳过、全屏、画中画与播放期防息屏/防休眠 |
-| **弹幕与字幕** | 支持弹弹play 开放弹幕库（支持多平台免费国内直连签名中继、自动故障转移、直连国内 `cas2.dandanplay.net` CDN 省流下载及自定义 AppId/AppSecret）及 B 站弹幕；支持字幕时间偏移（±60s）与 `0.80x–1.25x` 调速 |
-| **AI 字幕（需自备 Key）** | 接入阿里云百炼 API（用户在设置中自行填入 API Key）：支持提取音轨生成字幕（`paraformer-v2` / `qwen3-asr-flash-filetrans`）、双语翻译（`qwen-mt-flash` / `qwen-mt-plus`）与 WASAPI 进程环回实时字幕（`qwen3-asr-flash-realtime`） |
-| **个人网盘** | 支持阿里云盘（含资源库/备份盘与设备会话签名）、夸克、UC、百度网盘登录与目录浏览；通过本地 `127.0.0.1` 代理和分块预读播放。UC 原画受限时会尝试账号可用的转码，并在播放页显示结果 |
-| **本地媒体与下载** | 支持本地目录递归扫描与变更监听、同名侧车字幕/弹幕自动挂载、Windows「打开方式」直达播放（跳过站点与爬虫初始化）；支持单集另存与批量/HLS 下载 |
-| **投屏接收与清理** | 支持局域网 DLNA/UPnP 发现与手机扫码选片，电脑端确认后播放；提供按分类扫描与显式勾选确认的缓存/临时文件清理 |
-| **安装与更新** | 提供 Inno Setup 安装包与免安装便携 ZIP；内置 GitHub Release 检查、国内镜像测速回退、分段下载、文件级差异增量更新与 SHA-256 校验 |
+| **光学玻璃与主题** | 深色（`#0B0B0D`）、浅色（`#ECE9E1`）与高对比度主题；每屏宏观 `AcrylicBrush ≤ 4` 块，结合 `GlassSurface` + `GlassOpticsEngine` 光学折射光影与 `NavigationMotion` 统一导航动效 |
+| **三层点播适配** | 兼容 TVBox 单仓/多仓、注释 JSON、`8位**` Base64 与 AES-128-CBC 加密配置；支持导入自定义仓库名、已导入重命名与按仓隔离；聚合 22 个原生 C# 适配器、`UniversalProtocol`（AppYs/AList/360/网盘合集）、`UniversalAutoHtml`、`Jint`（`drpy2 js:` + `CryptoJS.AES` + T3）、`Python`、Java 17 DEX 动态转译及自动/手动仓库资源包 |
+| **搜索与换源** | 多站并发搜索、本地历史/片库即时联想 + 防抖流式远端建议（不抢占中文 IME 焦点）、单站重试、应用内验证弹窗与同名片源切换 |
+| **播控、字幕与弹幕** | LibVLC 硬件解码、无回弹拖拽与时间预览、倍速/画质/画面比例/多音轨/片头片尾跳过、画中画与防休眠；支持外挂字幕偏移（±60s）与调速（`0.80x–1.25x`）、阿里云百炼 AI 字幕生成/双语翻译/WASAPI 实时字幕（需自备 Key），以及弹弹play 开放弹幕库（含国内直连签名中继与 `cas2.dandanplay.net` CDN 直连）与 B 站弹幕 |
+| **四大个人网盘** | 阿里云盘（资源库/备份盘 + 纯 C# 设备签名）、夸克、UC（设备令牌 + 原画/转码智能回退）、百度网盘扫码登录、目录直读与分块缓存播放 |
+| **媒体库与下载** | 继续观看 1–6 列响应式宽屏信息流、收藏管理、本地目录递归监听与同名侧车字幕/弹幕挂载、Windows「打开方式」直达播放、单集另存与 HLS 批量下载 |
+| **直播、投屏与清理** | M3U/TXT 直播源聚合、EPG 节目单与多线路切换；局域网 DLNA/UPnP 与手机扫码投屏（电脑确认播放）；分类扫描与显式确认的安全清理 |
+| **安装与增量更新** | Inno Setup 秒开安装器与免安装便携 ZIP；5 条国内 GitHub 镜像测速回退、多路 Range 断点下载、文件级双向差异增量补丁与强制 SHA-256 校验 |
 
-> **内置站点说明**：内置公开配置中大多数站点已通过原生 C# 或 Java CatVod 适配，但少数依赖外部闭源混淆 DEX 或加密私有参数的站点（如 `粤迷`、`花生`、`风云` 以及带加密参数的 `光影`、`奶酪`）没有公开可实现的接口，应用会如实标注为 `（无公开实现）`；此外部分站点受上游反爬、验证码或域名变动影响，可用性取决于第三方服务状态，详见 [站点适配与验收](docs/site-verification.md)。
+> **站点可用性说明**：受上游反爬、验证码、域名变动或闭源 Android ARM `.so` / 加密参数限制，极少数站点无法在桌面端直接运行，应用会在列表或说明卡中如实提示而不破解闭源 DRM，详见 [站点适配与验收](docs/site-verification.md)。
 
 ---
 
@@ -33,27 +46,28 @@
 
 ### 系统要求
 
-- **64 位 Windows 10 1809（Build 17763）及以上**（推荐 Windows 11；Mica 背景、标题栏定制与 HDR 输出在不支持的系统、多显示器或远程桌面环境下自动降级）
-- 支持 D3D11 的显卡驱动（不支持硬件解码时自动回退软件解码）
-- 无需管理员权限，无需预装 .NET、Java 或 VC++ 运行库（发行包已内置自包含运行时、裁剪版 OpenJDK 与应用本地 VC++ CRT DLL）
+- **64 位 Windows 10 1809（Build 17763）及以上**（推荐 Windows 11；不支持 Mica 或 HDR 时自动降级）
+- 支持 D3D11 的显卡驱动（不支持硬解时自动回退软解）
+- 无需管理员权限，无需预装 .NET、Java 或 VC++ 运行库（内置自包含运行时、裁剪版微软签名 OpenJDK 与本地 VC++ CRT DLL）
 
 从 [GitHub Releases](https://github.com/binchen6/Liuguang-Cinema/releases) 下载：
 - `TV-Setup-<version>-x64.exe` — 标准安装器（推荐）
 - `TV-<version>-win-x64-portable.zip` — 解压即用便携包
 
-> 社区开源发行版未附带商业 Authenticode 代码签名证书，在开启 Windows 11 **智能应用控制（Smart App Control）** 或 SmartScreen 的设备上可能出现提示或拦截，详见 [智能应用控制与签名说明](docs/smart-app-control.md)。下载后建议核对官方 SHA-256：
+> 社区开源发行版未附带商业 Authenticode 代码签名证书，在开启 Windows 11 **智能应用控制（SAC）** 或 SmartScreen 的设备上可能出现拦截，详见 [智能应用控制与签名说明](docs/smart-app-control.md)。下载后建议校验官方 SHA-256：
 
 ```powershell
-Get-FileHash .\TV-Setup-1.9.7-x64.exe -Algorithm SHA256
-Get-Content .\TV-Setup-1.9.7-x64.exe.sha256
+Get-FileHash .\TV-Setup-2.0.0-x64.exe -Algorithm SHA256
+Get-Content .\TV-Setup-2.0.0-x64.exe.sha256
 ```
 
 ---
 
 ## 常用操作与快捷键
 
-- **片源管理**：首次启动加载内置配置并缓存至本地；可在 **设置 → 片源** 导入兼容单仓、多仓或直播源。
-- **播放控制**：无操作 3 秒且鼠标不在控件上停留时自动收起顶/底栏并隐藏鼠标（悬停控件、拖拽进度条或弹层打开期间保持显示）；播放期防息屏/防休眠默认开启，可在 **设置 → 播放** 或播放器「更多选项」中关闭。
+- **片源与资源包**：首次启动自动加载内置源并缓存；可在 **设置 → 片源** 导入仓库（支持自定义名称、随时重命名），并在 **仓库资源包** 卡片一键刷新、下载、更新或卸载专属适配包。
+- **弹幕屏蔽**。右键点播放器里的弹幕开关，输入普通屏蔽词或正则表达式，再点「应用并关闭」。正则每行一条，`^跳过[0-9]{2,4}$` 会屏蔽「跳过120」。基础规则只筛选明确的整条招揽广告，可独立关闭。
+- **沉浸播控**：无操作 3 秒且鼠标未悬停控件时自动收起顶/底栏并隐藏鼠标；播放期防息屏/防休眠默认开启，可在 **设置 → 播放** 或播放器菜单切换。
 
 | 快捷键 | 功能 | 快捷键 | 功能 |
 | --- | --- | --- | --- |
@@ -66,11 +80,10 @@ Get-Content .\TV-Setup-1.9.7-x64.exe.sha256
 
 ## 隐私与本地数据
 
-默认数据保存在 `%LOCALAPPDATA%\TV`（包含 `tv.db`、配置缓存 `config/last-good.json`、`cache` 及轮转日志 `diagnostic.log` / `last-error.log`）：
+默认数据保存在 `%LOCALAPPDATA%\TV`（包含 `tv.db`、配置缓存 `config/`、已下载资源包 `packs/`、`cache/` 及轮转日志 `diagnostic.log`）：
 
-- **无自建统计上报**：应用不收集观影记录或网盘账号信息。使用默认弹弹play 服务时，流光影院的签名服务会转发匹配或查询所需的片名、文件指纹和弹幕编号。设置自定义凭据后，应用直连弹弹play。
-- **凭据加密与头隔离**：网盘 Cookie/Token、弹弹play 凭证与百炼 API Key 均通过当前 Windows 用户 **DPAPI** 加密存储；本地媒体代理仅监听 `127.0.0.1` 并在跨域重定向时剥离敏感请求头；诊断日志自动脱敏常见密钥字段。
-- **不修改系统网络设置**：应用内自定义 DNS 仅用于本进程 HTTP 请求。
+- **无自建统计上报**：不收集观影记录或账号数据；使用默认在线弹幕中继时仅转发匹配所需片名/哈希，配置自有凭据后直连弹弹play。
+- **本地加密与隔离**：网盘 Cookie/Token、百炼 API Key 与自定义弹幕凭据均以 Windows **DPAPI** 加密存储；本地媒体代理仅监听 `127.0.0.1` 并在跨域重定向时剥离敏感头；日志自动脱敏密钥字段；自定义 DNS 仅作用于本进程。
 
 ---
 
@@ -83,7 +96,6 @@ git clone https://github.com/binchen6/Liuguang-Cinema.git
 cd Liuguang-Cinema
 
 # 还原并编译 x64 Release 主程序
-# 输出路径：src/TV/bin/x64/Release/net10.0-windows10.0.19041.0/win-x64/TV.exe
 dotnet restore src/TV/TV.csproj --locked-mode
 dotnet build src/TV/TV.csproj -c Release -p:Platform=x64 -p:RuntimeIdentifier=win-x64 --no-restore
 
@@ -104,30 +116,30 @@ pwsh -NoProfile -File ./scripts/build-installer.ps1
 
 ```text
 src/TV/                  C# / WinUI 3 主程序
-  Styles/ & Controls/    设计令牌、矢量图标、GlassSurface、弹幕与导航控制器
-  Views/ & ViewModels/   页面 XAML、状态绑定与 MotionService 动效编排
-  Models/                媒体、站点、网盘与持久化模型
+  Styles/ & Controls/    设计令牌、矢量图标、GlassSurface、GlassOpticsEngine、导航与弹幕层
+  Views/ & ViewModels/   页面 XAML、状态绑定、响应式网格与 MotionService 动效编排
+  Models/                媒体、站点、资源包、网盘与持久化模型
   Services/
-    AI/                  阿里云百炼字幕生成、翻译、音轨提取与实时字幕
-    Vod/ & Spider/       CMS、22 个原生 C# 站点适配器、换源恢复与 Java IPC
-    Playback/            播放解析、HLS/DASH、LibVLC、弹幕、字幕、防休眠与下载
-    Cloud/               四网盘、设备会话签名、分块缓存与回环代理
+    Vod/ & Spider/       三层路由、22 个原生站点、通用协议/AutoHtml、Jint JS、Python 与 Java IPC
+    Packs/               仓库资源包清单解析、自动匹配、SHA-256/Zip-Slip 校验与热加载
+    Playback/            播放解析、SeekCoordinator、LibVLC 泵、字幕、弹幕、防休眠与下载
+    Cloud/               四网盘接口、纯 C# 阿里设备签名、CloudBlockCache 与回环代理
+    AI/                  阿里云百炼字幕生成、翻译、音轨提取与 WASAPI 实时字幕
     Live/ & Casting/     直播源、EPG 与 DLNA/扫码投屏接收
-    Library/ & Metadata/ 本地媒体索引、目录监视与豆瓣元数据
-    Http/ & Imaging/     自定义 DNS、跨域头过滤与 HTTP/2 图片缓存
-    Persistence/         SQLite、DPAPI 密钥库与安全清理（Maintenance/）
-    Updates/             GitHub 更新检查、镜像下载与 SHA-256 校验
-engine/catvod/           Java 17 CatVod JSON IPC 引擎
-third_party/             上游依赖快照与许可
-installer/ & scripts/    Inno Setup 脚本、构建与验收脚本
-docs/                    设计规范、开发指南、站点验收与发行说明
+    Library/ & Metadata/ 本地媒体索引、目录监视与豆瓣公开元数据
+    Http/ & Imaging/     GitHubMirrorService 国内加速、自定义 DNS、头隔离与 HTTP/2 图片池
+    Persistence/         SQLite、DPAPI SecretStore 与安全清理（Maintenance/）
+    Updates/             GitHub 更新检查、多镜断点下载与双向差异增量升级
+engine/catvod/           Java 17/21 CatVod IPC 引擎、DEX 动态转译与 Android 兼容层
+installer/ & scripts/    Inno Setup 安装/更新脚本、构建打包、协议回归与站点探测脚本
+docs/                    功能介绍、视觉与光学玻璃规范、设计契约、动效规范与站点验收
 ```
 
-文档索引见 [文档中心](docs/README.md)：[功能介绍](docs/showcase.md) · [开发指南](docs/development.md) · [设计语言](docs/brand-design-system.md) · [设计契约](docs/design-guide.md) · [动效规范](docs/motion-spec.md) · [智能应用控制说明](docs/smart-app-control.md) · [站点验收](docs/site-verification.md) · [1.9.7 发行说明](docs/releases/release-1.9.7.md)。
+文档索引见 [文档中心](docs/README.md)：[功能介绍](docs/showcase.md) · [视觉与材质规范](docs/brand-design-system.md) · [设计契约](docs/design-guide.md) · [动效规范](docs/motion-spec.md) · [开发指南](docs/development.md) · [站点验收](docs/site-verification.md) · [智能应用控制说明](docs/smart-app-control.md)。
 
 ---
 
 ## 许可与致谢
 
 - 原创代码遵循 [MIT License](LICENSE)；第三方组件与上游服务适用各自许可，详见 [THIRD_PARTY.md](THIRD_PARTY.md)。
-- 致谢：FongMi/TV 与 CatVodSpider 社区、bizhangjie、AndroidCatVodSpider、VideoLAN / LibVLCSharp、.NET 与 Windows App SDK、QRCoder、SkiaSharp、AngleSharp 及相关开源维护者。
+- 致谢：FongMi/TV 与 CatVodSpider 社区、bizhangjie、AndroidCatVodSpider、VideoLAN / LibVLCSharp、Jint、dex2jar、AngleSharp、SkiaSharp、QRCoder、.NET 与 Windows App SDK 及相关开源维护者。

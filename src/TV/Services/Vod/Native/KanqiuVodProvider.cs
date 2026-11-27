@@ -23,6 +23,8 @@ public sealed partial class KanqiuVodProvider(SourceHttpClient http) : INativePl
          site.Api.Equals("csp_KanqiuGuard", StringComparison.OrdinalIgnoreCase) ||
          site.Api.Equals("csp_Alllive", StringComparison.OrdinalIgnoreCase) ||
          site.Api.Equals("csp_AllliveGuard", StringComparison.OrdinalIgnoreCase) ||
+         site.Api.Equals("csp_Sir88", StringComparison.OrdinalIgnoreCase) ||
+         site.Api.Equals("csp_Sir88Guard", StringComparison.OrdinalIgnoreCase) ||
          site.Api.Equals("csp_LiveGz", StringComparison.OrdinalIgnoreCase) ||
          site.Api.Equals("csp_LiveGzGuard", StringComparison.OrdinalIgnoreCase) ||
          site.Api.Equals("csp_Doubao", StringComparison.OrdinalIgnoreCase) ||

@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.IO.Compression;
 using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
@@ -17,9 +18,11 @@ using TV.Services;
 using TV.Services.Cloud;
 using TV.Services.Configuration;
 using TV.Services.Http;
+using TV.Services.Packs;
 using TV.Services.Persistence;
 using TV.Services.Playback;
 using TV.Services.Spider;
+using TV.Services.Vod;
 using TV.Services.Vod.Native;
 
 Environment.SetEnvironmentVariable("TV_DATA_ROOT", Path.Combine(args[0], "profile"));
@@ -103,6 +106,44 @@ Check(!redacted.Contains("fixture-", StringComparison.Ordinal), "Cookie pairs an
 
 using var siteHttp = new SourceHttpClient();
 var danmaku = new DanDanPlayService(siteHttp, database);
+var danmakuDefaults = DanmakuService.ParseContent("""
+    <i>
+      <d p="1,1,25,16777215">加群：12345678</d>
+      <d p="2,5,25,16777215">广告合作 微信：sample_id</d>
+      <d p="3,4,25,16777215">全网低价代充点券！</d>
+      <d p="4,1,25,16777215">这个角色后来加群了吗？</d>
+      <d p="5,1,25,16777215">剧情在讲刷单和博彩骗局</d>
+      <d p="6,1,25,16777215">他说低价代充别信</d>
+      <d p="7,1,25,16777215">哈哈哈哈哈哈</d>
+      <d p="8,1,25,16777215">原片链接是 https://example.org/</d>
+    </i>
+    """);
+Check(DanmakuFilter.Default.Apply(danmakuDefaults, default).Comments.Select(c => c.Seconds)
+    .SequenceEqual(new[] { 4d, 5d, 6d, 7d, 8d }), "Default filter removes only complete ads and preserves ordinary discussion");
+
+var legacyDanmaku = JsonSerializer.Deserialize<DanmakuPreferences>("""{"BasicFilter":false,"BlockedWords":"a.b，广告组、SPAM"}""")!.Normalize();
+Check(legacyDanmaku.BlockedPatterns.Length == 0, "Old settings retain literal blocked words without migration");
+var customDanmaku = legacyDanmaku with { BlockedPatterns = "^跳过[0-9]{2,4}$\r\n^弹幕 (?=样例)样例$\r\n\r\n(?i)^mUTE$" };
+var danmakuInputs = new[] { "a.b", "aXb", "这是广告组", "Spam", "跳过120", "跳过1", "弹幕 样例", "弹幕示例", "MUTE", "加群：12345678" }
+    .Select((line, i) => new DanmakuEntry(i, line, 0xFFFFFF)).ToArray();
+Check(DanmakuFilter.TryCreate(customDanmaku, out var customFilter, out _) &&
+    customFilter.Apply(danmakuInputs, default).Comments.Select(c => c.Text)
+        .SequenceEqual(new[] { "aXb", "跳过1", "弹幕示例", "加群：12345678" }),
+    "Regex and literal matching preserve commas, spaces, line endings, and case behavior");
+Check(!DanmakuFilter.TryCreate(customDanmaku with { BlockedPatterns = "正常\r\n\r\n[" }, out _, out var regexError) &&
+    regexError.Contains("第 3 行", StringComparison.Ordinal), "Invalid regex validation reports the original line number");
+Check(ReferenceEquals(danmakuInputs, DanmakuFilter.Default.WithBasicFilter(false).Apply(danmakuInputs, default).Comments),
+    "Turning off all rules returns the original array");
+using (var cancelledFiltering = new CancellationTokenSource())
+{
+    cancelledFiltering.Cancel();
+    await CheckThrows<OperationCanceledException>(() => Task.Run(() => DanmakuFilter.Default.Apply(danmakuInputs, cancelledFiltering.Token)),
+        "A superseded danmaku filter can stop before processing comments");
+}
+var unicodeDanmaku = new string('字', 99) + "😊";
+Check(DanmakuService.ParseContent($"\t<i><d p='1,1,25,16777215'>{unicodeDanmaku}</d></i>").Single().Text.Length == 99,
+    "Local XML accepts leading whitespace and preserves well-formed UTF-16 when clipping long comments");
+
 Check(!typeof(DanDanPlayService).Assembly.GetCustomAttributes<AssemblyMetadataAttribute>()
     .Any(attribute => attribute.Key.StartsWith("DanDanPlayApp", StringComparison.Ordinal)),
     "The desktop assembly has no built-in DanDanPlay credential metadata");
@@ -315,6 +356,169 @@ using (var cache = new CloudBlockCache(
     }
 }
 
+// --- 1.9.8 Regressions: Custom repo naming/renaming, Native+Universal expansion, js:/CryptoJS AES, GitHubMirror, RepoPack ---
+var customDb = new DatabaseService();
+using var customHttp = new SourceHttpClient(new RelayAndUniversalFixture());
+using var customCfg = new SourceConfigService(customHttp, customDb);
+await customCfg.ImportAsync("https://repo-fixture.example.invalid/sub/a.json", "我的专属片库");
+Check(customCfg.ActiveRepository?.Name == "我的专属片库", "ImportAsync applies custom repository name");
+await customCfg.RenameImportAsync("https://repo-fixture.example.invalid/sub/a.json", "重命名后片库");
+Check(customCfg.ActiveRepository?.Name == "重命名后片库", "RenameImportAsync updates active repository display name immediately");
+var reloadedImports = await customCfg.GetImportsAsync();
+Check(reloadedImports.Any(r => r.Name == "重命名后片库"), "Renamed repository persists in SQLite");
+
+var arrExtSite = new SourceSite { Type = 3, Api = "csp_Libvio", Ext = JsonDocument.Parse("""{"site":["https://libvio.app","https://libvio.pw"]}""").RootElement.Clone() };
+var commaExtSite = new SourceSite { Type = 3, Api = "csp_WenCai", Ext = JsonDocument.Parse("\"https://a.example.invalid,https://b.example.invalid\"").RootElement.Clone() };
+Check(NativeSiteToolkit.MergeConfiguredOrigins(arrExtSite, []).Count() == 2, "MergeConfiguredOrigins parses JSON array ext.site");
+Check(NativeSiteToolkit.MergeConfiguredOrigins(commaExtSite, []).Count() == 2, "MergeConfiguredOrigins parses comma-separated ext URLs");
+
+Check(BilibiliVodProvider.Supports(new SourceSite { Type = 3, Api = "csp_Bili", Ext = JsonDocument.Parse("""{"cookie":""}""").RootElement.Clone() }), "BilibiliVodProvider supports csp_Bili without json URL");
+Check(WoggNativeProvider.Supports(new SourceSite { Type = 3, Api = "csp_FishCloud", Ext = JsonDocument.Parse("""{"site":["https://tv.yydsys.top"]}""").RootElement.Clone() }), "WoggNativeProvider supports csp_FishCloud with ext.site array");
+Check(ChangZhangVodProvider.Supports(new SourceSite { Type = 3, Api = "csp_CZ", Ext = JsonDocument.Parse("""{"site":["https://www.4kcz.com"]}""").RootElement.Clone() }), "ChangZhangVodProvider supports csp_CZ with object ext");
+Check(JpysVodProvider.Supports(commaExtSite), "JpysVodProvider supports csp_WenCai");
+Check(GuaziVodProvider.Supports(new SourceSite { Type = 3, Api = "csp_Guazi" }), "GuaziVodProvider supports csp_Guazi");
+Check(DoubanVodProvider.Supports(new SourceSite { Type = 3, Api = "csp_PianDan" }), "DoubanVodProvider supports csp_PianDan");
+Check(ShortDramaVodProvider.Supports(new SourceSite { Type = 3, Api = "csp_DJHub" }), "ShortDramaVodProvider supports csp_DJHub");
+Check(KanqiuVodProvider.Supports(new SourceSite { Type = 3, Api = "csp_Sir88" }), "KanqiuVodProvider supports csp_Sir88");
+Check(UniversalProtocolVodProvider.Supports(new SourceSite { Type = 3, Api = "csp_Kan360" }), "UniversalProtocolVodProvider supports csp_Kan360");
+Check(UniversalProtocolVodProvider.Supports(new SourceSite { Type = 3, Api = "csp_Market", Ext = JsonDocument.Parse("""{"categories":[{"name":"测试","url":"https://pan.quark.cn/s/969cc97687d3"}]}""").RootElement.Clone() }), "UniversalProtocolVodProvider supports csp_Market CloudShare catalog");
+
+var autoHtmlProvider = new UniversalAutoHtmlVodProvider(customHttp);
+var autoHtmlSite = new SourceSite { Key = "wn_test", Name = "蜗牛测试", Type = 3, Api = "csp_WoNiu", Ext = JsonDocument.Parse("""{"site":"https://autohtml.example.invalid/"}""").RootElement.Clone() };
+Check(UniversalAutoHtmlVodProvider.Supports(autoHtmlSite), "UniversalAutoHtmlVodProvider supports csp_* with plaintext ext.site");
+var autoHome = await autoHtmlProvider.GetHomeAsync(autoHtmlSite);
+Check(autoHome.Categories.Count >= 2 && autoHome.List.Count >= 1 && autoHome.List[0].Name == "银河漫游", "UniversalAutoHtmlVodProvider extracts categories and Panlian cards generically");
+
+var jsAesClient = new JsSpiderClient(customHttp);
+var jsAesRule = """
+    var rule = {
+        title: 'JS规则与AES测试',
+        host: 'https://drpy.example.invalid',
+        url: '/list/fyclass-fypage.html',
+        class_name: '电影',
+        class_url: '1',
+        推荐: 'js: var c = CryptoJS.AES.encrypt("流光AES测试", "1234567890abcdef", { iv: "abcdef1234567890", mode: CryptoJS.mode.CBC, padding: CryptoJS.pad.Pkcs7 }).toString(); var p = CryptoJS.AES.decrypt(c, "1234567890abcdef", { iv: "abcdef1234567890", mode: CryptoJS.mode.CBC, padding: CryptoJS.pad.Pkcs7 }).toString(); VODS = [{ vod_id: "aes_1", vod_name: p, vod_pic: "", vod_remarks: "OK" }];'
+    };
+    """;
+var jsAesHome = await jsAesClient.ExecuteInlineHomeAsync(new SourceSite { Key = "js_aes", Name = "JS测试", Type = 3, Api = "drpy" }, jsAesRule);
+Check(jsAesHome.List.Count == 1 && jsAesHome.List[0].Name == "流光AES测试", "JsSpiderClient executes drpy2 js: blocks and real CryptoJS.AES round-trip");
+
+var jsSelectorRule = """
+    var rule = {
+        title: '选择器测试',
+        host: 'https://m.ting15.com',
+        url: '/list/fyclass-fypage.html',
+        class_name: '有声',
+        class_url: '1',
+        推荐: 'js: var h = "<div class=\\"binfo\\"><p>播音：A</p><p>作者：B</p></div><div class=\\"tlist\\"><a href=\\"/book/1.html\\"><h3>书名</h3></a></div>"; var card = pdfa(h, ".tlist a")[0]; VODS = [{ vod_id: pd(card, "a&&href", "https://m.ting15.com/"), vod_name: pdfh(h, ".binfo p:eq(1)&&Text"), vod_pic: "", vod_remarks: "OK" }];'
+    };
+    """;
+var jsSelHome = await jsAesClient.ExecuteInlineHomeAsync(new SourceSite { Key = "js_sel", Name = "选择器", Type = 3, Api = "drpy" }, jsSelectorRule);
+Check(jsSelHome.List.Count == 1 && jsSelHome.List[0].Name == "作者：B" && jsSelHome.List[0].Id == "https://m.ting15.com/book/1.html",
+    "JsSpiderClient :eq() selector and self-anchor a&&href resolve accurately");
+
+if (args.Contains("--verify-python"))
+{
+    var pythonScript = Path.Combine(Directory.CreateDirectory(Path.Combine(args[0], "测试 爬虫")).FullName, "本地.py");
+    await File.WriteAllTextAsync(pythonScript, """
+        from base.spider import Spider as BaseSpider
+        class Spider(BaseSpider):
+            def init(self, extend):
+                self.extend = extend
+            def homeContent(self, filter=False):
+                print("fixture noise")
+                return {"list": [{"vod_id": "local", "vod_name": self.extend}]}
+        """);
+    var python = new PySpiderClient(siteHttp);
+    var pythonSite = new SourceSite
+    {
+        Key = "py_fixture", Name = "Python", Type = 3, Api = new Uri(pythonScript).AbsoluteUri,
+        Ext = JsonSerializer.SerializeToElement("中文 Python 回归")
+    };
+    var pythonResponses = await Task.WhenAll(Enumerable.Range(0, 4).Select(_ => python.GetHomeAsync(pythonSite)));
+    Check(pythonResponses.All(item => item.List.Single().Name == "中文 Python 回归"),
+        "Python launcher, concurrent requests, UTF-8 IPC, and non-ASCII paths work together");
+}
+
+var mirrorRoutes = GitHubMirrorService.BuildCandidateRoutes("https://github.com/binchen6/Liuguang-RepoPacks/releases/download/v1.0.0/y456y-pack-v1.0.0.zip");
+Check(mirrorRoutes.Count == 6 && mirrorRoutes[0].IsMirror && !mirrorRoutes[^1].IsMirror, "GitHubMirrorService prioritizes all 5 China mirrors before direct GitHub");
+
+var packRoot = Path.Combine(args[0], "test-packs");
+Directory.CreateDirectory(packRoot);
+var packStage = Path.Combine(args[0], "pack-src");
+Directory.CreateDirectory(packStage);
+File.WriteAllText(Path.Combine(packStage, "pack.json"), """
+    {
+      "id": "demo",
+      "name": "演示资源包",
+      "version": "1.0.0",
+      "matchHosts": ["www.y456y.com"],
+      "sites": [
+        { "api": "csp_DemoInfo", "kind": "info", "title": "测试说明", "message": "资源包生效" }
+      ]
+    }
+    """, Encoding.UTF8);
+var demoZip = Path.Combine(args[0], "demo-pack.zip");
+if (File.Exists(demoZip)) File.Delete(demoZip);
+ZipFile.CreateFromDirectory(packStage, demoZip);
+var demoSha = await GitHubMirrorService.ComputeFileSha256Async(demoZip);
+
+// Verify zip-slip defense
+var evilZip = Path.Combine(args[0], "evil-pack.zip");
+using (var za = ZipFile.Open(evilZip, ZipArchiveMode.Create))
+{
+    var entry = za.CreateEntry("../escape.txt");
+    using var sw = new StreamWriter(entry.Open());
+    sw.Write("bad");
+}
+await CheckThrows<InvalidDataException>(() => { RepoPackService.ExtractZipSafely(evilZip, Path.Combine(args[0], "evil-out")); return Task.CompletedTask; },
+    "RepoPackService blocks Zip-Slip path traversal");
+
+// Verify in-memory manifest + SHA-256 install + hot reload + RepoPackVodProvider execution + uninstall
+var demoZipBytes = await File.ReadAllBytesAsync(demoZip);
+var packManifestJson = $$"""
+    {
+      "schemaVersion": 1,
+      "packs": [{
+        "id": "demo",
+        "name": "演示资源包",
+        "version": "1.0.0",
+        "matchHosts": ["www.y456y.com"],
+        "downloadUrl": "https://github.com/binchen6/Liuguang-RepoPacks/releases/download/v1.0.0/demo-pack.zip",
+        "sha256": "{{demoSha}}",
+        "siteCount": 1
+      }]
+    }
+    """;
+using var packFixtureHandler = new RepoPackFixtureHandler(packManifestJson, demoZipBytes);
+using var packFixtureHttp = new SourceHttpClient(packFixtureHandler);
+using var packDns = new DnsResolverService(customDb);
+using var packSvc = new RepoPackService(
+    packFixtureHttp,
+    packDns,
+    packRoot,
+    "https://raw.githubusercontent.com/binchen6/Liuguang-RepoPacks/main/manifest.json",
+    packFixtureHandler);
+var autoRes = await packSvc.AutoInstallForRepositoryAsync("http://www.y456y.com", null);
+Check(autoRes.Matched && autoRes.Installed && packSvc.TryGetInstalled("demo", out _), "RepoPackService matches host, downloads via China mirror, verifies SHA-256, and auto-installs pack");
+Check(packFixtureHandler.SawMirrorDownload && packFixtureHandler.SawOriginManifest,
+    "RepoPackService reads the digest from the origin and uses mirrors for the verified ZIP");
+var mismatchedEntry = new RepoPackManifestEntry
+{
+    Id = "demo", Version = "2.0.0", DownloadUrl = "https://github.com/binchen6/Liuguang-RepoPacks/releases/download/v1.0.0/demo-pack.zip", Sha256 = demoSha
+};
+await CheckThrows<InvalidDataException>(() => packSvc.InstallPackAsync(mismatchedEntry),
+    "A ZIP with a conflicting version cannot replace the installed pack");
+using var packCloud = new CloudDriveService(customDb, packDns);
+var packBili = new BilibiliVodProvider(customHttp, packCloud);
+var packNative = NativeVodProviderRouter.CreateDefault(customHttp, packCloud, packBili);
+var packVod = new RepoPackVodProvider(packSvc, packNative, packBili, jsAesClient, new CmsClient(customHttp));
+var infoHome = await packVod.GetHomeAsync(new SourceSite { Key = "d1", Name = "演示", Type = 3, Api = "csp_DemoInfo" });
+Check(infoHome.List.Count == 1 && infoHome.List[0].Content == "资源包生效", "RepoPackVodProvider executes installed pack rule immediately");
+await packSvc.RemovePackAsync("demo");
+Check(!SpiderCatalog.IsAvailable("csp_DemoInfo"), "Removing a pack removes its dynamically registered API");
+Check(!packSvc.TryGetInstalled("demo", out _), "RepoPackService uninstalls pack cleanly");
+
 if (args.Contains("--verify-default-service", StringComparer.Ordinal))
 {
     Check(danmaku.HasDefaultService, "The build contains a valid default relay URL");
@@ -450,6 +654,22 @@ sealed class RelayAndUniversalFixture : HttpMessageHandler
                 return Reply(HttpStatusCode.OK, html, "text/html");
             }
         }
+        if (host == "autohtml.example.invalid")
+        {
+            const string html = """
+                <html><body>
+                <nav class="nav-links"><a href="/vodtype/1/">电影</a><a href="/vodtype/2/">连续剧</a></nav>
+                <form action="/vodsearch/-------------/"><input name="wd" /></form>
+                <div class="video-grid">
+                  <a href="/voddetail/9001/" class="video-card" title="银河漫游">
+                    <div class="video-poster"><img src="/upload/9001.jpg" /><div class="video-episode">4K</div></div>
+                    <div class="video-info"><div class="video-title">银河漫游</div></div>
+                  </a>
+                </div>
+                </body></html>
+                """;
+            return Reply(HttpStatusCode.OK, html, "text/html");
+        }
         return Reply(HttpStatusCode.NotFound, "{}");
     }
 
@@ -558,5 +778,33 @@ sealed class CloudFixture : HttpMessageHandler
         var response = new HttpResponseMessage(status);
         response.Headers.Location = new Uri(url, UriKind.RelativeOrAbsolute);
         return Task.FromResult(response);
+    }
+}
+
+sealed class RepoPackFixtureHandler(string manifestJson, byte[] zipBytes) : HttpMessageHandler
+{
+    internal bool SawMirrorDownload { get; private set; }
+    internal bool SawOriginManifest { get; private set; }
+
+    protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+    {
+        var url = request.RequestUri?.AbsoluteUri ?? string.Empty;
+        if (url.EndsWith("manifest.json", StringComparison.OrdinalIgnoreCase))
+        {
+            SawOriginManifest = request.RequestUri?.Host == "raw.githubusercontent.com";
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(manifestJson, Encoding.UTF8, "application/json")
+            });
+        }
+        if (url.EndsWith("demo-pack.zip", StringComparison.OrdinalIgnoreCase))
+        {
+            SawMirrorDownload |= request.RequestUri is { } uri && GitHubMirrorService.IsAllowedMirrorHost(uri.Host);
+            var content = new ByteArrayContent(zipBytes);
+            content.Headers.ContentType = new MediaTypeHeaderValue("application/zip");
+            content.Headers.ContentLength = zipBytes.Length;
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = content });
+        }
+        return Task.FromResult(new HttpResponseMessage(HttpStatusCode.NotFound));
     }
 }

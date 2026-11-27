@@ -41,4 +41,6 @@ public class Context {
     public android.content.res.Resources getResources() { return new android.content.res.Resources(); }
     public android.content.res.AssetManager getAssets() { return new android.content.res.AssetManager(); }
     public android.content.pm.PackageManager getPackageManager() { return new android.content.pm.PackageManager(); }
+    public ContentResolver getContentResolver() { return new ContentResolver(); }
+    public int checkSelfPermission(String permission) { return android.content.pm.PackageManager.PERMISSION_GRANTED; }
 }

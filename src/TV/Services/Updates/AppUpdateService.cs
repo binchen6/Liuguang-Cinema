@@ -38,16 +38,9 @@ public sealed partial class AppUpdateService : IDisposable
 
     private sealed record DownloadRoute(string Label, string Url, bool IsMirror, bool SupportsRange, double ScoreBytesPerSec, long ExactSize = 0);
 
-    // Curated HTTPS GitHub Release accelerators for Mainland China users.
+    // Shared curated HTTPS GitHub accelerators for Mainland China users (also reused by RepoPackService).
     // Every downloaded byte is still strictly verified against the official GitHub Release SHA-256 digest.
-    private static readonly (string Label, string Prefix)[] ChinaMirrors =
-    [
-        ("国内加速 A", "https://gh-proxy.com/"),
-        ("国内加速 B", "https://cdn.gh-proxy.org/"),
-        ("国内加速 C", "https://edgeone.gh-proxy.org/"),
-        ("国内加速 D", "https://gh-proxy.org/"),
-        ("国内加速 E", "https://ghfast.top/")
-    ];
+    private static readonly (string Label, string Prefix)[] ChinaMirrors = GitHubMirrorService.ChinaMirrors;
 
     private readonly SourceHttpClient _http;
     private readonly DatabaseService _database;
