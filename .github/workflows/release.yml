@@ -75,7 +75,7 @@ jobs:
           TV_SIGN_PASSWORD: ${{ secrets.SIGN_PFX_PASSWORD }}
         run: |
           $rawRelays = if ($env:DANDANPLAY_RELAY_URL) { $env:DANDANPLAY_RELAY_URL } else { '' }
-          $relayEntries = @($rawRelays.Split(@(',', ';'), [StringSplitOptions]::RemoveEmptyEntries) | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+          $relayEntries = @($rawRelays -split '[,;]' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
           if ($relayEntries.Count -eq 0) {
             throw 'DANDANPLAY_RELAY_URL must contain one or more public HTTPS relay URLs.'
           }
