@@ -11,6 +11,7 @@
 | [设计契约](design-guide.md) | 响应式布局（含自适应媒体库信息流）、导航与滚轮契约、播放器与 UIA 名称 |
 | [动效工程规范](motion-spec.md) | WinUI Composition 物理弹簧、玻璃光学交互动效参数与零空闲开销约束 |
 | [开发指南](development.md) | 构建环境、隔离运行、代码结构、仓库资源包安全规范与增量打包流程 |
+| [仓库与站点适配规范](repository-site-adaptation.md) | 原生、通用与单独适配包的选型，仓库配置、资源包格式及提交验收 |
 | [站点适配与验收](site-verification.md) | 三层适配架构基线（含 `y456y` 与资源包实测）、分级标准与回归命令 |
 | [站点矩阵](site-matrix.csv) | 逐站首页、分类、搜索、详情与播放实测记录 |
 | [智能应用控制与签名](smart-app-control.md) | Windows 11 SAC 机制、98.4% 微软签名覆盖与代码签名路径 |

@@ -89,6 +89,8 @@ Get-Content .\TV-Setup-2.0.0-x64.exe.sha256
 
 ## 从源码构建
 
+新增片源仓库、站点或单独适配包时，见 [仓库与站点适配规范](docs/repository-site-adaptation.md)。
+
 环境要求：**.NET 10 SDK**、**Windows 10/11 SDK 19041+**、**JDK 17+ 与 Maven**（仅修改 Java 引擎时需要）、**Inno Setup 6**（仅打包安装器时需要）。
 
 ```powershell

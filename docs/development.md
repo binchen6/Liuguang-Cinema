@@ -58,6 +58,8 @@ $env:TV_DATA_ROOT = Join-Path $PWD 'artifacts/tmp/dev-profile'
 
 ## 4. 安全与仓库资源包约定
 
+新增仓库、站点或单独适配包时，按 [仓库与站点适配规范](repository-site-adaptation.md) 选择实现方式、填写配置并完成验收。
+
 - **零明文凭据入仓**：严禁提交 API Key、AppSecret、Cookie、Token 或本机绝对路径；网盘凭据、百炼 API Key 与自定义弹幕凭证统一经 Windows DPAPI 落库，`Diagnostics.Log` 自动脱敏敏感字段。
 - **仓库资源包安全（`binchen6/Liuguang-RepoPacks`）**：
   - `RepoPackService` 从配置的 HTTPS 来源读取清单。ZIP 可通过国内镜像下载，安装前按清单校验 SHA-256、资源包标识和版本。
