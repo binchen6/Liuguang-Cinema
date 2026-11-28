@@ -12,6 +12,7 @@ public class Context {
     public String getPackageName() { return "tv.desktop"; }
     public File getFilesDir() {
         String configured = System.getProperty("tv.spider.dataDir");
+        if (configured == null || configured.isBlank()) configured = System.getenv("TV_SPIDER_DATA_DIR");
         File dir = (configured != null && !configured.isBlank())
             ? new File(configured)
             : new File(System.getProperty("user.home"), "AppData/Local/TV/spider");

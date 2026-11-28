@@ -334,6 +334,8 @@
 
     <!-- 主操作：暗室为宣纸白底+素墨字，素白为松烟墨底+宣纸白字，44 高 -->
     <Style x:Key="PrimaryButtonStyle" TargetType="Button">
+        <Setter Property="controls:GlassOpticsEngine.Mode" Value="Interactive" />
+        <Setter Property="controls:GlassOpticsEngine.Profile" Value="Control" />
         <Setter Property="Height" Value="{StaticResource PrimaryButtonHeight}" />
         <Setter Property="MinHeight" Value="{StaticResource PrimaryButtonHeight}" />
         <Setter Property="Padding" Value="{StaticResource ControlPaddingHorizontal}" />
@@ -497,6 +499,16 @@
     </Style>
 
     <Style TargetType="controls:GlassSurface" BasedOn="{StaticResource BaseGlassSurfaceStyle}" />
+
+    <Style x:Key="GlassOpticalPanelBorderStyle" TargetType="Border">
+        <Setter Property="controls:GlassOpticsEngine.Mode" Value="Interactive" />
+        <Setter Property="controls:GlassOpticsEngine.Profile" Value="Card" />
+    </Style>
+
+    <Style x:Key="GlassOpticalChipBorderStyle" TargetType="Border">
+        <Setter Property="controls:GlassOpticsEngine.Mode" Value="Interactive" />
+        <Setter Property="controls:GlassOpticsEngine.Profile" Value="Control" />
+    </Style>
 
     <Style x:Key="PlayerDockGlassStyle" TargetType="controls:GlassSurface" BasedOn="{StaticResource BaseGlassSurfaceStyle}">
         <Setter Property="Background" Value="{StaticResource PlayerGlassBrush}" />

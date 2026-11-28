@@ -192,7 +192,7 @@
                                         <ColumnDefinition Width="*" />
                                         <ColumnDefinition Width="Auto" />
                                     </Grid.ColumnDefinitions>
-                                    <Border Width="44" Height="44" CornerRadius="8" Padding="5"
+                                    <Border Style="{StaticResource GlassOpticalChipBorderStyle}" Width="44" Height="44" CornerRadius="8" Padding="5"
                                             Background="{ThemeResource GlassChipBrush}"
                                             BorderBrush="{ThemeResource GlassEdgeBrush}" BorderThickness="1">
                                         <Grid>
@@ -225,7 +225,7 @@
                     <StackPanel MaxWidth="400" Spacing="{StaticResource SpaceSmall}"
                                 HorizontalAlignment="Center" VerticalAlignment="Center"
                                 Visibility="{Binding IsEmpty, Converter={StaticResource BoolToVisibility}}">
-                        <Border Width="64" Height="64" CornerRadius="32"
+                        <Border Style="{StaticResource GlassOpticalPanelBorderStyle}" Width="64" Height="64" CornerRadius="32"
                                 Background="{ThemeResource GlassPanelBrush}"
                                 BorderBrush="{ThemeResource GlassEdgeBrush}" BorderThickness="1"
                                 HorizontalAlignment="Center">
@@ -250,7 +250,7 @@
                     <StackPanel MaxWidth="280" Spacing="{StaticResource SpaceSmall}"
                                 HorizontalAlignment="Center" VerticalAlignment="Center"
                                 Visibility="{Binding HasSelectedChannel, Converter={StaticResource BoolToVisibility}, ConverterParameter=Inverse}">
-                        <Border Width="64" Height="64" CornerRadius="32"
+                        <Border Style="{StaticResource GlassOpticalChipBorderStyle}" Width="64" Height="64" CornerRadius="32"
                                 Background="{ThemeResource GlassChipBrush}"
                                 BorderBrush="{ThemeResource GlassEdgeBrush}" BorderThickness="1"
                                 HorizontalAlignment="Center">

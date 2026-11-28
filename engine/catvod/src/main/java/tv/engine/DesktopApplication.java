@@ -17,6 +17,7 @@ public final class DesktopApplication extends Application {
 
     public DesktopApplication() {
         String configured = System.getProperty("tv.spider.dataDir");
+        if (configured == null || configured.isBlank()) configured = System.getenv("TV_SPIDER_DATA_DIR");
         this.data = (configured != null && !configured.isBlank())
             ? new File(configured)
             : new File(System.getProperty("user.home"), "AppData/Local/TV/spider");

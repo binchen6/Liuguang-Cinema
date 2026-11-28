@@ -58,6 +58,8 @@
 
         <!-- 底部主播放/暂停键：清透珠光晶白玻璃圆钮 -->
         <Style x:Key="PlayerPrimaryTransportStyle" TargetType="Button">
+            <Setter Property="controls:GlassOpticsEngine.Mode" Value="Interactive" />
+            <Setter Property="controls:GlassOpticsEngine.Profile" Value="Control" />
             <Setter Property="Width" Value="38" />
             <Setter Property="Height" Value="38" />
             <Setter Property="MinWidth" Value="38" />
@@ -255,7 +257,7 @@
                         Style="{StaticResource PlayerCenterPlayButtonStyle}"
                         Click="OnCenterPlayClick"
                         ToolTipService.ToolTip="播放 / 暂停 (空格)" AutomationProperties.Name="播放">
-                    <controls:LineIcon PathData="{StaticResource IconPlaySolid}" IconSize="26" IsFilled="True"
+                    <controls:LineIcon PathData="{StaticResource IconPlaySolid}" IconSize="31" IsFilled="True"
                                        Margin="4,0,0,0" Foreground="#FFF8F7F2" />
                 </Button>
             </controls:GlassSurface>
@@ -402,11 +404,11 @@
                                                 Click="OnPlayPauseClick"
                                                 ToolTipService.ToolTip="播放 / 暂停 (空格)" AutomationProperties.Name="播放暂停">
                                             <Grid Width="38" Height="38">
-                                                <controls:LineIcon PathData="{StaticResource IconPauseSolid}" IconSize="16" IsFilled="True"
+                                                <controls:LineIcon PathData="{StaticResource IconPauseSolid}" IconSize="20" IsFilled="True"
                                                                    Foreground="#0D0D10"
                                                                    Visibility="{Binding IsPlaying, Converter={StaticResource BoolToVisibility}}" />
-                                                <controls:LineIcon PathData="{StaticResource IconPlaySolid}" IconSize="16" IsFilled="True"
-                                                                   Margin="2,0,0,0" Foreground="#0D0D10"
+                                                <controls:LineIcon PathData="{StaticResource IconPlaySolid}" IconSize="20" IsFilled="True"
+                                                                   Foreground="#0D0D10"
                                                                    Visibility="{Binding IsPlaying, Converter={StaticResource BoolToVisibility}, ConverterParameter=Inverse}" />
                                             </Grid>
                                         </Button>

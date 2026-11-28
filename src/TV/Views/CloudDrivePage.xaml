@@ -154,7 +154,7 @@
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" />
                                 </Grid.ColumnDefinitions>
-                                <Border Width="42" Height="42" CornerRadius="{StaticResource RadiusControl}"
+                                <Border Style="{StaticResource GlassOpticalChipBorderStyle}" Width="42" Height="42" CornerRadius="{StaticResource RadiusControl}"
                                         Background="{ThemeResource GlassChipBrush}" BorderBrush="{ThemeResource GlassEdgeBrush}" BorderThickness="1"
                                         VerticalAlignment="Center">
                                     <Grid>
@@ -185,7 +185,7 @@
             <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollMode="Disabled" VerticalAlignment="Center"
                           Visibility="{Binding EmptyText, Converter={StaticResource StringToVisibility}}">
                 <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" MaxWidth="440" Spacing="10" Padding="0,8">
-                    <Border Width="54" Height="54" CornerRadius="27"
+                    <Border Style="{StaticResource GlassOpticalPanelBorderStyle}" Width="54" Height="54" CornerRadius="27"
                             Background="{ThemeResource GlassPanelBrush}" BorderBrush="{ThemeResource GlassEdgeBrush}" BorderThickness="1"
                             HorizontalAlignment="Center">
                         <controls:LineIcon PathData="{StaticResource IconCloud}" IconSize="24" Foreground="{ThemeResource SecondaryTextBrush}" />

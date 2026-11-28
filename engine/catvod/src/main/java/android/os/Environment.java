@@ -11,6 +11,7 @@ public final class Environment {
 
     public static File getExternalStorageDirectory() {
         String configured = System.getProperty("tv.spider.dataDir");
+        if (configured == null || configured.isBlank()) configured = System.getenv("TV_SPIDER_DATA_DIR");
         File base = (configured != null && !configured.isBlank())
             ? new File(configured)
             : new File(System.getProperty("user.home"), "AppData/Local/TV/spider");

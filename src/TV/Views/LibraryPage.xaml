@@ -224,7 +224,7 @@
                 <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center"
                             MaxWidth="380" Spacing="{StaticResource SpaceSmall}"
                             Visibility="{Binding EmptyHistory, Converter={StaticResource StringToVisibility}}">
-                    <Border Width="64" Height="64" CornerRadius="32"
+                    <Border Style="{StaticResource GlassOpticalPanelBorderStyle}" Width="64" Height="64" CornerRadius="32"
                             Background="{ThemeResource GlassPanelBrush}"
                             BorderBrush="{ThemeResource GlassEdgeBrush}" BorderThickness="1"
                             HorizontalAlignment="Center">
@@ -290,7 +290,7 @@
                 <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center"
                             MaxWidth="380" Spacing="{StaticResource SpaceSmall}"
                             Visibility="{Binding EmptyFavorites, Converter={StaticResource StringToVisibility}}">
-                    <Border Width="64" Height="64" CornerRadius="32"
+                    <Border Style="{StaticResource GlassOpticalPanelBorderStyle}" Width="64" Height="64" CornerRadius="32"
                             Background="{ThemeResource GlassPanelBrush}"
                             BorderBrush="{ThemeResource GlassEdgeBrush}" BorderThickness="1"
                             HorizontalAlignment="Center">
@@ -324,7 +324,7 @@
                                         <ColumnDefinition Width="*" />
                                         <ColumnDefinition Width="Auto" />
                                     </Grid.ColumnDefinitions>
-                                    <Border Width="{StaticResource ThumbnailWidth}" Height="{StaticResource ThumbnailHeight}"
+                                    <Border Style="{StaticResource GlassOpticalChipBorderStyle}" Width="{StaticResource ThumbnailWidth}" Height="{StaticResource ThumbnailHeight}"
                                             CornerRadius="{StaticResource RadiusControl}"
                                             Background="{ThemeResource GlassChipBrush}"
                                             BorderBrush="{ThemeResource GlassEdgeBrush}" BorderThickness="1">
@@ -362,7 +362,7 @@
                 <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center"
                             MaxWidth="380" Spacing="{StaticResource SpaceSmall}"
                             Visibility="{Binding EmptyDownloads, Converter={StaticResource StringToVisibility}}">
-                    <Border Width="64" Height="64" CornerRadius="32"
+                    <Border Style="{StaticResource GlassOpticalPanelBorderStyle}" Width="64" Height="64" CornerRadius="32"
                             Background="{ThemeResource GlassPanelBrush}"
                             BorderBrush="{ThemeResource GlassEdgeBrush}" BorderThickness="1"
                             HorizontalAlignment="Center">
@@ -395,7 +395,7 @@
                         <ItemsControl.ItemsPanel><ItemsPanelTemplate><StackPanel Orientation="Horizontal" /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
                         <ItemsControl.ItemTemplate>
                             <DataTemplate>
-                                <Border Margin="0,0,8,10" Padding="12,4" CornerRadius="{StaticResource RadiusControl}"
+                                <Border Style="{StaticResource GlassOpticalChipBorderStyle}" Margin="0,0,8,10" Padding="12,4" CornerRadius="{StaticResource RadiusControl}"
                                         Background="{ThemeResource GlassChipBrush}" BorderBrush="{ThemeResource GlassEdgeBrush}" BorderThickness="1">
                                     <StackPanel Orientation="Horizontal" Spacing="{StaticResource SpaceMini}">
                                         <controls:LineIcon PathData="{StaticResource IconFolder}" IconSize="15" VerticalAlignment="Center" />
@@ -434,7 +434,7 @@
                                                 <Grid.ColumnDefinitions>
                                                     <ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" />
                                                 </Grid.ColumnDefinitions>
-                                                <Border Width="56" Height="44" CornerRadius="{StaticResource RadiusControl}"
+                                                <Border Style="{StaticResource GlassOpticalChipBorderStyle}" Width="56" Height="44" CornerRadius="{StaticResource RadiusControl}"
                                                         Background="{ThemeResource GlassChipBrush}" BorderBrush="{ThemeResource GlassEdgeBrush}" BorderThickness="1"
                                                         VerticalAlignment="Center">
                                                     <TextBlock Text="{Binding MediaLabel}" Style="{StaticResource MetaText}"
@@ -460,7 +460,7 @@
                     </ListView>
                     <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" MaxWidth="420"
                                 Spacing="{StaticResource SpaceSmall}" Visibility="{Binding EmptyLocal, Converter={StaticResource StringToVisibility}}">
-                        <Border Width="64" Height="64" CornerRadius="32"
+                        <Border Style="{StaticResource GlassOpticalPanelBorderStyle}" Width="64" Height="64" CornerRadius="32"
                                 Background="{ThemeResource GlassPanelBrush}"
                                 BorderBrush="{ThemeResource GlassEdgeBrush}" BorderThickness="1"
                                 HorizontalAlignment="Center">

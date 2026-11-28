@@ -32,7 +32,7 @@ public sealed partial class MusicPlayerSurface : UserControl
     private float _bass;
     private float _average;
     private float _beat;
-    private double _phase;
+    private readonly long _lightOrigin = Environment.TickCount64;
     private ScrollViewer? _lyricScroller;
     private long _resumeLyricFollowAt;
     private long _nextLightAt;
@@ -42,6 +42,8 @@ public sealed partial class MusicPlayerSurface : UserControl
         _player = player;
         _metadata = new MusicMetadataService(App.Services.Http);
         InitializeComponent();
+        ElementCompositionPreview.SetIsTranslationEnabled(GlassLight, true);
+        ElementCompositionPreview.SetIsTranslationEnabled(ReflectedLight, true);
         DataContext = player;
         Seek.AddHandler(UIElement.PointerPressedEvent, new PointerEventHandler(OnSeekStart), true);
         Seek.AddHandler(UIElement.PointerReleasedEvent, new PointerEventHandler(OnSeekEnd), true);
@@ -211,6 +213,12 @@ public sealed partial class MusicPlayerSurface : UserControl
         if (!playing || !MotionSettings.AnimationsEnabled || Accessibility.HighContrast)
         {
             StopCapture();
+            if (_nextLightAt != 0)
+            {
+                _nextLightAt = 0;
+                GlassOpticsEngine.SetIncidentLight(TransportGlass, Vector2.Zero, 0);
+                GlassOpticsEngine.SetIncidentLight(CoverSurface, Vector2.Zero, 0);
+            }
             return;
         }
         var now = Environment.TickCount64;
@@ -223,22 +231,44 @@ public sealed partial class MusicPlayerSurface : UserControl
             _capture.Start();
         }
 
-        _phase += 0.085;
+        var seconds = (now - _lightOrigin) / 1000.0;
         var beat = Volatile.Read(ref _beat);
-        var visual = ElementCompositionPreview.GetElementVisual(GlassLight);
-        var shift = Math.Max(110f, (float)MusicRoot.ActualWidth * 0.35f);
-        using var drift = visual.Compositor.CreateVector3KeyFrameAnimation();
-        drift.InsertKeyFrame(1, new Vector3(
-            shift * (0.55f + 0.52f * (float)Math.Sin(_phase)) + 35f * beat,
-            44f * (float)Math.Cos(_phase * 0.83) - 28f * beat, 0));
+        var horizontal = (float)(0.53 * Math.Sin(seconds * 0.19) + 0.28 * Math.Sin(seconds * 0.43 + 1.5)
+            + 0.13 * Math.Sin(seconds * 0.71));
+        var vertical = (float)(0.52 * Math.Cos(seconds * 0.16 + 0.3) + 0.20 * Math.Sin(seconds * 0.37));
+        var occlusion = (float)(0.74 + 0.15 * Math.Sin(seconds * 0.57) + 0.07 * Math.Sin(seconds * 0.99 + 1.3));
+        var width = Math.Max(300f, (float)MusicRoot.ActualWidth);
+        var height = Math.Max(240f, (float)MusicRoot.ActualHeight);
+        var intensity = Math.Clamp(occlusion + 0.28f * beat, 0, 1);
+        MoveLight(GlassLight, new Vector2(horizontal * width * 0.36f, vertical * height * 0.28f - 42 - 22 * beat),
+            -0.34f + horizontal * 0.20f, intensity * 0.85f, 1 + 0.10f * beat);
+        MoveLight(ReflectedLight, new Vector2(horizontal * width * 0.23f + 107, vertical * height * -0.20f + 57 + 18 * beat),
+            -0.60f - vertical * 0.15f, intensity * (0.32f + 0.10f * beat), 1 + 0.06f * beat);
+        var direction = new Vector2(horizontal, vertical);
+        GlassOpticsEngine.SetIncidentLight(TransportGlass, direction, intensity * (0.38f + 0.32f * beat));
+        GlassOpticsEngine.SetIncidentLight(CoverSurface, direction - new Vector2(0.28f, 0.12f), intensity * 0.52f);
+    }
+
+    private static void MoveLight(FrameworkElement element, Vector2 point, float rotation, float opacity, float stretch)
+    {
+        var light = ElementCompositionPreview.GetElementVisual(element);
+        light.CenterPoint = new Vector3((float)element.ActualWidth / 2, (float)element.ActualHeight / 2, 0);
+        using var drift = light.Compositor.CreateVector3KeyFrameAnimation();
+        drift.InsertKeyFrame(1, new Vector3(point, 0));
         drift.Duration = TimeSpan.FromMilliseconds(260);
-        ElementCompositionPreview.SetIsTranslationEnabled(GlassLight, true);
-        visual.StartAnimation("Translation", drift);
-        var light = ElementCompositionPreview.GetElementVisual(GlassLightLayer);
+        light.StartAnimation("Translation", drift);
         using var intensity = light.Compositor.CreateScalarKeyFrameAnimation();
-        intensity.InsertKeyFrame(1, 0.54f + 0.43f * beat);
+        intensity.InsertKeyFrame(1, opacity);
         intensity.Duration = TimeSpan.FromMilliseconds(240);
         light.StartAnimation("Opacity", intensity);
+        using var tilt = light.Compositor.CreateScalarKeyFrameAnimation();
+        tilt.InsertKeyFrame(1, rotation);
+        tilt.Duration = TimeSpan.FromMilliseconds(320);
+        light.StartAnimation("RotationAngle", tilt);
+        using var spread = light.Compositor.CreateVector3KeyFrameAnimation();
+        spread.InsertKeyFrame(1, new Vector3(stretch, 1 / stretch, 1));
+        spread.Duration = TimeSpan.FromMilliseconds(260);
+        light.StartAnimation("Scale", spread);
     }
 
     private void OnAudio(byte[] samples)

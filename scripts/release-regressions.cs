@@ -491,8 +491,20 @@ if (verifyBundled || args.Contains("--verify-python"))
     {
         Environment.SetEnvironmentVariable("JAVA_HOME", Path.Combine(args[0], "不存在的 JDK"));
         Environment.SetEnvironmentVariable("JAVA_TOOL_OPTIONS", "-XX:InvalidFixtureOption");
+        var previousPath = Environment.GetEnvironmentVariable("PATH");
+        Environment.SetEnvironmentVariable("PATH", Environment.GetFolderPath(Environment.SpecialFolder.System));
         using var java = new SpiderRuntime(customDb);
-        var javaResponse = await java.SendAsync(new SourceSite { Key = "java_fixture", Api = "csp_PanTa", Type = 3 }, "home", []);
+        JsonElement javaResponse;
+        try { javaResponse = await java.SendAsync(new SourceSite { Key = "java_fixture", Api = "csp_PanTa", Type = 3 }, "home", []); }
+        catch
+        {
+            var log = Path.Combine(AppPaths.Root, "diagnostic.log");
+            if (File.Exists(log))
+                foreach (var line in File.ReadLines(log).Where(line => line.Contains("Spider Java startup", StringComparison.Ordinal)))
+                    Console.Error.WriteLine(line);
+            throw;
+        }
+        finally { Environment.SetEnvironmentVariable("PATH", previousPath); }
         Check(javaResponse.ValueKind == JsonValueKind.Object && javaResponse.TryGetProperty("list", out _),
             "The bundled Java engine answers IPC without using the machine's JAVA_HOME or JVM options");
     }

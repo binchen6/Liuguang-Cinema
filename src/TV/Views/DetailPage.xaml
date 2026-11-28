@@ -18,18 +18,18 @@
         <x:Double x:Key="DetailCoverWidth">240</x:Double>
         <x:Double x:Key="DetailCoverHeight">360</x:Double>
         <x:Double x:Key="EpisodePanelMaxHeight">430</x:Double>
-        <x:Double x:Key="DetailActionWidth">118</x:Double>
+        <x:Double x:Key="DetailActionIconSize">20</x:Double>
         <Style x:Key="DetailActionButtonStyle" TargetType="Button" BasedOn="{StaticResource SecondaryButtonStyle}">
-            <Setter Property="MinWidth" Value="{StaticResource DetailActionWidth}" />
+            <Setter Property="HorizontalAlignment" Value="Stretch" />
             <Setter Property="Height" Value="{StaticResource PrimaryButtonHeight}" />
             <Setter Property="MinHeight" Value="{StaticResource PrimaryButtonHeight}" />
-            <Setter Property="Padding" Value="16,0" />
+            <Setter Property="Padding" Value="10,0" />
             <Setter Property="FontSize" Value="{StaticResource FontSizeBody}" />
             <Setter Property="FontWeight" Value="Medium" />
         </Style>
         <Style x:Key="DetailPrimaryButtonStyle" TargetType="Button" BasedOn="{StaticResource PrimaryButtonStyle}">
-            <Setter Property="MinWidth" Value="138" />
-            <Setter Property="Padding" Value="22,0" />
+            <Setter Property="HorizontalAlignment" Value="Stretch" />
+            <Setter Property="Padding" Value="10,0" />
             <Setter Property="FontSize" Value="{StaticResource FontSizeBody}" />
         </Style>
     </Page.Resources>
@@ -38,7 +38,7 @@
         <StackPanel Padding="{StaticResource PagePaddingWide}" Spacing="28">
 
             <!-- 美术馆全出血环境柔光磨砂画报区：GPU 视差底纹 + 建筑画框封面 + 朱砂引线简介 + 墨白高反差主操作 -->
-            <Border x:Name="HeroBanner" CornerRadius="{StaticResource RadiusPanel}"
+            <Border Style="{StaticResource GlassOpticalPanelBorderStyle}" x:Name="HeroBanner" CornerRadius="{StaticResource RadiusPanel}"
                     BorderThickness="1" BorderBrush="{ThemeResource GlassEdgeBrush}"
                     Background="{ThemeResource GlassPanelBrush}">
                 <Grid>
@@ -94,7 +94,7 @@
                                     </ItemsControl.ItemsPanel>
                                     <ItemsControl.ItemTemplate>
                                         <DataTemplate>
-                                            <Border Padding="11,4" Background="{ThemeResource GlassChipBrush}"
+                                            <Border Style="{StaticResource GlassOpticalChipBorderStyle}" Padding="11,4" Background="{ThemeResource GlassChipBrush}"
                                                     BorderBrush="{ThemeResource GlassEdgeBrush}" BorderThickness="1"
                                                     CornerRadius="6">
                                                 <TextBlock Text="{Binding}" Style="{StaticResource MetaText}"
@@ -128,10 +128,11 @@
                             </Grid>
 
                             <!-- 主操作「播放」墨白高反差，收藏 / 下载 / 投屏为轻透磨砂次操作 -->
-                            <Grid x:Name="ActionButtons" ColumnSpacing="12" RowSpacing="12" Margin="0,4,0,0">
+                            <Grid x:Name="ActionButtons" ColumnSpacing="12" RowSpacing="12" Margin="0,4,0,0"
+                                  HorizontalAlignment="Left" Width="300">
                                 <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" />
-                                    <ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="*" /><ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="*" /><ColumnDefinition Width="*" />
                                 </Grid.ColumnDefinitions>
                                 <Grid.RowDefinitions>
                                     <RowDefinition Height="Auto" />
@@ -141,8 +142,8 @@
                                         Style="{StaticResource DetailPrimaryButtonStyle}"
                                         Click="OnPlayFirstClick"
                                         AutomationProperties.Name="播放">
-                                    <StackPanel Orientation="Horizontal" Spacing="9">
-                                        <controls:LineIcon PathData="{StaticResource IconPlaySolid}" IconSize="15" IsFilled="True"
+                                    <StackPanel Orientation="Horizontal" Spacing="{StaticResource SpaceMini}" VerticalAlignment="Center">
+                                        <controls:LineIcon PathData="{StaticResource IconPlaySolid}" IconSize="{StaticResource DetailActionIconSize}" IsFilled="True"
                                                            Foreground="{ThemeResource AccentInkBrush}" />
                                         <TextBlock Text="{Binding PrimaryPlayText}" FontWeight="SemiBold"
                                                    Foreground="{ThemeResource AccentInkBrush}" VerticalAlignment="Center" />
@@ -153,18 +154,18 @@
                                         Click="OnFavoriteVisualClick"
                                         Style="{StaticResource DetailActionButtonStyle}"
                                         AutomationProperties.Name="收藏">
-                                    <StackPanel Orientation="Horizontal" Spacing="8">
-                                        <controls:LineIcon PathData="{StaticResource IconStar}" IconSize="16" />
+                                    <StackPanel Orientation="Horizontal" Spacing="{StaticResource SpaceMini}" VerticalAlignment="Center">
+                                        <controls:LineIcon PathData="{StaticResource IconStar}" IconSize="{StaticResource DetailActionIconSize}" />
                                         <TextBlock Text="{Binding IsFavorite, Converter={StaticResource FavoriteText}}" VerticalAlignment="Center" />
                                     </StackPanel>
                                 </Button>
                                 <Button x:Name="DownloadAction" Grid.Column="2" Style="{StaticResource DetailActionButtonStyle}"
                                         AutomationProperties.Name="下载"
                                         ToolTipService.ToolTip="选择集数并另存为本地文件">
-                                    <StackPanel Orientation="Horizontal" Spacing="{StaticResource SpaceMini}">
-                                        <controls:LineIcon PathData="{StaticResource IconDownload}" IconSize="16"
+                                    <StackPanel Orientation="Horizontal" Spacing="{StaticResource SpaceMini}" VerticalAlignment="Center">
+                                        <controls:LineIcon PathData="{StaticResource IconDownload}" IconSize="{StaticResource DetailActionIconSize}"
                                                            Visibility="{Binding IsDownloading, Converter={StaticResource BoolToVisibility}, ConverterParameter=Inverse}" />
-                                        <ProgressRing Width="16" Height="16" IsActive="{Binding IsDownloading}"
+                                        <ProgressRing Width="{StaticResource DetailActionIconSize}" Height="{StaticResource DetailActionIconSize}" IsActive="{Binding IsDownloading}"
                                                       Visibility="{Binding IsDownloading, Converter={StaticResource BoolToVisibility}}" />
                                         <TextBlock Text="下载" Style="{StaticResource BodyText}" VerticalAlignment="Center" />
                                     </StackPanel>
@@ -210,8 +211,8 @@
                                         Click="OnCastClick"
                                         ToolTipService.ToolTip="打开投屏页"
                                         AutomationProperties.Name="投屏">
-                                    <StackPanel Orientation="Horizontal" Spacing="8">
-                                        <controls:LineIcon PathData="{StaticResource IconCast}" IconSize="16" />
+                                    <StackPanel Orientation="Horizontal" Spacing="{StaticResource SpaceMini}" VerticalAlignment="Center">
+                                        <controls:LineIcon PathData="{StaticResource IconCast}" IconSize="{StaticResource DetailActionIconSize}" />
                                         <TextBlock Text="投屏" VerticalAlignment="Center" />
                                     </StackPanel>
                                 </Button>

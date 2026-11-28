@@ -29,7 +29,7 @@
                 <TextBlock Text="电脑作为投屏接收端：手机通过 DLNA / UPnP 发送视频，本机直接播放"
                            Style="{StaticResource SecondaryText}" TextWrapping="Wrap" />
             </StackPanel>
-            <Border Grid.Column="1" Background="{ThemeResource GlassChipBrush}"
+            <Border Style="{StaticResource GlassOpticalChipBorderStyle}" Grid.Column="1" Background="{ThemeResource GlassChipBrush}"
                     BorderBrush="{ThemeResource GlassEdgeBrush}" BorderThickness="1"
                     CornerRadius="14" Padding="12,5" VerticalAlignment="Center"
                     Margin="12,0,0,0">
@@ -214,7 +214,7 @@
                                          Stroke="{ThemeResource GlassEdgeBrush}" StrokeThickness="1"
                                          Opacity="0" HorizontalAlignment="Center" VerticalAlignment="Center"
                                          IsHitTestVisible="False" />
-                                <Border Width="92" Height="92" CornerRadius="46"
+                                <Border Style="{StaticResource GlassOpticalChipBorderStyle}" Width="92" Height="92" CornerRadius="46"
                                         Background="{ThemeResource GlassChipBrush}"
                                         BorderBrush="{ThemeResource GlassEdgeBrush}" BorderThickness="1"
                                         HorizontalAlignment="Center" VerticalAlignment="Center">

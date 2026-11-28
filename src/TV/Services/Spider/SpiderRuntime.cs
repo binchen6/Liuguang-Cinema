@@ -185,9 +185,12 @@ public sealed class SpiderRuntime : IDisposable
         _process = null;
         AppPaths.EnsureCreated();
         var jar = FindJar();
+        var executable = FindJava();
+        if (JavaWindowsPaths.NeedsStaging(executable, jar))
+            (executable, jar) = JavaWindowsPaths.Stage(executable, jar);
         var start = new ProcessStartInfo
         {
-            FileName = FindJava(),
+            FileName = executable,
             UseShellExecute = false,
             CreateNoWindow = true,
             RedirectStandardInput = true,
@@ -196,7 +199,7 @@ public sealed class SpiderRuntime : IDisposable
             StandardInputEncoding = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false),
             StandardOutputEncoding = Encoding.UTF8,
             StandardErrorEncoding = Encoding.UTF8,
-            WorkingDirectory = AppPaths.Root
+            WorkingDirectory = Path.GetDirectoryName(jar)!
         };
         // Strip host-global JVM option overrides that could break the bundled Java 17 runtime on other PCs.
         start.Environment.Remove("_JAVA_OPTIONS");
@@ -204,8 +207,14 @@ public sealed class SpiderRuntime : IDisposable
         start.Environment.Remove("JDK_JAVA_OPTIONS");
         var spiderDataDir = Path.Combine(AppPaths.Root, "spider");
         Directory.CreateDirectory(spiderDataDir);
-        foreach (var argument in new[] { "-Xms16m", "-Xmx384m", "-XX:MaxMetaspaceSize=160m", "-XX:+UseSerialGC", "-XX:TieredStopAtLevel=1", "-Dfile.encoding=UTF-8", $"-Dtv.spider.dataDir={spiderDataDir}", "-jar", jar }) start.ArgumentList.Add(argument);
+        start.Environment["TV_SPIDER_DATA_DIR"] = spiderDataDir;
+        foreach (var argument in new[] { "-Xms16m", "-Xmx384m", "-XX:MaxMetaspaceSize=160m", "-XX:+UseSerialGC", "-XX:TieredStopAtLevel=1", "-Dfile.encoding=UTF-8", "-jar", Path.GetFileName(jar) }) start.ArgumentList.Add(argument);
         var process = Process.Start(start) ?? throw new InvalidOperationException("无法启动爬虫运行时。");
+        process.ErrorDataReceived += (_, args) =>
+        {
+            if (args.Data is { Length: > 0 } error && error.StartsWith("Error", StringComparison.Ordinal))
+                Diagnostics.Log("Spider Java startup: " + error);
+        };
         process.BeginErrorReadLine();
         _process = process;
         _ = ReadResponsesAsync(process);
@@ -218,7 +227,11 @@ public sealed class SpiderRuntime : IDisposable
         if (_javaPath is not null && File.Exists(_javaPath)) return _javaPath;
         var candidates = new List<string>();
         var packaged = Path.Combine(AppContext.BaseDirectory, "runtime", "java", "bin", "java.exe");
-        if (File.Exists(packaged)) candidates.Add(packaged);
+        if (File.Exists(packaged))
+        {
+            if (JavaWindowsPaths.NeedsStaging(packaged, FindJar())) return packaged;
+            candidates.Add(packaged);
+        }
         var javaHome = Environment.GetEnvironmentVariable("JAVA_HOME");
         if (!string.IsNullOrWhiteSpace(javaHome))
         {

@@ -9,12 +9,22 @@
         <x:Double x:Key="MusicLyricFontSize">27</x:Double>
     </UserControl.Resources>
     <Grid x:Name="MusicRoot" Background="{ThemeResource AppBackgroundBrush}" SizeChanged="OnLayoutChanged">
-        <Grid x:Name="GlassLightLayer" IsHitTestVisible="False" Opacity="0.60">
-            <Border x:Name="GlassLight" Width="670" Height="520" HorizontalAlignment="Left" VerticalAlignment="Center">
+        <Grid x:Name="GlassLightLayer" IsHitTestVisible="False">
+            <Border x:Name="GlassLight" Width="910" Height="410" HorizontalAlignment="Center" VerticalAlignment="Center" Opacity="0.65">
                 <Border.Background>
-                    <RadialGradientBrush Center="0.48,0.52" RadiusX="0.5" RadiusY="0.5">
+                    <RadialGradientBrush Center="0.50,0.50" GradientOrigin="0.36,0.38" RadiusX="0.5" RadiusY="0.5">
                         <GradientStop Color="{ThemeResource MusicGlassLightColor}" Offset="0" />
-                        <GradientStop Color="{ThemeResource MusicGlassRimColor}" Offset="0.46" />
+                        <GradientStop Color="{ThemeResource MusicGlassRimColor}" Offset="0.32" />
+                        <GradientStop Color="{ThemeResource MusicGlassScatterColor}" Offset="0.65" />
+                        <GradientStop Color="Transparent" Offset="1" />
+                    </RadialGradientBrush>
+                </Border.Background>
+            </Border>
+            <Border x:Name="ReflectedLight" Width="710" Height="285" HorizontalAlignment="Center" VerticalAlignment="Center" Opacity="0.40">
+                <Border.Background>
+                    <RadialGradientBrush Center="0.51,0.49" GradientOrigin="0.68,0.42" RadiusX="0.5" RadiusY="0.5">
+                        <GradientStop Color="{ThemeResource MusicGlassRimColor}" Offset="0" />
+                        <GradientStop Color="{ThemeResource MusicGlassScatterColor}" Offset="0.45" />
                         <GradientStop Color="Transparent" Offset="1" />
                     </RadialGradientBrush>
                 </Border.Background>
@@ -93,7 +103,7 @@
                     </Grid>
                 </Grid>
             </Grid>
-            <controls:GlassSurface Grid.Row="2" Style="{StaticResource PlayerDockGlassStyle}" Padding="15,8">
+            <controls:GlassSurface x:Name="TransportGlass" Grid.Row="2" Style="{StaticResource PlayerDockGlassStyle}" Padding="15,8">
                 <Grid RowSpacing="3" ColumnSpacing="8">
                     <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
                     <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
@@ -109,9 +119,9 @@
                         <Button Style="{StaticResource PrimaryButtonStyle}" AutomationProperties.Name="播放暂停" ToolTipService.ToolTip="播放 / 暂停"
                                 Command="{Binding TogglePauseCommand}" MinWidth="52" MinHeight="40">
                             <Grid>
-                                <controls:LineIcon PathData="{StaticResource IconPlaySolid}" IconSize="17" IsFilled="True"
+                                <controls:LineIcon PathData="{StaticResource IconPlaySolid}" IconSize="21" IsFilled="True"
                                                    Visibility="{Binding IsPlaying, Converter={StaticResource MusicBoolVisibility}, ConverterParameter=Inverse}" />
-                                <controls:LineIcon PathData="{StaticResource IconPauseSolid}" IconSize="17" IsFilled="True"
+                                <controls:LineIcon PathData="{StaticResource IconPauseSolid}" IconSize="21" IsFilled="True"
                                                    Visibility="{Binding IsPlaying, Converter={StaticResource MusicBoolVisibility}}" />
                             </Grid>
                         </Button>

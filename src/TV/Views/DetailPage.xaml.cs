@@ -15,6 +15,7 @@ public sealed partial class DetailPage : Page
     public DetailPage()
     {
         InitializeComponent();
+        DetailInfo.SizeChanged += (_, args) => UpdateActionGrid(args.NewSize.Width);
         MotionService.AttachTactile(PlayAction, 1.025f, 0.96f, -1.5f);
         MotionService.AttachTactile(FavoriteAction, 1.02f, 0.965f, -1f);
         MotionService.AttachTactile(DownloadAction, 1.02f, 0.965f, -1f);
@@ -60,7 +61,6 @@ public sealed partial class DetailPage : Page
     private void OnPageSizeChanged(object sender, SizeChangedEventArgs e)
     {
         var width = e.NewSize.Width;
-        var compact = width < 900;
         var stackedHero = width < 680;
         var coverWidth = stackedHero ? 160 : e.NewSize.Height < 560 ? 176 : e.NewSize.Height < 720 ? 208 : 252;
         CoverFrame.Width = coverWidth;
@@ -73,12 +73,6 @@ public sealed partial class DetailPage : Page
         Grid.SetColumn(DetailInfo, stackedHero ? 0 : 1);
         Grid.SetRow(DetailInfo, stackedHero ? 1 : 0);
 
-        ActionSecondRow.Height = compact ? GridLength.Auto : new GridLength(0);
-        Grid.SetColumn(DownloadAction, compact ? 0 : 2);
-        Grid.SetRow(DownloadAction, compact ? 1 : 0);
-        Grid.SetColumn(CastAction, compact ? 1 : 3);
-        Grid.SetRow(CastAction, compact ? 1 : 0);
-
         var stackedContent = width < 840;
         SourceColumn.Width = stackedContent ? new GridLength(1, GridUnitType.Star) : new GridLength(2, GridUnitType.Star);
         EpisodeColumn.Width = stackedContent ? new GridLength(0) : new GridLength(3, GridUnitType.Star);
@@ -86,6 +80,24 @@ public sealed partial class DetailPage : Page
         ContentColumns.RowSpacing = stackedContent ? 24 : 0;
         Grid.SetColumn(EpisodePane, stackedContent ? 0 : 1);
         Grid.SetRow(EpisodePane, stackedContent ? 1 : 0);
+    }
+
+    private void UpdateActionGrid(double width)
+    {
+        if (width <= 0) return;
+        var compact = width < 520;
+        ActionButtons.Width = Math.Min(width, compact ? 324 : 568);
+        ActionSecondRow.Height = compact ? GridLength.Auto : new GridLength(0);
+        var span = compact ? 2 : 1;
+        Grid.SetColumnSpan(PlayAction, span);
+        Grid.SetColumnSpan(FavoriteAction, span);
+        Grid.SetColumnSpan(DownloadAction, span);
+        Grid.SetColumnSpan(CastAction, span);
+        Grid.SetColumn(FavoriteAction, compact ? 2 : 1);
+        Grid.SetColumn(DownloadAction, compact ? 0 : 2);
+        Grid.SetRow(DownloadAction, compact ? 1 : 0);
+        Grid.SetColumn(CastAction, compact ? 2 : 3);
+        Grid.SetRow(CastAction, compact ? 1 : 0);
     }
 
     private void Attach(VodViewModel? model)

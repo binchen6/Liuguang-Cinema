@@ -130,6 +130,17 @@ public static class GlassOpticsEngine
             session.SyncGeometry();
     }
 
+    internal static void SetIncidentLight(FrameworkElement host, Vector2 direction, float illuminance)
+    {
+        if (Sessions.TryGetValue(host, out var session)) session.SetIncidentLight(direction, illuminance);
+    }
+
+    private static float Fresnel(float cosine)
+    {
+        const float reflectanceAtNormal = 0.04f;
+        return reflectanceAtNormal + (1f - reflectanceAtNormal) * MathF.Pow(1f - Math.Clamp(cosine, 0f, 1f), 5f);
+    }
+
     public static void Detach(FrameworkElement pointerHost)
     {
         if (Sessions.TryGetValue(pointerHost, out var session))
@@ -166,6 +177,8 @@ public static class GlassOpticsEngine
         private ShapeVisual? _rippleVisual;
         private CompositionRoundedRectangleGeometry? _rippleGeometry;
         private CompositionRadialGradientBrush? _rippleBrush;
+        private ShapeVisual? _incidentVisual;
+        private CompositionRadialGradientBrush? _incidentBrush;
 
         private CubicBezierEasingFunction? _easeOutExpo;
         private CubicBezierEasingFunction? _easeOutQuint;
@@ -300,6 +313,47 @@ public static class GlassOpticsEngine
                     _rippleVisual.Opacity = 0f;
                 }
             }
+            if (!IsActive && _incidentVisual is not null)
+            {
+                _incidentVisual.StopAnimation(nameof(Visual.Opacity));
+                _incidentVisual.Opacity = 0;
+            }
+        }
+
+        internal void SetIncidentLight(Vector2 direction, float illuminance)
+        {
+            if (illuminance <= 0 && _incidentVisual is null || !TryEnsureVisuals() || _width <= 1 || _height <= 1) return;
+            var compositor = _compositor!;
+            if (_incidentVisual is null)
+            {
+                _incidentBrush = compositor.CreateRadialGradientBrush();
+                _incidentBrush.MappingMode = CompositionMappingMode.Absolute;
+                _incidentBrush.ColorStops.Add(compositor.CreateColorGradientStop(0, Color.FromArgb(70, 255, 239, 208)));
+                _incidentBrush.ColorStops.Add(compositor.CreateColorGradientStop(0.42f, Color.FromArgb(35, 202, 220, 251)));
+                _incidentBrush.ColorStops.Add(compositor.CreateColorGradientStop(1, Color.FromArgb(0, 202, 220, 251)));
+                var shape = compositor.CreateSpriteShape(_transmissionGeometry);
+                shape.FillBrush = _incidentBrush;
+                shape.StrokeBrush = _incidentBrush;
+                shape.StrokeThickness = 0.85f;
+                _incidentVisual = compositor.CreateShapeVisual();
+                _incidentVisual.Shapes.Add(shape);
+                _incidentVisual.Opacity = 0;
+                _rootVisual!.Children.InsertAtBottom(_incidentVisual);
+            }
+
+            _incidentVisual.Size = new Vector2(_width, _height);
+            var radius = Math.Clamp(_width * 0.39f, 68f, 330f);
+            _incidentBrush!.EllipseRadius = new Vector2(radius, Math.Clamp(_height * 0.98f, 46f, 210f));
+            var incidence = 0.62f / MathF.Sqrt(0.3844f + direction.LengthSquared());
+            var strength = Math.Clamp(illuminance * (0.60f + 1.3f * Fresnel(incidence)), 0, 0.95f);
+            using var center = compositor.CreateVector2KeyFrameAnimation();
+            center.InsertKeyFrame(1, new Vector2((0.5f + direction.X * 0.42f) * _width, (0.18f + direction.Y * 0.22f) * _height), _easeOutQuint!);
+            center.Duration = TimeSpan.FromMilliseconds(210);
+            _incidentBrush.StartAnimation(nameof(CompositionRadialGradientBrush.EllipseCenter), center);
+            using var opacity = compositor.CreateScalarKeyFrameAnimation();
+            opacity.InsertKeyFrame(1, strength, _easeOutQuint!);
+            opacity.Duration = TimeSpan.FromMilliseconds(210);
+            _incidentVisual.StartAnimation(nameof(Visual.Opacity), opacity);
         }
 
         private void OnVisualSizeChanged(object sender, SizeChangedEventArgs e) => SyncGeometry();
@@ -418,6 +472,8 @@ public static class GlassOpticsEngine
             _rippleVisual = null;
             _rippleGeometry = null;
             _rippleBrush = null;
+            _incidentVisual = null;
+            _incidentBrush = null;
         }
 
         public void SyncGeometry()
@@ -620,10 +676,14 @@ public static class GlassOpticsEngine
             // Snell's Law optical slab parallax: shift internal specular origin slightly counter to pointer angle
             if (_width > 1f && _height > 1f)
             {
-                var dx = (x - _width * 0.5f) / (_width * 0.5f);
-                var dy = (y - _height * 0.5f) / (_height * 0.5f);
-                _transmissionBrush.GradientOriginOffset = new Vector2(-dx * 16f, -dy * 12f);
-                _rimBrush.GradientOriginOffset = new Vector2(dx * 6f, dy * 6f);
+                var lateral = new Vector2(x * 2 / _width - 1, y * 2 / _height - 1);
+                var normal = 0.65f / MathF.Sqrt(0.4225f + lateral.LengthSquared());
+                var transmitted = MathF.Sqrt(1f - (1f - normal * normal) / 2.25f);
+                var bend = (1f - normal / transmitted) * 32f;
+                _transmissionBrush.GradientOriginOffset = -lateral * bend;
+                _rimBrush.GradientOriginOffset = lateral * (4f + 30f * Fresnel(normal));
+                _fresnelRimVisual!.Opacity = Math.Clamp(0.54f + 2.9f * Fresnel(normal), 0, 1);
+                _causticRidgeVisual!.Opacity = Math.Clamp(0.30f + (1f - y / _height) * 0.65f, 0, 1);
             }
 
             // Traveling top-bevel caustic tracks pointer X smoothly

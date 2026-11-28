@@ -283,7 +283,7 @@
                             HorizontalAlignment="Center" VerticalAlignment="Center"
                             MaxWidth="{StaticResource TextParagraphMaxWidth}"
                             Visibility="{Binding HasHistory, Converter={StaticResource BoolToVisibility}, ConverterParameter=Inverse}">
-                    <Border Width="64" Height="64" CornerRadius="32"
+                    <Border Style="{StaticResource GlassOpticalPanelBorderStyle}" Width="64" Height="64" CornerRadius="32"
                             Background="{ThemeResource GlassPanelBrush}"
                             BorderBrush="{ThemeResource GlassEdgeBrush}" BorderThickness="1"
                             HorizontalAlignment="Center">
@@ -438,7 +438,7 @@
                                 Spacing="{StaticResource SpaceSmall}"
                                 MaxWidth="{StaticResource TextParagraphMaxWidth}"
                                 HorizontalAlignment="Center" VerticalAlignment="Center">
-                        <Border Width="64" Height="64" CornerRadius="32"
+                        <Border Style="{StaticResource GlassOpticalPanelBorderStyle}" Width="64" Height="64" CornerRadius="32"
                                 Background="{ThemeResource GlassPanelBrush}"
                                 BorderBrush="{ThemeResource GlassEdgeBrush}" BorderThickness="1"
                                 HorizontalAlignment="Center">
