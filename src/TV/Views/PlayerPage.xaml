@@ -182,6 +182,9 @@
                             <Button Content="扫码登录" Style="{StaticResource PrimaryButtonStyle}" Click="OnCloudLoginClick"
                                     Visibility="{Binding HasRequiredLogin, Converter={StaticResource BoolToVisibility}}"
                                     AutomationProperties.Name="网盘登录" />
+                            <Button Content="打开酷狗原站" Style="{StaticResource PrimaryButtonStyle}"
+                                    Command="{Binding OpenOfficialTrackCommand}"
+                                    Visibility="{Binding CanOpenOfficialTrack, Converter={StaticResource BoolToVisibility}}" />
                             <Button Content="返回" Style="{StaticResource SecondaryButtonStyle}" Click="OnBackClick"
                                     Height="{StaticResource PrimaryButtonHeight}" MinHeight="{StaticResource PrimaryButtonHeight}"
                                     AutomationProperties.Name="返回" />
@@ -216,7 +219,7 @@
             </Grid.RowDefinitions>
 
             <!-- 顶部双分体轻透磨砂玻璃浮岛：左胶囊（返回 + 片名）+ 右圆镜（更多选项），敞开上方视野 -->
-            <Grid x:Name="TopChromeBar" Grid.Row="0" Padding="18,14,18,0" ColumnSpacing="12">
+            <Grid x:Name="TopChromeBar" Grid.Row="0" Padding="{StaticResource PlayerTopChromePadding}" ColumnSpacing="12">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*" />
                     <ColumnDefinition Width="Auto" />
@@ -258,6 +261,8 @@
                                 <MenuFlyout x:Name="PlaybackOptionsFlyout" Placement="BottomEdgeAlignedRight"
                                             MenuFlyoutPresenterStyle="{StaticResource PlayerGlassMenuFlyoutPresenterStyle}"
                                             Opening="OnPlaybackOptionsOpening" Closed="OnMenuFlyoutClosed">
+                                    <MenuFlyoutItem Text="打开磁力链接…" Click="OnOpenMagnetClick" />
+                                    <MenuFlyoutSeparator />
                                     <MenuFlyoutSubItem x:Name="AudioTracks" Text="音轨" />
                                     <MenuFlyoutSubItem x:Name="SubtitleTracks" Text="字幕轨道" />
                                     <MenuFlyoutItem Text="字幕设置与时间轴…" Click="OnSubtitleSettingsClick" />
@@ -286,9 +291,9 @@
             </Grid>
 
             <!-- 底部悬浮五层光学磨砂玻璃控制坞：柔和真磨砂 + 体积透视 + 顶部焦散高光丝 + 菲涅尔描边 -->
-            <Grid x:Name="BottomChromeBar" Grid.Row="2" VerticalAlignment="Bottom" Margin="20,0,20,16">
+            <Grid x:Name="BottomChromeBar" Grid.Row="2" VerticalAlignment="Bottom" Margin="{StaticResource PlayerBottomChromeMargin}">
                 <controls:GlassSurface x:Name="BottomGlassSurface" Style="{StaticResource PlayerDockGlassStyle}"
-                                       MaxWidth="1120" HorizontalAlignment="Stretch" CornerRadius="20" Padding="16,8,16,9"
+                                       MaxWidth="{StaticResource PlayerDockMaxWidth}" HorizontalAlignment="Stretch" CornerRadius="20" Padding="16,8,16,9"
                                        PointerEntered="OnControlPointerEntered" PointerExited="OnControlPointerExited">
                     <StackPanel Spacing="4">
                             <TextBlock Text="{Binding QualityMessage}" Style="{StaticResource MetaText}"

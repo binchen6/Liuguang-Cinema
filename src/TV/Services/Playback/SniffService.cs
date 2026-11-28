@@ -22,7 +22,8 @@ public sealed partial class SniffService
     private Task<bool>? _ready;
     private CachedMedia? _recent;
     internal string? RuntimeIssue { get; private set; }
-    private sealed record CachedMedia(string Page, string? UserAgent, Func<Uri, bool>? Filter, SniffedMedia Media, DateTimeOffset ExpiresAt);
+    private sealed record CachedMedia(string Page, string? UserAgent, Func<Uri, bool>? Filter,
+        bool AudioOnly, SniffedMedia Media, DateTimeOffset ExpiresAt);
 
     public SniffService(DispatcherQueue dispatcher) => _dispatcher = dispatcher;
 
@@ -58,18 +59,18 @@ public sealed partial class SniffService
     }
 
     internal async Task<SniffedMedia?> SniffAsync(string pageUrl, string? userAgent = null, CancellationToken cancellationToken = default,
-        Func<Uri, bool>? allowMedia = null)
+        Func<Uri, bool>? allowMedia = null, bool audioOnly = false)
     {
         if (!Uri.TryCreate(pageUrl, UriKind.Absolute, out var page) || !MediaRequestHeaders.IsHttpAddress(page)) return null;
         await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
             if (_recent is { } last && last.Page == pageUrl && last.UserAgent == userAgent && last.Filter == allowMedia &&
-                last.ExpiresAt > DateTimeOffset.UtcNow)
+                last.AudioOnly == audioOnly && last.ExpiresAt > DateTimeOffset.UtcNow)
                 return last.Media;
             if (!await EnsureReadyAsync().WaitAsync(cancellationToken).ConfigureAwait(false)) return null;
-            var result = await RunOnUi(token => SniffCoreAsync(pageUrl, userAgent, allowMedia, token), cancellationToken).ConfigureAwait(false);
-            if (result is not null) _recent = new CachedMedia(pageUrl, userAgent, allowMedia, result, DateTimeOffset.UtcNow.AddSeconds(45));
+            var result = await RunOnUi(token => SniffCoreAsync(page, userAgent, allowMedia, audioOnly, token), cancellationToken).ConfigureAwait(false);
+            if (result is not null) _recent = new CachedMedia(pageUrl, userAgent, allowMedia, audioOnly, result, DateTimeOffset.UtcNow.AddSeconds(45));
             Diagnostics.Log(result is null ? "嗅探未找到媒体" : "嗅探已找到媒体");
             return result;
         }
@@ -166,6 +167,7 @@ public sealed partial class SniffService
                 core.Settings.AreHostObjectsAllowed = false;
                 core.Settings.IsWebMessageEnabled = false;
                 core.Settings.AreDevToolsEnabled = false;
+                core.IsMuted = true;
                 core.NewWindowRequested += (_, args) => args.Handled = true;
                 core.DownloadStarting += (_, args) => args.Cancel = true;
                 core.PermissionRequested += (_, args) => args.State = CoreWebView2PermissionState.Deny;
@@ -188,7 +190,8 @@ public sealed partial class SniffService
         }, CancellationToken.None);
     }
 
-    private async Task<SniffedMedia?> SniffCoreAsync(string pageUrl, string? userAgent, Func<Uri, bool>? allowMedia, CancellationToken cancellationToken)
+    private async Task<SniffedMedia?> SniffCoreAsync(Uri page, string? userAgent, Func<Uri, bool>? allowMedia,
+        bool audioOnly, CancellationToken cancellationToken)
     {
         if (_webView?.CoreWebView2 is not { } core) return null;
         var found = new TaskCompletionSource<SniffedMedia?>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -205,6 +208,9 @@ public sealed partial class SniffService
                 var type = responseHeaders.Contains("Content-Type")
                     ? responseHeaders.GetHeader("Content-Type").Split(';', 2)[0].Trim().ToLowerInvariant() : null;
                 if (HlsManifest.RecognizeResponse(url, type) is not { } contentType) return;
+                if (!audioOnly && contentType.StartsWith("audio/", StringComparison.Ordinal)) return;
+                if (audioOnly && !contentType.StartsWith("audio/", StringComparison.Ordinal) &&
+                    !HlsManifest.IsPlaylist(url, contentType)) return;
                 var requestHeaders = args.Request.Headers;
                 var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
                 foreach (var name in new[] { "Referer", "Origin", "User-Agent" })
@@ -216,8 +222,16 @@ public sealed partial class SniffService
             catch (System.Runtime.InteropServices.COMException) { }
         }
 
+        void OnNavigation(CoreWebView2 sender, CoreWebView2NavigationStartingEventArgs args)
+        {
+            if (!Uri.TryCreate(args.Uri, UriKind.Absolute, out var destination) || !MediaRequestHeaders.IsHttpAddress(destination) ||
+                audioOnly && !MediaRequestHeaders.SameOrigin(page, destination))
+                args.Cancel = true;
+        }
+
         var previousUserAgent = core.Settings.UserAgent;
         core.WebResourceResponseReceived += OnResponse;
+        core.NavigationStarting += OnNavigation;
         using var registration = cancellationToken.Register(() => found.TrySetCanceled(cancellationToken));
         using var timeout = new CancellationTokenSource(DefaultTimeout);
         using var timeoutRegistration = timeout.Token.Register(() => found.TrySetResult(null));
@@ -226,14 +240,30 @@ public sealed partial class SniffService
         {
             cancellationToken.ThrowIfCancellationRequested();
             if (!string.IsNullOrWhiteSpace(userAgent)) core.Settings.UserAgent = userAgent;
-            core.Navigate(pageUrl);
+            core.Navigate(page.AbsoluteUri);
             while (!found.Task.IsCompleted)
             {
                 if (await Task.WhenAny(found.Task, Task.Delay(900, cancellationToken)) == found.Task) break;
                 cancellationToken.ThrowIfCancellationRequested();
                 try
                 {
-                    var script = """
+                    var script = audioOnly ? """
+                        (() => {
+                          const a = document.querySelector('audio');
+                          if (!a) return;
+                          a.muted = true;
+                          if (a.currentSrc || a.getAttribute('src')) {
+                            if (a.paused) a.play().catch(() => {});
+                          } else if (window.jQuery && !window.__tvPlaybackStarted) {
+                            const toggle = document.querySelector('#toggle.icon-playbar-play');
+                            if (toggle && toggle.getClientRects().length && window.jQuery._data &&
+                                window.jQuery._data(toggle, 'events')?.click?.length) {
+                              window.__tvPlaybackStarted = true;
+                              toggle.click();
+                            }
+                          }
+                        })()
+                        """ : """
                         (() => {
                           document.querySelectorAll('video').forEach(v => {
                             v.muted = true;
@@ -260,6 +290,7 @@ public sealed partial class SniffService
             try
             {
                 core.WebResourceResponseReceived -= OnResponse;
+                core.NavigationStarting -= OnNavigation;
                 core.Stop();
                 if (!string.IsNullOrWhiteSpace(userAgent)) core.Settings.UserAgent = previousUserAgent;
                 core.Navigate("about:blank");

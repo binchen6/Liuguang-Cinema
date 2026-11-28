@@ -95,6 +95,10 @@ public sealed class PlaybackRequest
     public bool IsMusic { get; set; }
     public string? MusicCover { get; set; }
     public string? MusicLyrics { get; set; }
+    public string? MusicTranslatedLyrics { get; set; }
+    public string? MusicTitle { get; set; }
+    public string? MusicArtist { get; set; }
+    public string? MusicAlbum { get; set; }
     public Dictionary<string, string> Headers { get; set; } = new(StringComparer.OrdinalIgnoreCase);
     public VodItem? Item { get; set; }
     public List<PlaybackLine> Lines { get; set; } = [];
@@ -112,6 +116,8 @@ public sealed class PlaybackRequest
     [JsonIgnore] internal bool HasFixedVideoTrack { get; set; }
     [JsonIgnore] internal bool SeekOnAudioTrackChange { get; set; }
     [JsonIgnore] internal bool UseAvformatDemuxer { get; set; }
+    [JsonIgnore] internal bool MagnetApproved { get; set; }
+    [JsonIgnore] internal TV.Services.Playback.MagnetPlayback? Magnet { get; set; }
     public Uri? Danmaku { get; set; }
     public bool RecoverMissingSource { get; set; }
 
@@ -120,13 +126,14 @@ public sealed class PlaybackRequest
         Kind = Kind, Title = Title, Subtitle = Subtitle, Url = Url, SiteKey = SiteKey, VodId = VodId,
         Picture = Picture, StartPositionMs = StartPositionMs, Headers = new(Headers, StringComparer.OrdinalIgnoreCase),
         IsMusic = IsMusic, MusicCover = MusicCover, MusicLyrics = MusicLyrics,
+        MusicTranslatedLyrics = MusicTranslatedLyrics, MusicTitle = MusicTitle, MusicArtist = MusicArtist, MusicAlbum = MusicAlbum,
         Item = Item, Lines = Lines, LineIndex = LineIndex, EpisodeIndex = EpisodeIndex, Channel = Channel,
         Subtitles = [.. Subtitles], AudioTracks = [.. AudioTracks], CloudSubtitles = CloudSubtitles, Danmaku = Danmaku,
         RecoverMissingSource = RecoverMissingSource,
         AvailableVideoHeights = AvailableVideoHeights, AvailableQualities = AvailableQualities, ResolvedQuality = ResolvedQuality,
         Notice = Notice,
         UsesProviderVideoHeights = UsesProviderVideoHeights, HasFixedVideoTrack = HasFixedVideoTrack,
-        SeekOnAudioTrackChange = SeekOnAudioTrackChange, UseAvformatDemuxer = UseAvformatDemuxer
+        SeekOnAudioTrackChange = SeekOnAudioTrackChange, UseAvformatDemuxer = UseAvformatDemuxer, MagnetApproved = MagnetApproved
     };
 }
 

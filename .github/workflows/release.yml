@@ -112,12 +112,30 @@ jobs:
 
           # Verify portable ZIP silent in-place upgrade stays clean (no unins000.exe, obsolete files cleaned)
           $portableDir = Join-Path $env:RUNNER_TEMP 'Liuguang portable upgrade'
-          Expand-Archive -LiteralPath "artifacts/installers/TV-$version-win-x64-portable.zip" -DestinationPath $portableDir
+          if ($version -eq '2.0.3') {
+            $previousZip = Join-Path $env:RUNNER_TEMP 'TV-2.0.1-win-x64-portable.zip'
+            Invoke-WebRequest -Uri 'https://github.com/binchen6/Liuguang-Cinema/releases/download/v2.0.1/TV-2.0.1-win-x64-portable.zip' -OutFile $previousZip
+            if ((Get-FileHash -LiteralPath $previousZip -Algorithm SHA256).Hash -ne 'DAB76C28444D76A5EEE3C0CBF63DDFC04C2592CCF6999F79AC1967CD553D835') {
+              throw 'The public 2.0.1 baseline does not match its published digest'
+            }
+            Expand-Archive -LiteralPath $previousZip -DestinationPath $portableDir
+            if ((Get-Item -LiteralPath (Join-Path $portableDir 'TV.dll')).VersionInfo.FileVersion -ne '2.0.1.0') {
+              throw 'The portable upgrade did not start from 2.0.1'
+            }
+          } else {
+            Expand-Archive -LiteralPath "artifacts/installers/TV-$version-win-x64-portable.zip" -DestinationPath $portableDir
+          }
           Set-Content -LiteralPath (Join-Path $portableDir 'legacy-obsolete.dll') -Value 'old'
           Add-Content -LiteralPath (Join-Path $portableDir 'install-manifest.txt') -Value '0000000000000000000000000000000000000000000000000000000000000000|3|legacy-obsolete.dll'
           Test-InstallPackage $setup $portableDir -Portable
           if (Test-Path -LiteralPath (Join-Path $portableDir 'unins000.exe')) { throw 'Portable upgrade unexpectedly created unins000.exe' }
           if (Test-Path -LiteralPath (Join-Path $portableDir 'legacy-obsolete.dll')) { throw 'Portable upgrade failed to clean obsolete manifest file' }
+          foreach ($file in 'TV.dll', 'TV.exe', 'runtime/catvod-engine.jar', 'MonoTorrent.Client.dll') {
+            if ((Get-FileHash -LiteralPath (Join-Path $installed $file)).Hash -ne
+                (Get-FileHash -LiteralPath (Join-Path $portableDir $file)).Hash) {
+              throw "The installer and portable upgrade installed different copies of $file"
+            }
+          }
 
       - name: Clean temporary signing certificate
         if: always() && steps.cert.outputs.has_cert == 'true'

@@ -27,6 +27,8 @@ public sealed class PlayerService : IDisposable
     private LibVLC? _libVLC;
     private MediaPlayer? _mediaPlayer;
     private Media? _currentMedia;
+    private MediaInput? _currentInput;
+    private MagnetPlayback? _currentMagnet;
     private long _pendingStartPosition;
     private long? _pendingSeekPosition;
     private bool _positionApplied;
@@ -219,18 +221,21 @@ public sealed class PlayerService : IDisposable
         _audioOnly = request.IsMusic;
         _mediaInfo = string.Empty;
         _snapshot = new(VLCState.Opening, false, request.StartPositionMs, 0, false, 0, [], [], -1, -1, null, tracks?.Rate ?? 1, Stopwatch.GetTimestamp(), string.Empty);
-        var media = new Media(libVLC, request.Url, FromType.FromLocation);
-        _currentMedia = media;
         var isLocalFile = Uri.TryCreate(request.Url, UriKind.Absolute, out var parsed) && parsed.IsFile;
         var isLoopbackProxy = parsed is { IsLoopback: true };
         try
         {
+            _currentMagnet = request.Magnet;
+            _currentInput = _currentMagnet?.CreateInput();
+            var media = _currentMedia = _currentInput is null
+                ? new Media(libVLC, request.Url, FromType.FromLocation)
+                : new Media(libVLC, _currentInput);
             if (request.IsMusic) media.AddOption(":no-video");
             player.EnableHardwareDecoding = HardwareDecoding;
             media.AddOption(HardwareDecoding ? ":avcodec-hw=any" : ":avcodec-hw=none");
             var decodeThreads = HardwareDecoding ? 2 : DecoderThreads;
             media.AddOption($":avcodec-threads={decodeThreads}");
-            if (isLocalFile)
+            if (isLocalFile || _currentInput is not null)
             {
                 media.AddOption(":file-caching=300");
             }
@@ -517,7 +522,7 @@ public sealed class PlayerService : IDisposable
     private void StopCore()
     {
         ClearPendingControls();
-        if (_currentMedia is null) return;
+        if (_currentMedia is null && _currentMagnet is null) return;
         if (_mediaPlayer is not null)
         {
             _mediaPlayer.Buffering -= OnBuffering;
@@ -525,10 +530,16 @@ public sealed class PlayerService : IDisposable
             _mediaPlayer.EncounteredError -= OnPlaybackChanged;
         }
         var current = _currentMedia;
+        var magnet = _currentMagnet;
+        magnet?.CancelReads();
         try { _mediaPlayer?.Stop(); }
         finally
         {
-            current.Dispose();
+            current?.Dispose();
+            _currentInput?.Dispose();
+            _currentInput = null;
+            _currentMagnet = null;
+            if (magnet is not null) magnet.DisposeAsync().AsTask().GetAwaiter().GetResult();
             _currentMedia = null;
             _pendingSeekPosition = null;
             _pendingTracks = null;
@@ -547,6 +558,7 @@ public sealed class PlayerService : IDisposable
         {
             if (_stopTask is { IsCompleted: false } pending) return pending;
             Interlocked.Exchange(ref _stopping, 1);
+            _currentMagnet?.CancelReads();
             var task = RunNativeAsync(StopCore, CancellationToken.None);
             _stopTask = ClearStoppingAsync(task);
             return _stopTask;
@@ -736,6 +748,7 @@ public sealed class PlayerService : IDisposable
     {
         if (_disposed) return;
         _disposed = true;
+        _currentMagnet?.CancelReads();
         try { _nativeGate.Wait(); StopCore(); }
         catch (Exception ex) { Diagnostics.Log($"LibVLC dispose failed: {ex.GetType().Name}"); }
         finally { _nativeGate.Release(); }

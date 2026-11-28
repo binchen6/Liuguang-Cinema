@@ -6,6 +6,7 @@
     xmlns:local="using:TV.Converters"
     xmlns:controls="using:TV.Controls"
     Background="Transparent"
+    NavigationCacheMode="Enabled"
     Loaded="OnLoaded">
     <Page.Resources>
         <local:BoolToVisibilityConverter x:Key="BoolToVisibility" />

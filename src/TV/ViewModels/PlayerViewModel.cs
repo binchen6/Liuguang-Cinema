@@ -68,6 +68,8 @@ public sealed partial class PlayerViewModel : ObservableObject
     [ObservableProperty] private string _title = "尚未播放";
     [ObservableProperty] private string _subtitle = string.Empty;
     [ObservableProperty] private string _statusMessage = string.Empty;
+    [ObservableProperty, NotifyPropertyChangedFor(nameof(CanOpenOfficialTrack))] private string? _officialTrackAddress;
+    public bool CanOpenOfficialTrack => OfficialTrackAddress is not null;
     [ObservableProperty] private bool _isPlaying;
     [ObservableProperty] private bool _isBuffering;
     [ObservableProperty] private string _bufferingText = string.Empty;
@@ -174,6 +176,10 @@ public sealed partial class PlayerViewModel : ObservableObject
     internal event EventHandler<PlaybackRequest?>? MusicPresentationRequested;
     [ObservableProperty] private bool _isMusicMode;
     internal PlaybackRequest? MusicRequest { get; private set; }
+    internal PlaybackRequest? CurrentMusicMedia => _resolvedMedia is { IsMusic: true } media ? media : null;
+    internal IReadOnlyList<QualityOption> AudioQualityOptions =>
+        CurrentMusicMedia?.AvailableQualities?.Where(option => option.IsAvailable && option.Height <= 0).ToArray() ?? [];
+    internal Task SelectAudioQualityAsync(QualityOption quality) => ApplyQualityAsync(quality, refresh: false);
 
     internal PlaybackRequest? GetResumeRequest()
     {
@@ -230,6 +236,7 @@ public sealed partial class PlayerViewModel : ObservableObject
         _subtitleSpeedDebounceCts?.Cancel();
         SubtitleSpeed = 1.0;
         RequiredLoginProvider = null;
+        OfficialTrackAddress = null;
         QualityMessage = string.Empty;
         StopTimerAndSave();
         DanmakuCleared?.Invoke(this, EventArgs.Empty);
@@ -316,12 +323,8 @@ public sealed partial class PlayerViewModel : ObservableObject
                 media = await _services.Playback.ResolveAsync(request, SelectedQuality, GetHdrOutputAsync, token);
             }
             pendingMedia = media;
+            if (!await PrepareMagnetAsync(media, token)) return;
             IsMusicMode = media.IsMusic;
-            if (media.IsMusic)
-            {
-                MusicRequest = media;
-                MusicPresentationRequested?.Invoke(this, media);
-            }
             _isLocalFile = Uri.TryCreate(media.Url, UriKind.Absolute, out var mediaUri) && mediaUri.IsFile;
             SubtitleDelayMs = 0;
             AudioDelayMs = 0;
@@ -340,6 +343,11 @@ public sealed partial class PlayerViewModel : ObservableObject
             if (!string.IsNullOrWhiteSpace(media.Notice)) QualityMessage = media.Notice;
             if (!media.IsMusic) DanmakuChanged?.Invoke(this, media.Danmaku);
             _timer.Start();
+            if (media.IsMusic)
+            {
+                MusicRequest = media;
+                MusicPresentationRequested?.Invoke(this, media);
+            }
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested) { }
         catch (CloudAuthenticationException ex) when (IsCurrentLoad(generation, token))
@@ -351,6 +359,11 @@ public sealed partial class PlayerViewModel : ObservableObject
         catch (UcPlaybackRestrictionException ex) when (IsCurrentLoad(generation, token))
         {
             StatusMessage = ex.Message;
+        }
+        catch (KugouMediaUnavailableException ex) when (IsCurrentLoad(generation, token))
+        {
+            StatusMessage = ex.Message;
+            OfficialTrackAddress = ex.SourceAddress;
         }
         catch (Exception ex) when (IsCurrentLoad(generation, token) && IsPreconditionFailure(ex))
         {
@@ -379,6 +392,21 @@ public sealed partial class PlayerViewModel : ObservableObject
         for (; error is not null; error = error.InnerException)
             if (error is HttpRequestException { StatusCode: System.Net.HttpStatusCode.PreconditionFailed }) return true;
         return false;
+    }
+
+    private async Task<bool> PrepareMagnetAsync(PlaybackRequest media, CancellationToken token)
+    {
+        if (!MagnetPlayback.IsMagnet(media.Url)) return true;
+        if (!media.MagnetApproved && !await App.Window.ConfirmMagnetPlaybackAsync(token))
+        {
+            if (!token.IsCancellationRequested) StatusMessage = "已取消连接磁力节点。";
+            return false;
+        }
+        token.ThrowIfCancellationRequested();
+        StatusMessage = "正在连接磁力节点并读取首段数据…";
+        media.Magnet = await MagnetPlayback.OpenAsync(media.Url, token);
+        media.IsMusic = AudioMedia.IsAudio(media.Magnet.FileName);
+        return true;
     }
 
     public async Task ResumeAfterCloudLoginAsync()
@@ -439,6 +467,7 @@ public sealed partial class PlayerViewModel : ObservableObject
             PlayPauseGlyph = "\uE768";
             IsBuffering = false;
             RequiredLoginProvider = null;
+            OfficialTrackAddress = null;
             StatusMessage = string.Empty;
         }
         finally { _loadGate.Release(); }
@@ -446,6 +475,22 @@ public sealed partial class PlayerViewModel : ObservableObject
 
     [RelayCommand]
     private void FullScreen() => FullScreenRequested?.Invoke(this, EventArgs.Empty);
+
+    [RelayCommand]
+    private async Task OpenOfficialTrackAsync()
+    {
+        if (OfficialTrackAddress is not { } address || !KugouPlayback.IsSongPage(address)) return;
+        try
+        {
+            if (!await Windows.System.Launcher.LaunchUriAsync(new Uri(address)))
+                StatusMessage = "无法打开默认浏览器。";
+        }
+        catch (Exception ex)
+        {
+            Diagnostics.Log("打开曲目原站失败: " + ex.GetType().Name);
+            StatusMessage = "无法打开默认浏览器。";
+        }
+    }
 
     [RelayCommand]
     private void CompactOverlay() => CompactOverlayRequested?.Invoke(this, EventArgs.Empty);
@@ -692,6 +737,7 @@ public sealed partial class PlayerViewModel : ObservableObject
     {
         if (_settingQuality || _request is not { } current || !refresh &&
             (SelectedQuality == quality || !CanSelectQuality(quality))) return;
+        if (_resolvedMedia?.Magnet is not null) return;
         if (_resolvedMedia?.HasFixedVideoTrack == true && _services.Player.CurrentVideoHeight > 0)
         {
             QualityMessage = string.Empty;
@@ -707,6 +753,7 @@ public sealed partial class PlayerViewModel : ObservableObject
         try
         {
             media = await _services.Playback.ResolveAsync(current, quality, GetHdrOutputAsync, token);
+            if (MagnetPlayback.IsMagnet(media.Url)) return;
             token.ThrowIfCancellationRequested();
             media.StartPositionMs = current.Kind == PlaybackKind.Vod ? Math.Max(0, _services.Player.LastSnapshot.TimeMs) : 0;
             if (_resolvedMedia?.AvailableQualities?.FirstOrDefault(option => option.IsOriginal && option.Height > 0) is { } original &&
@@ -724,6 +771,7 @@ public sealed partial class PlayerViewModel : ObservableObject
             var previous = _resolvedMedia;
             await _services.Player.PlayAsync(media, tracks, token);
             _resolvedMedia = media;
+            if (media.IsMusic) MusicRequest = media;
             ReleaseMedia(previous, media);
             DanmakuChanged?.Invoke(this, media.Danmaku);
             SelectedQuality = DisplayQuality(media, quality);
@@ -747,7 +795,9 @@ public sealed partial class PlayerViewModel : ObservableObject
 
     private void ReleaseMedia(PlaybackRequest? media, PlaybackRequest? retained = null)
     {
-        if (media is null || _services.PlayerOnly) return;
+        if (media is null) return;
+        if (media.Magnet is { } magnet && !ReferenceEquals(magnet, retained?.Magnet)) _ = magnet.DisposeAsync();
+        if (_services.PlayerOnly) return;
         if (media.Url != retained?.Url) _services.Cloud.ReleaseMedia(media.Url);
         foreach (var track in media.AudioTracks)
             if (retained?.AudioTracks.Contains(track) != true) _services.Cloud.ReleaseMedia(track.AbsoluteUri);
@@ -1272,6 +1322,13 @@ public sealed partial class PlayerViewModel : ObservableObject
             if (!IsBuffering && snapshot.State is VLCState.Playing or VLCState.Paused) StatusMessage = string.Empty;
             if (snapshot.State == VLCState.Error)
             {
+                if (_resolvedMedia?.Magnet is { } magnet)
+                {
+                    StatusMessage = magnet.ReadFailure ?? "磁力媒体解码失败，可重新打开链接重试。";
+                    _timer.Stop();
+                    await _services.StopPlayerAsync();
+                    return;
+                }
                 StatusMessage = "正在尝试恢复播放…";
                 _ = RecoverPlaybackAsync();
             }
@@ -1352,6 +1409,7 @@ public sealed partial class PlayerViewModel : ObservableObject
                 try
                 {
                     refreshed = await _services.Playback.ResolveAsync(copy, QualityOptions[0], GetHdrOutputAsync, token);
+                    if (!await PrepareMagnetAsync(refreshed, token)) return;
                     refreshed.StartPositionMs = resume;
                     var previous = _resolvedMedia;
                     await _services.Player.PlayAsync(refreshed, token);

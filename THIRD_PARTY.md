@@ -20,6 +20,7 @@
 | CPython 3.14.10 x64 嵌入版 | 无系统 Python 时运行兼容的 TVBox Python 脚本 | Python Software Foundation License。官方 ZIP 的许可随 `runtime/python/LICENSE.txt` 分发。[Python.org](https://www.python.org/downloads/release/python-31410/) |
 | Microsoft Edge WebView2 Evergreen 引导程序 | 缺少 WebView2 时按需安装浏览器运行时 | 微软签名的可再分发引导程序。[Microsoft Learn](https://learn.microsoft.com/en-us/microsoft-edge/webview2/concepts/distribution) |
 | TagLibSharp 2.3.0 | 读取音频自带的歌词、封面与曲目信息 | LGPL-2.1-only。[对应源码](https://github.com/mono/taglib-sharp/tree/TaglibSharp-2.3.0.0)，[NuGet 包](https://www.nuget.org/packages/TagLibSharp/2.3.0) |
+| MonoTorrent 3.0.2 | 分片校验、磁力元数据与可拖动的媒体流 | MIT。[对应源码](https://github.com/alanmcgovern/monotorrent/tree/e78faebd0aec117146cffccaaea987ab0629eec0)，[NuGet 包](https://www.nuget.org/packages/MonoTorrent/3.0.2) |
 | Inno Setup 简体中文翻译 | 安装器与增量更新器简体中文界面 | [Inno-Setup-Chinese-Simplified-Translation](https://github.com/kira-96/Inno-Setup-Chinese-Simplified-Translation)，MIT（留存 `installer/Languages`） |
 
 `engine/catvod/src` 另含桌面 JSON IPC 桥接、Android 兼容垫片与项目维护补丁（启用 JVM 默认 TLS 校验并限制跨域凭据转发）。实际编入依赖以 `engine/catvod/pom.xml` 与 `src/TV/TV.csproj` 为准。

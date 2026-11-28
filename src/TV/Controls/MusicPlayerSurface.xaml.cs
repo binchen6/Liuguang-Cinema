@@ -88,8 +88,9 @@ public sealed partial class MusicPlayerSurface : UserControl
     {
         ClearTrack();
         _track = new CancellationTokenSource();
-        _presentation = new MusicPresentation(request.Title, request.Item?.Actor ?? "", "", null, null);
-        TrackTitle.Text = request.Title;
+        _presentation = MusicMetadataService.Describe(request);
+        TrackTitle.Text = _presentation.Title;
+        AudioQualityButton.Visibility = _player.AudioQualityOptions.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
         EnsureSolarField();
         _ = LoadMetadataAsync(request, _track.Token);
     }
@@ -101,7 +102,12 @@ public sealed partial class MusicPlayerSurface : UserControl
             var data = await _metadata.LoadAsync(request, token);
             if (token.IsCancellationRequested) return;
             var current = _presentation;
-            await ApplyPresentationAsync(data with { Cover = current?.Cover ?? data.Cover, Lyrics = current?.Lyrics ?? data.Lyrics }, token);
+            await ApplyPresentationAsync(data with
+            {
+                Cover = current?.Cover ?? data.Cover,
+                Lyrics = current?.Lyrics ?? data.Lyrics,
+                TranslatedLyrics = current?.TranslatedLyrics ?? data.TranslatedLyrics
+            }, token);
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested) { }
         catch (Exception ex) { Diagnostics.Log("Music metadata: " + ex.GetType().Name); }
@@ -109,6 +115,8 @@ public sealed partial class MusicPlayerSurface : UserControl
 
     internal void ClearTrack()
     {
+        _lyricWork?.Cancel();
+        _lyricWork = null;
         if (_track is { } track)
         {
             track.Cancel();
@@ -127,6 +135,7 @@ public sealed partial class MusicPlayerSurface : UserControl
         ArtBrush.ImageSource = null;
         CoverFallback.Visibility = Visibility.Visible;
         LyricPlaceholder.Visibility = Visibility.Visible;
+        AudioQualityButton.Visibility = Visibility.Collapsed;
         TrackArtist.Text = "";
         TrackArtist.Visibility = Visibility.Collapsed;
         TrackTitle.Text = "";
@@ -608,25 +617,22 @@ public sealed partial class MusicPlayerSurface : UserControl
     private async Task ApplyPresentationAsync(MusicPresentation data, CancellationToken token)
     {
         token.ThrowIfCancellationRequested();
+        var before = _presentation;
         _presentation = data;
         TrackTitle.Text = data.Title;
         var artistText = string.Join(" · ", new[] { data.Artist, data.Album }.Where(value => !string.IsNullOrWhiteSpace(value)));
         TrackArtist.Text = artistText;
         TrackArtist.Visibility = string.IsNullOrWhiteSpace(artistText) ? Visibility.Collapsed : Visibility.Visible;
-        _lines = MusicMetadataService.ParseLyrics(data.Lyrics);
-        _line = -1;
-        Lyrics.ItemsSource = _lines;
-        var padding = _lines.FirstOrDefault()?.TimeMs is null ? 0 : Math.Max(0, Lyrics.ActualHeight * 0.46 - 24);
-        LyricLeadingSpace.Height = LyricTrailingSpace.Height = padding;
-        LyricPlaceholder.Visibility = _lines.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
-        SyncLine(_player.Service.LastSnapshot.TimeMs);
-        if (data.Cover is not { Length: > 0 } cover) return;
+        if (before?.Lyrics != data.Lyrics || before?.TranslatedLyrics != data.TranslatedLyrics)
+            SetLyrics(data);
+        if (ReferenceEquals(before?.Cover, data.Cover) && ArtBrush.ImageSource is not null ||
+            data.Cover is not { Length: > 0 } cover) return;
         try
         {
             using var stream = new MemoryStream(cover, writable: false);
             var image = new BitmapImage { DecodePixelWidth = 512 };
             await image.SetSourceAsync(stream.AsRandomAccessStream());
-            if (token.IsCancellationRequested || !ReferenceEquals(data, _presentation)) return;
+            if (token.IsCancellationRequested || !ReferenceEquals(data.Cover, _presentation?.Cover)) return;
             ArtBrush.ImageSource = image;
             CoverFallback.Visibility = Visibility.Collapsed;
         }
@@ -636,20 +642,33 @@ public sealed partial class MusicPlayerSurface : UserControl
         }
     }
 
+    private void SetLyrics(MusicPresentation data)
+    {
+        _lines = MusicMetadataService.JoinLyrics(data.Lyrics, data.TranslatedLyrics);
+        RefreshLyricDisplay();
+    }
+
+    private void RefreshLyricDisplay()
+    {
+        _line = -1;
+        Lyrics.ItemsSource = _lines.Select(line => MusicMetadataService.PresentLyric(line, _bilingual, _translationPrimary)).ToArray();
+        var padding = _lines.FirstOrDefault()?.TimeMs is null ? 0 : Math.Max(0, Lyrics.ActualHeight * 0.46 - 24);
+        LyricLeadingSpace.Height = LyricTrailingSpace.Height = padding;
+        LyricPlaceholder.Visibility = _lines.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+        SyncLine(_player.Service.LastSnapshot.TimeMs);
+    }
+
     private async void OnMatch(object sender, RoutedEventArgs e)
     {
         if (_track is not { } track || _presentation is not { } current || XamlRoot is null) return;
         var token = track.Token;
-        if (current.Cover is not null && current.Lyrics is not null)
-        {
-            SetMetadataStatus("当前歌曲已有封面和歌词。");
-            return;
-        }
         var title = new TextBox { Header = "曲名", Text = current.Title, MaxLength = 150 };
         var artist = new TextBox { Header = "歌手", Text = current.Artist, MaxLength = 150 };
         var panel = new StackPanel { Spacing = 10 };
         panel.Children.Add(title);
         panel.Children.Add(artist);
+        var replace = new CheckBox { Content = "重新匹配已有封面和歌词" };
+        if (current.Cover is not null || current.Lyrics is not null) panel.Children.Add(replace);
         var dialog = new ContentDialog
         {
             XamlRoot = XamlRoot, Title = "匹配封面与歌词", Content = panel,
@@ -658,14 +677,29 @@ public sealed partial class MusicPlayerSurface : UserControl
         try
         {
             if (await dialog.ShowAsync() != ContentDialogResult.Primary || token.IsCancellationRequested ||
-                string.IsNullOrWhiteSpace(artist.Text) || string.IsNullOrWhiteSpace(title.Text)) return;
+                string.IsNullOrWhiteSpace(title.Text)) return;
             SetMetadataStatus("正在匹配…");
-            var match = await _metadata.MatchAsync(current with { Title = title.Text.Trim() }, artist.Text.Trim(),
+            var query = current with { Title = title.Text.Trim() };
+            if (replace.IsChecked == true) query = query with { Cover = null, Lyrics = null };
+            var match = await _metadata.MatchAsync(query, artist.Text.Trim(),
                 _player.Service.LastSnapshot.LengthMs, token);
             var latest = _presentation ?? current;
-            await ApplyPresentationAsync(match with { Cover = latest.Cover ?? match.Cover, Lyrics = latest.Lyrics ?? match.Lyrics }, token);
+            var applyCover = match.Cover is not null && (latest.Cover is null ||
+                replace.IsChecked == true && ReferenceEquals(latest.Cover, current.Cover));
+            var applyLyrics = match.Lyrics is not null && (latest.Lyrics is null ||
+                replace.IsChecked == true && latest.Lyrics == current.Lyrics);
+            await ApplyPresentationAsync(match with
+            {
+                Title = applyCover || applyLyrics ? match.Title : latest.Title,
+                Artist = applyCover || applyLyrics ? match.Artist : latest.Artist,
+                Cover = applyCover ? match.Cover : latest.Cover,
+                Lyrics = applyLyrics ? match.Lyrics : latest.Lyrics,
+                TranslatedLyrics = applyLyrics && match.Lyrics != latest.Lyrics ? null : latest.TranslatedLyrics
+            }, token);
+            if (applyLyrics && _player.CurrentMusicMedia is { } media) await PersistLyricsAsync(media, token);
             if (!token.IsCancellationRequested)
-                SetMetadataStatus(current.Cover != match.Cover || current.Lyrics != match.Lyrics ? "在线匹配完成。" : "无匹配结果，请核对曲名和歌手。");
+                SetMetadataStatus(applyCover && applyLyrics ? "封面和歌词已匹配。" :
+                    applyCover ? "封面已匹配。" : applyLyrics ? "歌词已匹配。" : "没有新的匹配结果，请核对曲名和歌手。");
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested) { }
         catch (Exception ex) { if (!token.IsCancellationRequested) SetMetadataStatus("在线匹配失败。 " + ex.Message); }
@@ -673,8 +707,9 @@ public sealed partial class MusicPlayerSurface : UserControl
 
     private async void OnImportCover(object sender, RoutedEventArgs e) => await ImportAsync(cover: true);
     private async void OnImportLyrics(object sender, RoutedEventArgs e) => await ImportAsync(cover: false);
+    private async void OnImportTranslation(object sender, RoutedEventArgs e) => await ImportAsync(cover: false, translated: true);
 
-    private async Task ImportAsync(bool cover)
+    private async Task ImportAsync(bool cover, bool translated = false)
     {
         if (_track is not { } track || _presentation is null) return;
         var token = track.Token;
@@ -686,7 +721,11 @@ public sealed partial class MusicPlayerSurface : UserControl
             if (await picker.PickSingleFileAsync() is not { } file || token.IsCancellationRequested) return;
             var bytes = await MusicMetadataService.ReadLocalAsync(file.Path, cover, token);
             if (_presentation is not { } current || token.IsCancellationRequested) return;
-            await ApplyPresentationAsync(cover ? current with { Cover = bytes } : current with { Lyrics = SourceHttpClient.DecodeText(bytes) }, token);
+            var update = cover ? current with { Cover = bytes } : translated
+                ? current with { TranslatedLyrics = SourceHttpClient.DecodeText(bytes) }
+                : current with { Lyrics = SourceHttpClient.DecodeText(bytes), TranslatedLyrics = null };
+            await ApplyPresentationAsync(update, token);
+            if (!cover && _player.CurrentMusicMedia is { } media) await PersistLyricsAsync(media, token);
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested) { }
         catch (Exception ex) { if (!token.IsCancellationRequested) SetMetadataStatus("导入失败。 " + ex.Message); }
@@ -720,7 +759,7 @@ public sealed partial class MusicPlayerSurface : UserControl
 
     private void OnLyricClick(object sender, ItemClickEventArgs e)
     {
-        if (e.ClickedItem is LyricLine { TimeMs: { } time } && Seek.IsEnabled)
+        if (e.ClickedItem is DisplayLyric { TimeMs: { } time } && Seek.IsEnabled)
         {
             _resumeLyricFollowAt = 0;
             _player.EndSeek(time);

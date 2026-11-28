@@ -5,9 +5,9 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <AnalysisLevel>latest-recommended</AnalysisLevel>
     <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
-    <Version>2.0.1</Version>
-    <AssemblyVersion>2.0.1.0</AssemblyVersion>
-    <FileVersion>2.0.1.0</FileVersion>
+    <Version>2.0.3</Version>
+    <AssemblyVersion>2.0.3.0</AssemblyVersion>
+    <FileVersion>2.0.3.0</FileVersion>
     <Product>流光影院 (Liuguang Cinema)</Product>
     <Company>Liuguang Cinema Contributors</Company>
     <Authors>Liuguang Cinema Contributors</Authors>

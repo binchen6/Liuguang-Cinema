@@ -46,5 +46,6 @@
     <PackageReference Include="VideoLAN.LibVLC.Windows" Version="3.0.*" />
     <PackageReference Include="AngleSharp" Version="1.9.1" />
     <PackageReference Include="TagLibSharp" Version="2.3.0" />
+    <PackageReference Include="MonoTorrent" Version="3.0.2" />
    </ItemGroup>
 </Project>

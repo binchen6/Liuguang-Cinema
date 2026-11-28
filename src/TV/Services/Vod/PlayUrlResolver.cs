@@ -17,21 +17,36 @@ public sealed class PlayUrlResolver
         {
             try
             {
-                var separator = parse.Url.Contains('?') ? '&' : '?';
-                var scoped = headers is not null && Uri.TryCreate(url, UriKind.Absolute, out var original) &&
-                    Uri.TryCreate(parse.Url, UriKind.Absolute, out var parser)
+                if (!TryBuildParserRequest(parse.Url, url, out var parser)) continue;
+                var scoped = headers is not null && Uri.TryCreate(url, UriKind.Absolute, out var original)
                     ? MediaRequestHeaders.ForTarget(headers, original, parser) : null;
-                var response = await _http.GetStringAsync(parse.Url + separator + "url=" + Uri.EscapeDataString(url), scoped, cancellationToken).ConfigureAwait(false);
-                using var document = JsonDocument.Parse(response);
+                var response = await _http.GetBytesAsync(parser.AbsoluteUri, scoped, 512 * 1024,
+                    cancellationToken, scopeRedirectHeaders: true, requestTimeout: TimeSpan.FromSeconds(6)).ConfigureAwait(false);
+                using var document = JsonDocument.Parse(response.Content);
                 if (TryFindUrl(document.RootElement, out var resolved) && Uri.TryCreate(resolved, UriKind.Absolute, out var address) &&
                     address.Scheme is "http" or "https" && address.UserInfo.Length == 0) return address.AbsoluteUri;
             }
-            catch (Exception ex) when (ex is not OperationCanceledException)
+            catch (Exception ex) when (!cancellationToken.IsCancellationRequested &&
+                ex is HttpRequestException or OperationCanceledException or JsonException or IOException or InvalidDataException)
             {
-                System.Diagnostics.Debug.WriteLine($"解析线路失败: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine($"解析线路失败: {ex.GetType().Name}");
             }
         }
         return url;
+    }
+
+    internal static bool TryBuildParserRequest(string parser, string mediaAddress, out Uri uri)
+    {
+        uri = null!;
+        var input = Uri.EscapeDataString(mediaAddress);
+        if (parser.Contains("{url}", StringComparison.OrdinalIgnoreCase))
+            return Uri.TryCreate(parser.Replace("{url}", input, StringComparison.OrdinalIgnoreCase), UriKind.Absolute, out uri!) &&
+                MediaRequestHeaders.IsHttpAddress(uri);
+        if (!Uri.TryCreate(parser, UriKind.Absolute, out var endpoint) || !MediaRequestHeaders.IsHttpAddress(endpoint)) return false;
+        var fields = endpoint.Query.TrimStart('?').Split('&', StringSplitOptions.RemoveEmptyEntries)
+            .Where(field => !field.Split('=', 2)[0].Equals("url", StringComparison.OrdinalIgnoreCase));
+        uri = new UriBuilder(endpoint) { Query = string.Join('&', fields.Append("url=" + input)), Fragment = "" }.Uri;
+        return true;
     }
 
     private static bool IsDirectMedia(string url) => IsDirectMediaUrl(url);

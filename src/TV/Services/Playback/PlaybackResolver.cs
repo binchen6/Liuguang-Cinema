@@ -2,6 +2,7 @@ using System.Text;
 using TV.Models;
 using TV.Services.Http;
 using TV.Services.Cloud;
+using TV.Services.Spider;
 using TV.Services.Vod;
 
 namespace TV.Services.Playback;
@@ -21,8 +22,11 @@ public sealed class PlaybackResolver(AppServices services)
         request.IsMusic |= AudioMedia.IsAudio(request.Url) || AudioMedia.IsAudio(
             request.Lines.ElementAtOrDefault(request.LineIndex)?.Episodes.ElementAtOrDefault(request.EpisodeIndex)?.Name ?? "");
         request.MusicLyrics ??= request.Item?.Lyrics;
+        if (MagnetPlayback.IsMagnet(request.Url)) return ResolveMagnet(request, forDownload);
         if (Uri.TryCreate(request.Url, UriKind.Absolute, out var input) && input.IsFile)
         {
+            if (request.Kind != PlaybackKind.Vod || request.SiteKey != "local")
+                throw new InvalidDataException("远程站点不能打开本地文件。");
             request.HasFixedVideoTrack = !request.IsMusic;
             return request;
         }
@@ -31,6 +35,7 @@ public sealed class PlaybackResolver(AppServices services)
         var parses = services.Config.FindParsesForSite(request.SiteKey);
         var flag = request.Lines.ElementAtOrDefault(request.LineIndex)?.Name ?? string.Empty;
         string? contentType = null;
+        string? closedHls = null;
         var useHttpProxy = false;
         var unwrapPngHlsSegments = false;
         if (CloudShareLink.TryParse(request.Url, out _))
@@ -91,9 +96,16 @@ public sealed class PlaybackResolver(AppServices services)
             if (result.ReplaceHeaders) request.Headers.Clear();
             foreach (var header in result.Headers) request.Headers[header.Key] = header.Value;
             request.Url = result.Url;
+            if (MagnetPlayback.IsMagnet(request.Url)) return ResolveMagnet(request, forDownload);
             contentType = result.ContentType;
             request.MusicLyrics = result.MusicLyrics ?? request.MusicLyrics;
             request.MusicCover = result.MusicCover ?? request.MusicCover;
+            request.MusicTranslatedLyrics = result.MusicTranslatedLyrics ?? request.MusicTranslatedLyrics;
+            request.MusicTitle = result.MusicTitle ?? request.MusicTitle;
+            request.MusicArtist = result.MusicArtist ?? request.MusicArtist;
+            request.MusicAlbum = result.MusicAlbum ?? request.MusicAlbum;
+            request.IsMusic |= result.BrowserAudioPlayback || result.AudioVariants.Count > 0 ||
+                contentType?.StartsWith("audio/", StringComparison.OrdinalIgnoreCase) == true || AudioMedia.IsAudio(request.Url);
             useHttpProxy = result.UseHttpProxy;
             unwrapPngHlsSegments = result.UnwrapPngHlsSegments;
             request.SeekOnAudioTrackChange = result.SeekOnAudioTrackChange;
@@ -108,10 +120,27 @@ public sealed class PlaybackResolver(AppServices services)
                 request.AvailableVideoHeights = heights;
                 request.UsesProviderVideoHeights = true;
             }
-            if ((result.Parse == 1 || result.Jx == 1) && !PlayUrlResolver.IsDirectMediaUrl(request.Url))
+            var variant = result.AudioVariants.FirstOrDefault(choice =>
+                choice.Option.ProviderId == quality.ProviderId && choice.Option.Name == quality.Name);
+            if (quality.ProviderId is int optionId && optionId >= AudioVariant.FirstOptionId && variant is null)
+                throw new NotSupportedException("该站点目前没有返回所选音质。");
+            if (result.AudioVariants.Count > 0)
+            {
+                request.AvailableQualities = result.AudioVariants.Select(choice => choice.Option).ToArray();
+                if (variant is not null)
+                {
+                    if (Uri.TryCreate(result.Url, UriKind.Absolute, out var origin))
+                        request.Headers = new(MediaRequestHeaders.ForTarget(request.Headers, origin, variant.Url), StringComparer.OrdinalIgnoreCase);
+                    request.Url = variant.Url.AbsoluteUri;
+                    contentType = variant.ContentType;
+                    request.ResolvedQuality = variant.Option;
+                }
+            }
+            if (variant is null && (result.Parse == 1 || result.Jx == 1) && !PlayUrlResolver.IsDirectMediaUrl(request.Url))
             {
                 var userAgent = result.BrowserFailureMessage is null ? request.Headers.GetValueOrDefault("User-Agent") : null;
-                var sniffed = result.Jx == 1 ? null : await services.Sniffer.SniffAsync(request.Url, userAgent, token, result.BrowserMediaFilter);
+                var sniffed = result.Jx == 1 ? null : await services.Sniffer.SniffAsync(request.Url, userAgent, token,
+                    result.BrowserMediaFilter, result.BrowserAudioPlayback);
                 if (sniffed is not null)
                 {
                     if (Uri.TryCreate(result.Url, UriKind.Absolute, out var page))
@@ -129,19 +158,28 @@ public sealed class PlaybackResolver(AppServices services)
                 }
                 else
                 {
+                    if (result.BrowserAudioPlayback) throw new KugouMediaUnavailableException(result.Url);
                     if (result.BrowserFailureMessage is { } message) throw new NotSupportedException(message);
-                    request.Url = await services.Resolver.ResolveAsync(result.Url, parses, request.Headers, token);
+                    await ResolveParserAsync(request, parses, token);
                     if (!PlayUrlResolver.IsDirectMediaUrl(request.Url) && !IsLoopback(request.Url))
-                        throw new InvalidDataException((result.Jx == 1 ? null : services.Sniffer.RuntimeIssue) ?? "没有解析到视频地址，请切换线路。");
+                    {
+                        if (request.Url != result.Url && Uri.TryCreate(request.Url, UriKind.Absolute, out var resolved))
+                            contentType = HlsManifest.RecognizeResponse(request.Url,
+                                await services.Http.ProbeMediaTypeAsync(resolved, request.Headers, token));
+                        if (contentType is null)
+                            throw new InvalidDataException((result.Jx == 1 ? null : services.Sniffer.RuntimeIssue) ?? "没有解析到可播放的媒体，请切换线路。");
+                    }
                     request.Headers.TryAdd("Referer", result.Url);
-                    contentType = null;
                 }
             }
         }
         else if (request.Kind == PlaybackKind.Vod && parses.Count > 0)
         {
-            request.Url = await services.Resolver.ResolveAsync(request.Url, parses, request.Headers, token);
+            await ResolveParserAsync(request, parses, token);
         }
+        if (MagnetPlayback.IsMagnet(request.Url)) return ResolveMagnet(request, forDownload);
+        if (!IsRemoteMediaAddress(request.Url))
+            throw new InvalidDataException("站点未提供支持的播放地址。");
 
         if (!request.UsesProviderVideoHeights)
         {
@@ -156,15 +194,18 @@ public sealed class PlaybackResolver(AppServices services)
                     var master = Encoding.UTF8.GetString(payload.Content);
                     if (!HlsManifest.IsManifest(master) && (quality.IsSpecific || quality.RequestsOriginal))
                         throw new InvalidDataException("片源未返回有效的 HLS 播放列表。");
-                    bool? hdrOutput = getHdrOutput is not null && HlsManifest.IsManifest(master) ? await getHdrOutput(token) : null;
-                    if (HlsManifest.SelectQualities(master, quality, hdrOutput) is { } selection)
+                    bool? hdrOutput = !request.IsMusic && getHdrOutput is not null &&
+                        master.Contains("#EXT-X-STREAM-INF:", StringComparison.Ordinal) ? await getHdrOutput(token) : null;
+                    var variantQuality = request.ResolvedQuality?.ProviderId is int audioId && audioId >= AudioVariant.FirstOptionId
+                        ? new QualityOption("自动", 0) : quality;
+                    if (HlsManifest.SelectQualities(master, variantQuality, hdrOutput) is { } selection)
                     {
                         if (selection.RequiresDolbyVision)
                             throw new NotSupportedException("此线路仅提供杜比视界 Profile 5，请切换线路。");
                         if (selection.Heights.Count > 0) request.AvailableVideoHeights = selection.Heights;
-                        if (selection.QualityOptions.Count > 0) request.AvailableQualities = selection.QualityOptions;
-                        request.ResolvedQuality = selection.SelectedQuality;
-                        if (quality.IsSpecific && selection.VariantCount == 0)
+                        if (!request.IsMusic && selection.QualityOptions.Count > 0) request.AvailableQualities = selection.QualityOptions;
+                        request.ResolvedQuality ??= selection.SelectedQuality;
+                        if (variantQuality.IsSpecific && selection.VariantCount == 0)
                             throw new NotSupportedException($"该线路未提供 {quality.Name}。");
                         if (hdrOutput.HasValue)
                             Diagnostics.Log($"HLS selected: {quality.Name}, {selection.Range}, {selection.VariantCount} variants, HDR output={hdrOutput.Value}");
@@ -184,6 +225,15 @@ public sealed class PlaybackResolver(AppServices services)
                     else if (request.Kind == PlaybackKind.Vod && HlsManifest.IsMediaPlaylist(master))
                     {
                         request.HasFixedVideoTrack = true;
+                        if (HlsPlaylistCleaner.IsClosedVod(master))
+                        {
+                            closedHls = master;
+                            var origin = new Uri(request.Url);
+                            var headers = MediaRequestHeaders.ForTarget(request.Headers, origin, payload.FinalUri);
+                            if (!ReferenceEquals(headers, request.Headers)) request.Headers = new(headers, StringComparer.OrdinalIgnoreCase);
+                            request.Url = payload.FinalUri.AbsoluteUri;
+                            contentType ??= payload.ContentType;
+                        }
                     }
                 }
             }
@@ -220,17 +270,43 @@ public sealed class PlaybackResolver(AppServices services)
             ProxyTracks(request, mediaUri);
             // Use Windows' HTTPS transport for live feeds as well as providers that require it.
             var liveHttps = request.Kind == PlaybackKind.Live && mediaUri.Scheme == "https" && !mediaUri.IsLoopback;
+            var isHls = HlsManifest.IsPlaylist(request.Url, contentType);
+            var cleanHls = isHls && !forDownload && !string.Equals(
+                await services.Database.GetSettingAsync(HlsPlaylistCleaner.SettingKey, token), "false", StringComparison.OrdinalIgnoreCase);
             if (useHttpProxy || liveHttps || MediaRequestHeaders.RequiresProxy(request.Headers) ||
-                HlsManifest.IsPlaylist(request.Url, contentType) && !HlsManifest.IsPlaylist(request.Url, null))
+                cleanHls || isHls && !HlsManifest.IsPlaylist(request.Url, null))
             {
                 request.Url = services.Cloud.ProxyMedia(new CloudPlayResult(request.Url, new Dictionary<string, string>(request.Headers), contentType)
                 {
                     UnwrapPngHlsSegments = unwrapPngHlsSegments
-                });
+                }, closedHls);
                 request.Headers.Clear();
             }
         }
         return request;
+    }
+
+    private static PlaybackRequest ResolveMagnet(PlaybackRequest request, bool forDownload)
+    {
+        if (forDownload) throw new NotSupportedException("请在播放器中打开磁力资源。");
+        if (!MagnetPlayback.TryParse(request.Url, out _)) throw new InvalidDataException("磁力链接格式无效。");
+        request.Headers.Clear();
+        request.HasFixedVideoTrack = true;
+        return request;
+    }
+
+    internal static bool IsRemoteMediaAddress(string address) =>
+        Uri.TryCreate(address, UriKind.Absolute, out var uri) && !uri.IsFile && uri.UserInfo.Length == 0 &&
+        uri.Scheme is "http" or "https" or "rtsp" or "rtsps" or "rtmp" or "rtmps" or "mms" or "mmsh" or "udp" or "rtp" or "srt";
+
+    private async Task ResolveParserAsync(PlaybackRequest request, IReadOnlyList<ParseSource> parses, CancellationToken token)
+    {
+        var original = request.Url;
+        var resolved = await services.Resolver.ResolveAsync(original, parses, request.Headers, token).ConfigureAwait(false);
+        if (resolved != original && Uri.TryCreate(original, UriKind.Absolute, out var origin) &&
+            Uri.TryCreate(resolved, UriKind.Absolute, out var target) && !MediaRequestHeaders.SameOrigin(origin, target))
+            request.Headers = new(MediaRequestHeaders.ForTarget(request.Headers, origin, target), StringComparer.OrdinalIgnoreCase);
+        request.Url = resolved;
     }
 
     private async Task<HttpPayload?> ReadPlaylistAsync(PlaybackRequest request, bool automatic, CancellationToken token)

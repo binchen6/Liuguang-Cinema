@@ -677,6 +677,12 @@ public sealed partial class PlayerPage : Page
         if (IsLoaded) ShowControls();
     }
 
+    private async void OnOpenMagnetClick(object sender, RoutedEventArgs e)
+    {
+        PlaybackOptionsFlyout.Hide();
+        await App.Window.OpenMagnetDialogAsync();
+    }
+
     private void OnPlaybackOptionsOpening(object? sender, object e)
     {
         _hideTimer.Stop();

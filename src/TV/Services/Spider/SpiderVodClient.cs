@@ -1,7 +1,9 @@
 using System.Collections.Concurrent;
+using System.Runtime.CompilerServices;
 using System.Text.Json;
 using TV.Models;
 using TV.Services.Cloud;
+using TV.Services.Playback;
 
 namespace TV.Services.Spider;
 
@@ -17,15 +19,26 @@ public sealed record SpiderPlayResult(string Url, IReadOnlyDictionary<string, st
     internal bool SeekOnAudioTrackChange { get; init; }
     internal string? BrowserFailureMessage { get; init; }
     internal Func<Uri, bool>? BrowserMediaFilter { get; init; }
+    internal bool BrowserAudioPlayback { get; init; }
     public string? MusicLyrics { get; init; }
     public string? MusicCover { get; init; }
+    internal string? MusicTranslatedLyrics { get; init; }
+    internal string? MusicTitle { get; init; }
+    internal string? MusicArtist { get; init; }
+    internal string? MusicAlbum { get; init; }
+    internal IReadOnlyList<AudioVariant> AudioVariants { get; init; } = [];
+}
+
+internal sealed record AudioVariant(QualityOption Option, Uri Url, string? ContentType)
+{
+    internal const int FirstOptionId = 20_000;
 }
 
 public sealed class SpiderVodClient
 {
     private sealed record CachedPlay(SpiderPlayResult Result, DateTimeOffset ExpiresAt);
     private readonly SpiderRuntime _runtime;
-    private readonly ConcurrentDictionary<string, CachedPlay> _playCache = new();
+    private readonly ConditionalWeakTable<SourceSite, ConcurrentDictionary<(string Api, string Flag, string Id), CachedPlay>> _playCache = new();
 
     public SpiderVodClient(SpiderRuntime runtime) => _runtime = runtime;
 
@@ -53,21 +66,21 @@ public sealed class SpiderVodClient
 
     public async Task<SpiderPlayResult> ResolvePlayAsync(SourceSite site, string flag, string id, string? cloudProvider = null, CancellationToken cancellationToken = default)
     {
+        var plays = _playCache.GetValue(site, _ => new());
         if (string.IsNullOrWhiteSpace(cloudProvider)) RouteForId(site, id, out cloudProvider);
         if (!string.IsNullOrWhiteSpace(cloudProvider)) site = WithApi(site, cloudProvider);
-        var cacheKey = $"{site.Key}\n{site.Api}\n{flag}\n{id}";
-        if (_playCache.TryGetValue(cacheKey, out var cached) && cached.ExpiresAt > DateTimeOffset.UtcNow) return cached.Result;
+        var cacheKey = (site.Api, flag, id);
+        if (plays.TryGetValue(cacheKey, out var cached) && cached.ExpiresAt > DateTimeOffset.UtcNow) return cached.Result;
 
         var data = await _runtime.SendAsync(site, "play", new() { ["flag"] = flag, ["id"] = id }, cancellationToken).ConfigureAwait(false);
-        var result = ReadPlayResult(data);
+        var result = KugouPlayback.Prepare(site, ReadPlayResult(data));
         if (RequiresWindowsMediaTransport(site, result.Url))
             result = result with { UseHttpProxy = true };
-        _playCache[cacheKey] = new CachedPlay(result, DateTimeOffset.UtcNow.AddMinutes(5));
-        if (_playCache.Count > 256)
+        plays[cacheKey] = new CachedPlay(result, DateTimeOffset.UtcNow.AddMinutes(5));
+        if (plays.Count > 64)
         {
-            foreach (var pair in _playCache.Where(pair => pair.Value.ExpiresAt <= DateTimeOffset.UtcNow)) _playCache.TryRemove(pair.Key, out _);
-            if (_playCache.Count > 256)
-                foreach (var pair in _playCache.OrderBy(pair => pair.Value.ExpiresAt).Take(_playCache.Count - 256)) _playCache.TryRemove(pair.Key, out _);
+            foreach (var pair in plays.OrderBy(pair => pair.Value.ExpiresAt).Take(plays.Count - 64))
+                plays.TryRemove(pair);
         }
         return result;
     }
@@ -100,11 +113,42 @@ public sealed class SpiderVodClient
         if (contentType.Length == 0) contentType = StringValue(data, "content_type");
         var lyrics = StringValue(data, "lyrics");
         if (lyrics.Length == 0) lyrics = StringValue(data, "lrc");
+        var translated = FirstNonEmpty(StringValue(data, "translatedLyrics"), StringValue(data, "tlyric"));
         return new SpiderPlayResult(url, headers, parse, jx, subtitles, danmaku, contentType.Split(';', 2)[0].Trim().ToLowerInvariant(), audio)
         {
             MusicLyrics = lyrics.Length == 0 ? null : lyrics,
-            MusicCover = ReadMediaLinks(data, url, "cover", "artwork").FirstOrDefault()?.AbsoluteUri
+            MusicTranslatedLyrics = translated.Length == 0 ? null : translated,
+            MusicCover = ReadMediaLinks(data, url, "cover", "artwork").FirstOrDefault()?.AbsoluteUri,
+            MusicTitle = ReadMusicField(data, "title"),
+            MusicArtist = ReadMusicField(data, "artist"),
+            MusicAlbum = ReadMusicField(data, "album"),
+            AudioVariants = ReadAudioVariants(data, url)
         };
+    }
+
+    private static string? ReadMusicField(JsonElement obj, string name) =>
+        StringValue(obj, name).Trim() is { Length: > 0 and <= 200 } value ? value : null;
+
+    private static IReadOnlyList<AudioVariant> ReadAudioVariants(JsonElement data, string url)
+    {
+        if ((!data.TryGetProperty("audioQualities", out var entries) && !data.TryGetProperty("audio_qualities", out entries)) ||
+            entries.ValueKind != JsonValueKind.Array) return [];
+        Uri.TryCreate(url, UriKind.Absolute, out var origin);
+        var variants = new List<AudioVariant>();
+        foreach (var item in entries.EnumerateArray().Take(12))
+        {
+            if (item.ValueKind != JsonValueKind.Object || ReadMusicField(item, "name") is not { Length: <= 48 } name ||
+                variants.Any(option => option.Option.Name.Equals(name, StringComparison.OrdinalIgnoreCase))) continue;
+            var address = StringValue(item, "url");
+            var valid = origin is not null ? Uri.TryCreate(origin, address, out var uri) : Uri.TryCreate(address, UriKind.Absolute, out uri);
+            if (address.Length == 0 || !valid || !Http.MediaRequestHeaders.IsHttpAddress(uri!)) continue;
+            var type = StringValue(item, "contentType").Split(';', 2)[0].Trim().ToLowerInvariant();
+            if (type.Length > 0 && !type.StartsWith("audio/", StringComparison.Ordinal) &&
+                !HlsManifest.IsPlaylist(uri!.AbsoluteUri, type)) continue;
+            variants.Add(new AudioVariant(new QualityOption(name, 0) { ProviderId = AudioVariant.FirstOptionId + variants.Count },
+                uri!, type.Length == 0 ? null : type));
+        }
+        return variants;
     }
 
     private static IEnumerable<Uri> ReadMediaLinks(JsonElement data, string videoUrl, params string[] names)

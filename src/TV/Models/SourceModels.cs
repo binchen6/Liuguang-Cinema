@@ -56,6 +56,7 @@ public sealed class SourceSite
     [JsonPropertyName("name")] public string Name { get; set; } = string.Empty;
     [JsonPropertyName("type")] public int Type { get; set; }
     [JsonPropertyName("api")] public string Api { get; set; } = string.Empty;
+    [JsonPropertyName("desktopApi"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string? DesktopApi { get; set; }
     [JsonPropertyName("ext"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] public JsonElement Ext { get; set; }
     [JsonPropertyName("jar")] public string Jar { get; set; } = string.Empty;
     [JsonPropertyName("playUrl")] public string PlayUrl { get; set; } = string.Empty;

@@ -209,7 +209,7 @@
                 </Button>
             </Grid>
 
-            <Frame x:Name="ContentFrame" Grid.Row="1" Background="Transparent" />
+            <Frame x:Name="ContentFrame" Grid.Row="1" Background="Transparent" CacheSize="3" />
         </Grid>
 
         <!-- 关闭行为面板锚点（贴在标题栏右上，系统按钮下方） -->

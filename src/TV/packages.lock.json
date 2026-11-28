@@ -78,6 +78,16 @@
           "Microsoft.WindowsAppSDK.WinUI": "[1.8.260803003]"
         }
       },
+      "MonoTorrent": {
+        "type": "Direct",
+        "requested": "[3.0.2, )",
+        "resolved": "3.0.2",
+        "contentHash": "kWy0mLj2MKX9uUGe3lnNYfyQhthjUK4IAMNJO8llXP9yB3ZYfGaAy9ag20wMcjTz2YfhKOW/uZ5FR//BYZGeYA==",
+        "dependencies": {
+          "Mono.Nat": "3.0.0",
+          "ReusableTasks": "4.0.0"
+        }
+      },
       "QRCoder": {
         "type": "Direct",
         "requested": "[1.8.1, )",
@@ -229,6 +239,11 @@
           "Microsoft.WindowsAppSDK.InteractiveExperiences": "1.8.260708001"
         }
       },
+      "Mono.Nat": {
+        "type": "Transitive",
+        "resolved": "3.0.0",
+        "contentHash": "LgRC8/8plJfvr1nCPmyHNIwP4fs346doMA/UVDZvFN0RfGJdyD2uS7Dl1AydxjVLrIvad8ghozI0vYFWcfPeYQ=="
+      },
       "NETStandard.Library": {
         "type": "Transitive",
         "resolved": "1.6.1",
@@ -236,6 +251,11 @@
         "dependencies": {
           "Microsoft.NETCore.Platforms": "1.1.0"
         }
+      },
+      "ReusableTasks": {
+        "type": "Transitive",
+        "resolved": "4.0.0",
+        "contentHash": "6EKzscjq+Q+uxD0N5GWUBO2N34cuDiJ08ZxRs1lqS0Hwvnjp6AgimUIX/8dqIxRZbPOG4gcikTMo+PM4D9CfaQ=="
       },
       "SharpDX": {
         "type": "Transitive",

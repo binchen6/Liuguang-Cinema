@@ -274,6 +274,13 @@ public static class GlassOpticsEngine
              _pointerHost is GlassSurface ||
              _profile == GlassOpticsProfile.Rail);
 
+        private void SyncRestingLight()
+        {
+            var opacity = ShouldEagerlyAttachSolarLayer ? 1f : 0f;
+            if (_solarAmbientVisual is not null) _solarAmbientVisual.Opacity = opacity;
+            if (_solarBevelVisual is not null) _solarBevelVisual.Opacity = opacity;
+        }
+
         private void Wire()
         {
             if (_wired) return;
@@ -286,6 +293,8 @@ public static class GlassOpticsEngine
             _pointerHost.AddHandler(UIElement.PointerEnteredEvent, _enteredHandler, handledEventsToo: true);
             _pointerHost.AddHandler(UIElement.PointerMovedEvent, _movedHandler, handledEventsToo: true);
             _pointerHost.AddHandler(UIElement.PointerExitedEvent, _exitedHandler, handledEventsToo: true);
+            _pointerHost.AddHandler(UIElement.PointerCanceledEvent, _exitedHandler, handledEventsToo: true);
+            _pointerHost.AddHandler(UIElement.PointerCaptureLostEvent, _exitedHandler, handledEventsToo: true);
             _pointerHost.AddHandler(UIElement.PointerPressedEvent, _pressedHandler, handledEventsToo: true);
 
             if (ShouldEagerlyAttachSolarLayer && _visualHost.IsLoaded)
@@ -304,6 +313,8 @@ public static class GlassOpticsEngine
             _pointerHost.RemoveHandler(UIElement.PointerEnteredEvent, _enteredHandler);
             _pointerHost.RemoveHandler(UIElement.PointerMovedEvent, _movedHandler);
             _pointerHost.RemoveHandler(UIElement.PointerExitedEvent, _exitedHandler);
+            _pointerHost.RemoveHandler(UIElement.PointerCanceledEvent, _exitedHandler);
+            _pointerHost.RemoveHandler(UIElement.PointerCaptureLostEvent, _exitedHandler);
             _pointerHost.RemoveHandler(UIElement.PointerPressedEvent, _pressedHandler);
             StopWatchingMotion();
             ClearChildVisual();
@@ -339,6 +350,7 @@ public static class GlassOpticsEngine
         {
             ApplyPalette();
             SyncGeometry();
+            SyncRestingLight();
         }
 
         private void OnMotionChanged(object? sender, EventArgs e)
@@ -359,12 +371,7 @@ public static class GlassOpticsEngine
                 _incidentGroup.StopAnimation(nameof(Visual.Opacity));
                 _incidentGroup.Opacity = 0f;
             }
-            if (_solarAmbientVisual is not null && _solarBevelVisual is not null)
-            {
-                var visible = !Accessibility.HighContrast ? 1f : 0f;
-                _solarAmbientVisual.Opacity = visible;
-                _solarBevelVisual.Opacity = visible;
-            }
+            SyncRestingLight();
         }
 
         internal void SetIncidentLight(Vector2 direction, float illuminance, float warmth)
@@ -611,6 +618,7 @@ public static class GlassOpticsEngine
 
             ElementCompositionPreview.SetElementChildVisual(_visualHost, _rootVisual);
             _visualsReady = true;
+            SyncRestingLight();
             WatchMotion();
             ApplyPalette();
             SyncGeometry();
@@ -945,26 +953,26 @@ public static class GlassOpticsEngine
 
         private void OnPointerEntered(object sender, PointerRoutedEventArgs e)
         {
-            if (!CanAnimatePointer || !TryEnsureVisuals()) return;
-            if (_width <= 1f || _height <= 1f) SyncGeometry();
-            _isHovering = true;
-            var pt = e.GetCurrentPoint(_visualHost).Position;
-            UpdateLightOrigin((float)pt.X, (float)pt.Y);
-            AnimateHoverOpacity(1.0f, 180, _easeOutQuint!);
+            OnPointerMoved(sender, e);
         }
 
         private void OnPointerMoved(object sender, PointerRoutedEventArgs e)
         {
             if (!CanAnimatePointer) return;
+            var point = e.GetCurrentPoint(_visualHost);
+            var x = (float)point.Position.X;
+            var y = (float)point.Position.Y;
+            if (x < 0 || y < 0 || x >= _visualHost.ActualWidth || y >= _visualHost.ActualHeight)
+            {
+                EndHover();
+                return;
+            }
             var now = Environment.TickCount64;
-            if (now - _lastMoveTick < 8) return; // 120Hz cap — zero stutter on 1000Hz gaming mice
+            if (_isHovering && now - _lastMoveTick < 8) return;
             if (!TryEnsureVisuals()) return;
             if (_width <= 1f || _height <= 1f) SyncGeometry();
 
-            var pt = e.GetCurrentPoint(_visualHost).Position;
-            var x = (float)pt.X;
-            var y = (float)pt.Y;
-            if (MathF.Abs(x - _lastX) < 1.25f && MathF.Abs(y - _lastY) < 1.25f) return;
+            if (_isHovering && MathF.Abs(x - _lastX) < 1.25f && MathF.Abs(y - _lastY) < 1.25f) return;
             _lastMoveTick = now;
 
             if (!_isHovering)
@@ -975,11 +983,13 @@ public static class GlassOpticsEngine
             UpdateLightOrigin(x, y);
         }
 
-        private void OnPointerExited(object sender, PointerRoutedEventArgs e)
+        private void OnPointerExited(object sender, PointerRoutedEventArgs e) => EndHover();
+
+        private void EndHover()
         {
             if (!_visualsReady || !_isHovering) return;
             _isHovering = false;
-            AnimateHoverOpacity(0f, 320, _easeOutExpo!);
+            AnimateHoverOpacity(0f, 200, _easeOutExpo!);
         }
 
         private void OnPointerPressed(object sender, PointerRoutedEventArgs e)
@@ -1038,7 +1048,7 @@ public static class GlassOpticsEngine
         private void AnimateHoverOpacity(float target, int durationMs, CompositionEasingFunction easing)
         {
             if (_compositor is null || _hoverVisualGroup is null) return;
-            var anim = _compositor.CreateScalarKeyFrameAnimation();
+            using var anim = _compositor.CreateScalarKeyFrameAnimation();
             anim.InsertKeyFrame(1.0f, target, easing);
             anim.Duration = TimeSpan.FromMilliseconds(durationMs);
             _hoverVisualGroup.StartAnimation(nameof(Visual.Opacity), anim);

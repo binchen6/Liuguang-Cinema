@@ -67,7 +67,7 @@ public sealed partial class MainViewModel : ObservableObject
         NavigationRequested?.Invoke(this, tag);
     }
 
-    private void Play(PlaybackRequest request)
+    internal void Play(PlaybackRequest request)
     {
         Diagnostics.Log($"Play requested: {request.Kind}; site={request.SiteKey}");
         Navigate("player");

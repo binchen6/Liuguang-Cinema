@@ -11,6 +11,7 @@ using TV.Services.Packs;
 using TV.Services.Persistence;
 using TV.Services.Maintenance;
 using TV.Services.Playback;
+using TV.Services.Spider;
 using TV.Services.Updates;
 using TV.Views;
 
@@ -79,6 +80,7 @@ public sealed partial class SettingsViewModel : ObservableObject
     [ObservableProperty] private int _closeBehaviorIndex;
     private bool _settingCloseBehavior;
     [ObservableProperty] private bool _autoRefreshSources = true;
+    [ObservableProperty] private bool _allowExternalExecutables;
     [ObservableProperty] private string _sourceSummary = string.Empty;
     [ObservableProperty] private string _lastSourceRefresh = string.Empty;
     [ObservableProperty] private string _storageSummary = string.Empty;
@@ -86,6 +88,7 @@ public sealed partial class SettingsViewModel : ObservableObject
     [ObservableProperty] private int _networkCache = 2000;
     [ObservableProperty] private int _liveCache = 1500;
     [ObservableProperty] private bool _adaptiveQuality = true;
+    [ObservableProperty] private bool _cleanHls = true;
     [ObservableProperty] private int _defaultVolume = 85;
     [ObservableProperty] private int _defaultQualityIndex;
     [ObservableProperty] private bool _autoSwitchLine = true;
@@ -189,9 +192,11 @@ public sealed partial class SettingsViewModel : ObservableObject
         var behavior = await Int("ui.closeBehavior", 0);
         CloseBehaviorIndex = Enum.IsDefined((WindowCloseBehavior)behavior) ? behavior : 0;
         AutoRefreshSources = await Bool("source.autoRefresh", true);
+        AllowExternalExecutables = await Bool(ExternalSpiderPolicy.SettingKey, false);
         NetworkCache = await Int("playback.networkCache", 2000);
         LiveCache = await Int("playback.liveCache", 1500);
         AdaptiveQuality = await Bool("playback.adaptiveQuality", true);
+        CleanHls = await Bool(HlsPlaylistCleaner.SettingKey, true);
         DefaultVolume = await Int("playback.volume", 85);
         DefaultQualityIndex = Math.Clamp(await Int("playback.defaultQuality", 0), 0, 4);
         AutoSwitchLine = await Bool("playback.autoSwitchLine", true);
@@ -900,10 +905,12 @@ public sealed partial class SettingsViewModel : ObservableObject
     partial void OnAutoNextChanged(bool value) => Save("playback.autoNext", value);
     partial void OnResumePlaybackChanged(bool value) => Save("playback.resume", value);
     partial void OnAutoRefreshSourcesChanged(bool value) => Save("source.autoRefresh", value);
+    partial void OnAllowExternalExecutablesChanged(bool value) => Save(ExternalSpiderPolicy.SettingKey, value);
     partial void OnAutoCheckUpdatesChanged(bool value) => Save("updates.autoCheck", value);
     partial void OnNetworkCacheChanged(int value) => Save("playback.networkCache", Math.Clamp(value, 1200, 12000));
     partial void OnLiveCacheChanged(int value) => Save("playback.liveCache", Math.Clamp(value, 500, 8000));
     partial void OnAdaptiveQualityChanged(bool value) => Save("playback.adaptiveQuality", value);
+    partial void OnCleanHlsChanged(bool value) => Save(HlsPlaylistCleaner.SettingKey, value);
     partial void OnDefaultVolumeChanged(int value) => Save("playback.volume", Math.Clamp(value, 0, 100));
     partial void OnDefaultQualityIndexChanged(int value) => Save("playback.defaultQuality", Math.Clamp(value, 0, 4));
     partial void OnAutoSwitchLineChanged(bool value) => Save("playback.autoSwitchLine", value);

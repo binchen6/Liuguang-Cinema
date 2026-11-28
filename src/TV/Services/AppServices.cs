@@ -56,6 +56,7 @@ public sealed class AppServices : IDisposable
         var dns = _dns.Value;
         var http = _http.Value;
         var bilibiliAccount = _bilibiliAccount.Value;
+        _ = ExternalSpiderPolicy.RemoveLegacyCredentialFilesAsync(Database);
         Config = new SourceConfigService(http, Database);
         Cms = new CmsClient(http);
         SpiderRuntime = new SpiderRuntime(Database);
@@ -67,7 +68,7 @@ public sealed class AppServices : IDisposable
         NativeVod = NativeVodProviderRouter.CreateDefault(http, Cloud, bilibili, Sniffer);
         RepoPacks = new RepoPackService(http, dns, new SourceHttpClient(dns, null, useSystemDns: true));
         var jsSpider = new JsSpiderClient(http);
-        var pySpider = new PySpiderClient(http);
+        var pySpider = new PySpiderClient(http, Database);
         var autoHtml = new UniversalAutoHtmlVodProvider(http, Cloud);
         var repoPackVod = new RepoPackVodProvider(RepoPacks, NativeVod, bilibili, jsSpider, Cms);
         Vod = new VodClientRouter(Cms, new SpiderVodClient(SpiderRuntime), NativeVod, jsSpider, pySpider, autoHtml, repoPackVod);

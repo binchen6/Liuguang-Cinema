@@ -143,6 +143,28 @@ example-archive-v1.0.0.zip           # 一次发布的包体
 4. ZIP 可公开下载后再提交 `manifest.json`，同步 `id`、`version`、`downloadUrl`、`sha256`、`sizeBytes`、`siteCount` 和匹配条件。客户端从 GitHub 官方地址取得摘要，镜像只传输 ZIP。
 5. 用新的客户端数据目录刷新清单、导入目标仓库、验证自动匹配和可用线路。需要回滚时，把清单指回之前已经验证的 ZIP 和摘要，并保留公开的历史版本。
 
+## Android 原生库站点
+
+Android 的 `arm64-v8a` 和 `armeabi-v7a` 使用 Android ELF、JNI 及系统运行时，Windows 版 Java 引擎可以转换 DEX 字节码。仅提供 Android 原生库时，由站点维护者提供授权的桌面接口，或在官方提供协议规格和可移植源代码时开发原生适配。[Android ABI](https://developer.android.com/ndk/guides/abis) · [JNI](https://developer.android.com/ndk/guides/jni-tips)
+
+`type: 3` 的 `csp_` 站点可在 `sites[]` 中保留原有 Android `api`，同时声明 `desktopApi`。Windows 版会在专用原生适配可用时优先使用专用适配，否则通过 `desktopApi` 发起标准 T4 请求。
+
+```json
+{
+  "key": "demo",
+  "name": "示例",
+  "type": 3,
+  "api": "csp_AndroidDemo",
+  "desktopApi": "https://media.example.com/desktop/v1?client=liuguang"
+}
+```
+
+- 提供 HTTPS 接口。相对地址从仓库配置所在路径解析，保留已有查询参数。HTTP 回环可用于本机调试。
+- 首页返回 `class` 和 `list`。分类使用 `ac=detail&t=<id>&pg=<页码>`，搜索使用 `ac=detail&wd=<关键词>&pg=<页码>`，详情使用 `ac=detail&ids=<id>`，播放使用 `play=<播放标识>&flag=<线路>`。
+- 播放响应提供 `url`，需要网页播放时标记 `parse: 1`。可以携带 `contentType`、`cover` 和 `lyrics`。客户端保留固定查询，只接受同源重定向，省略 Android 的 `ext` 和源站凭据。
+- 音频可提供 `title`、`artist`、`album`、`translatedLyrics`。如存在多档音质，在 `audioQualities` 数组中为每档填写 `name`、`url` 和可选的 `contentType`。音质地址应指向可播放的音频资源，可相对于默认播放地址。
+- 外部 Java 和 Python 需由用户显式启用。Java 可用 `URL;sha256;<64 位十六进制摘要>` 固定字节；具有有效 SHA-256 的 GitHub JAR 才使用候选下载镜像。为桌面接口编写可重复的首页、分类、搜索、详情和实播用例。
+
 默认资源包仓库的清单和摸鱼适配包 1.0.0 随客户端分发，用于首次离线启动。客户端优先访问原始文件和 GitHub Contents API，随后尝试本地缓存与随包清单。随包 ZIP 仅在清单中的 ID、版本、SHA-256 均吻合时使用，安装前仍校验实际文件。更新随包副本时，从官方仓库固定提交取清单，从对应 Release 取 ZIP，并核对摘要后一起更新两项资源。
 
 以下命令在打包目录执行。手动导入使用你选中的 ZIP，可先按同样的方法核对发布者提供的摘要。

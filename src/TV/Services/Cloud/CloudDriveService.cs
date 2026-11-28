@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using TV.Models;
 using TV.Services.Persistence;
 using TV.Services.Http;
+using TV.Services.Playback;
 
 namespace TV.Services.Cloud;
 
@@ -29,7 +30,8 @@ public sealed class CloudDriveService : IDisposable
         _database = database;
         _mediaProxy = new Lazy<CloudMediaProxy>(() =>
         {
-            var proxy = new CloudMediaProxy(dns);
+            var proxy = new CloudMediaProxy(dns, () => !string.Equals(database.TryGetCachedSetting(HlsPlaylistCleaner.SettingKey),
+                "false", StringComparison.OrdinalIgnoreCase));
             proxy.AuthenticationRequired += (_, provider) => AuthenticationRequired?.Invoke(this, provider);
             return proxy;
         });

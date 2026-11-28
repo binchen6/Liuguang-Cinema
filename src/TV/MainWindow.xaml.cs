@@ -14,6 +14,7 @@ using TV.ViewModels;
 using TV.Views;
 using TV.Services.Library;
 using TV.Services.Persistence;
+using TV.Services.Playback;
 using TV.Services.Updates;
 
 namespace TV;
@@ -425,6 +426,46 @@ public sealed partial class MainWindow : Window
             RestoreWindow();
         }
         catch (Exception ex) { Diagnostics.Log($"打开本地视频失败: {ex.GetType().Name} {ex.Message}"); }
+    }
+
+    private const string PeerPlaybackNotice = "播放期间会连接其他节点并交换文件分片。停止播放后会断开连接并清除本次缓存。";
+
+    internal async Task OpenMagnetDialogAsync()
+    {
+        if (_closing || ContentFrame.XamlRoot is not { } root) return;
+        var input = new TextBox { Header = "磁力链接", PlaceholderText = "magnet:?xt=urn:btih:…", MaxLength = MagnetPlayback.MaxLinkLength };
+        var help = new TextBlock { Text = PeerPlaybackNotice, TextWrapping = TextWrapping.Wrap };
+        var panel = new StackPanel { Spacing = 10 };
+        panel.Children.Add(input);
+        panel.Children.Add(help);
+        var dialog = new ContentDialog
+        {
+            XamlRoot = root, Title = "打开磁力链接", Content = panel,
+            PrimaryButtonText = "连接并播放", CloseButtonText = "取消", IsPrimaryButtonEnabled = false
+        };
+        input.TextChanged += (_, _) => dialog.IsPrimaryButtonEnabled = MagnetPlayback.TryParse(input.Text.Trim(), out _);
+        if (await dialog.ShowAsync() == ContentDialogResult.Primary &&
+            MagnetPlayback.TryParse(input.Text.Trim(), out var magnet))
+        {
+            ViewModel.Play(new PlaybackRequest
+            {
+                Kind = PlaybackKind.Vod, SiteKey = "magnet", Title = string.IsNullOrWhiteSpace(magnet.Name) ? "磁力播放" : magnet.Name,
+                Url = input.Text.Trim(), VodId = magnet.InfoHashes.V1?.ToHex() ?? magnet.InfoHashes.V2?.ToHex() ?? "",
+                MagnetApproved = true
+            });
+        }
+    }
+
+    internal async Task<bool> ConfirmMagnetPlaybackAsync(CancellationToken token)
+    {
+        if (token.IsCancellationRequested || _closing || ContentFrame.XamlRoot is not { } root) return false;
+        var dialog = new ContentDialog
+        {
+            XamlRoot = root, Title = "使用磁力线路", Content = new TextBlock { Text = PeerPlaybackNotice, TextWrapping = TextWrapping.Wrap },
+            PrimaryButtonText = "连接并播放", CloseButtonText = "取消"
+        };
+        using var cancel = token.Register(() => DispatcherQueue.TryEnqueue(() => dialog.Hide()));
+        return await dialog.ShowAsync() == ContentDialogResult.Primary && !token.IsCancellationRequested;
     }
 
     internal void OpenSearch()

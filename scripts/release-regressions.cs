@@ -6,6 +6,7 @@ using System.IO.Compression;
 using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
+using System.Net.Sockets;
 using System.Reflection;
 using System.Security.Cryptography;
 using System.Text;
@@ -13,8 +14,12 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using LibVLCSharp.Shared;
+using MonoTorrent;
+using MonoTorrent.Client;
+using MonoTorrent.Connections.Peer;
 using TV.Models;
 using TV.Services;
+using TV.Services.AI;
 using TV.Services.Cloud;
 using TV.Services.Configuration;
 using TV.Services.Http;
@@ -488,15 +493,21 @@ if (verifyBundled || args.Contains("--verify-python"))
                 print("fixture noise")
                 return {"list": [{"vod_id": "local", "vod_name": self.extend}]}
         """);
-    var python = new PySpiderClient(siteHttp);
+    var python = new PySpiderClient(siteHttp, database);
     var pythonSite = new SourceSite
     {
         Key = "py_fixture", Name = "Python", Type = 3, Api = new Uri(pythonScript).AbsoluteUri,
         Ext = JsonSerializer.SerializeToElement("中文 Python 回归")
     };
+    await CheckThrows<NotSupportedException>(() => python.GetHomeAsync(pythonSite),
+        "External executable adapters require a user opt-in");
+    await database.SetSettingAsync(ExternalSpiderPolicy.SettingKey, "true");
     var pythonResponses = await Task.WhenAll(Enumerable.Range(0, 4).Select(_ => python.GetHomeAsync(pythonSite)));
     Check(pythonResponses.All(item => item.List.Single().Name == "中文 Python 回归"),
         "Python launcher, concurrent requests, UTF-8 IPC, and non-ASCII paths work together");
+    await database.SetSettingAsync(ExternalSpiderPolicy.SettingKey, "false");
+    await CheckThrows<NotSupportedException>(() => python.GetHomeAsync(pythonSite),
+        "Disabling external adapters also prevents cached Python execution");
     if (verifyBundled)
     {
         Environment.SetEnvironmentVariable("JAVA_HOME", Path.Combine(args[0], "不存在的 JDK"));
@@ -517,6 +528,12 @@ if (verifyBundled || args.Contains("--verify-python"))
         finally { Environment.SetEnvironmentVariable("PATH", previousPath); }
         Check(javaResponse.ValueKind == JsonValueKind.Object && javaResponse.TryGetProperty("list", out _),
             "The bundled Java engine answers IPC without using the machine's JAVA_HOME or JVM options");
+        var androidOnly = new SourceSite
+        {
+            Key = "android-fixture", Api = "csp_AndroidFixture", Type = 3, Jar = "https://android.invalid/native.jar"
+        };
+        await CheckThrows<NotSupportedException>(() => java.SendAsync(androidOnly, "home", []),
+            "An external JAR is blocked before the bundled Java engine can download it");
     }
 }
 
@@ -750,6 +767,238 @@ if (args.Contains("--verify-default-service", StringComparer.Ordinal))
     var comments = await danmaku.GetCommentsAsync(episode.EpisodeId);
     Check(comments.Length > 0, "The fresh profile loads real episode comments from the default service");
 }
+var kugou = new SourceSite { Key = "MTV1", Name = "易听", Type = 3, Api = "csp_MusicGuard" };
+var kugouPage = new SpiderPlayResult("https://www.kugou.com/mixsong/geggwdec.html", new Dictionary<string, string>(), 1, 0);
+var preparedKugou = KugouPlayback.Prepare(kugou, kugouPage);
+Check(preparedKugou.BrowserAudioPlayback && preparedKugou.UseHttpProxy &&
+      preparedKugou.BrowserMediaFilter!(new Uri("https://webfs.yun.kugou.com/test.mp3")) &&
+      !preparedKugou.BrowserMediaFilter(new Uri("https://kugou.com.example.invalid/test.mp3")) &&
+      !KugouPlayback.Prepare(kugou, kugouPage with { Url = "https://www.kugou.com/not-a-song.html" }).BrowserAudioPlayback,
+    "Yiting uses the official song page's audio-only route and limits media to official HTTPS hosts");
+
+var desktopSite = new SourceSite
+{
+    Key = "native-android", Name = "Android ARM", Type = 3, Api = "csp_DesktopFallbackFixture",
+    Jar = "https://android.invalid/native.jar", DesktopApi = "../desktop/v1?client=desktop",
+    Ext = JsonSerializer.SerializeToElement("private-app-data"),
+    Header = JsonSerializer.SerializeToElement(new { Cookie = "fixture-account", Authorization = "fixture-secret" })
+};
+var desktopConfig = new ConfigDocument { Sites = [desktopSite] };
+SourceConfigService.NormalizeLinks(desktopConfig, new Uri("https://desktop.example.invalid/repository/config.json"));
+using (var desktopHttp = new SourceHttpClient(new AndroidDesktopFixture()))
+{
+    var provider = new HttpSpiderProvider(desktopHttp);
+    Check(provider.CanHandle(desktopSite) && (await provider.GetHomeAsync(desktopSite)).List.Single().Name == "演示资源" &&
+          (await provider.GetCategoryAsync(desktopSite, "1", 2)).List.Count == 1 &&
+          (await provider.SearchAsync(desktopSite, "演示", 1)).List.Count == 1 &&
+          (await provider.GetDetailAsync(desktopSite, "item")).Id == "item" &&
+          (await provider.ResolvePlayAsync(desktopSite, "HD", "episode", CancellationToken.None)).Url.EndsWith("/song.mp3", StringComparison.Ordinal),
+        "Android-specific sites can use a relative desktop T4 endpoint across catalog, category, search, detail and play without the JAR or private headers");
+    desktopSite.DesktopApi = "file:///C:/endpoint.json";
+    Check(!provider.CanHandle(desktopSite), "Desktop fallback is unavailable for unsafe endpoint schemes");
+}
+
+Check(!ExternalSpiderPolicy.TryExecutableUri("http://source.example.invalid/a.jar", out _) &&
+    !ExternalSpiderPolicy.TryExecutableUri("file://other-computer/share/a.jar", out _) &&
+    ExternalSpiderPolicy.TryExecutableUri("https://source.example.invalid/a.jar", out _),
+    "Executable adaptation sources reject public cleartext HTTP and remote Windows file shares");
+await database.SetSettingAsync("cloud.quarkCookie", SecretStore.Protect("fixture-local-cleanup"));
+var legacyFolder = Directory.CreateDirectory(Path.Combine(AppPaths.Root, "spider", "TV")).FullName;
+var legacyCookie = Path.Combine(legacyFolder, ".quarkcookie");
+await File.WriteAllTextAsync(legacyCookie, "fixture-local-cleanup");
+await ExternalSpiderPolicy.RemoveLegacyCredentialFilesAsync(database);
+Check(!File.Exists(legacyCookie), "Upgrade cleans an old plaintext credential file copied by the bridge");
+await database.SetSettingAsync("cloud.quarkCookie", "");
+Check(!PlaybackResolver.IsRemoteMediaAddress("file:///C:/temp/example.mp4") &&
+      !PlaybackResolver.IsRemoteMediaAddress("https://credentials@media.example.invalid/video.mp4") &&
+      PlaybackResolver.IsRemoteMediaAddress("rtsp://media.example.invalid/live"),
+    "Remote playback protects the local file and credential-in-URL boundaries while retaining live RTP-family protocols");
+
+var sampleMagnet = "magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567&dn=fixture" +
+    "&tr=https%3A%2F%2Ftracker.example.invalid%2Fannounce&tr=http%3A%2F%2F127.0.0.1%2F&ws=https%3A%2F%2Fseed.example.invalid%2F";
+Check(MagnetPlayback.TryParse(sampleMagnet, out var parsedMagnet) && parsedMagnet.AnnounceUrls.Count == 1 &&
+      parsedMagnet.Webseeds.Count == 0 && parsedMagnet.Name == "fixture" &&
+      !MagnetPlayback.TryParse("magnet:?dn=nohash", out _) &&
+      !MagnetPlayback.TryParse("magnet:?" + new string('a', MagnetPlayback.MaxLinkLength), out _) &&
+      !MagnetPlayback.IsPublicAddress(IPAddress.Parse("::ffff:192.168.1.1")) &&
+      !MagnetPlayback.IsPublicAddress(IPAddress.Parse("169.254.169.254")) &&
+      MagnetPlayback.IsPublicAddress(IPAddress.Parse("8.8.8.8")),
+    "Magnet validation bounds input, drops untrusted web seeds and excludes private peer addresses");
+
+var lyricsService = new MusicMetadataService(new SourceHttpClient(new OnlineMusicFixture()));
+var track = new MusicPresentation("星。海", "测试歌手", "样本专辑", null, null);
+var matched = await lyricsService.MatchAsync(track, track.Artist, 184000, CancellationToken.None);
+Check(matched.Cover is { Length: 8 } && matched.Lyrics == "[00:01.00]星光",
+    "Music matching falls back from a missing LRCLIB signature, ranks by title, artist, duration and album, and loads the cover independently");
+var linesInTwoLanguages = MusicMetadataService.JoinLyrics("[00:01.000]Hallo\n[00:03.000]Nacht",
+    "[00:01.100]こんにちは\n[00:03.000]夜");
+Check(linesInTwoLanguages.Count == 2 && linesInTwoLanguages[0].Translation == "こんにちは" &&
+    MusicMetadataService.PresentLyric(linesInTwoLanguages[0], true, true) == new DisplayLyric(1000, "こんにちは", "Hallo") &&
+    MusicMetadataService.PresentLyric(linesInTwoLanguages[0], false, true).Secondary is null &&
+    MusicMetadataService.ActiveLine(linesInTwoLanguages, 3200) == 1,
+    "Bilingual lyrics retain one timeline when the primary language changes or the secondary line is hidden");
+var musicRequest = new PlaybackRequest { SiteKey = "lyrics", VodId = "sample", Url = "https://source.example.invalid/track.flac", Title = "Night" };
+await MusicMetadataService.SaveLyricsAsync(musicRequest, matched with
+{
+    Lyrics = MusicMetadataService.FormatLyrics(linesInTwoLanguages),
+    TranslatedLyrics = MusicMetadataService.FormatLyrics(linesInTwoLanguages.Select(line => new LyricLine(line.TimeMs, line.Translation!)))
+}, CancellationToken.None);
+var restoredLyrics = await lyricsService.LoadAsync(musicRequest, CancellationToken.None);
+Check(MusicMetadataService.JoinLyrics(restoredLyrics.Lyrics, restoredLyrics.TranslatedLyrics)[1].Translation == "夜",
+    "Music lyrics and translations survive reopening independently of the playback address");
+using (var musicVariants = JsonDocument.Parse("""
+    {"url":"https://music.example.invalid/normal.mp3","title":"夜","artist":"歌手","tlyric":"night",
+     "audioQualities":[{"name":"高清","url":"/hq.mp3","contentType":"audio/mpeg"},
+        {"name":"无损","url":"https://cdn.example.invalid/lossless","contentType":"audio/flac"},
+        {"name":"坏链接","url":"file:///C:/sample.flac"}]}
+    """))
+{
+    var variants = SpiderVodClient.ReadPlayResult(musicVariants.RootElement);
+    Check(variants.AudioVariants.Select(variant => variant.Option.Name).SequenceEqual(new[] { "高清", "无损" }) &&
+          variants.AudioVariants[0].Url.AbsolutePath == "/hq.mp3" && variants.MusicTranslatedLyrics == "night" &&
+          variants.MusicTitle == "夜",
+        "Audio quality endpoints and bilingual song metadata are read from declared site variants");
+}
+using (var bailian = new BailianSubtitleService(database, new BailianMusicFixture()))
+{
+    var cues = new[] { new SubtitleCue(TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(2), "Hallo"),
+        new SubtitleCue(TimeSpan.FromSeconds(3), TimeSpan.FromSeconds(4), "Nacht") };
+    var translated = await bailian.TranslateCuesAsync(cues, new AiSubtitleConfig("fixture-key", TargetLanguage: "Japanese"),
+        null, CancellationToken.None);
+    Check(translated[1].Start == cues[1].Start && translated[0].Text == "Hallo" && translated[0].TranslatedText == "こんにちは",
+        "Bailian translation accepts a German source and Japanese target while preserving cue timestamps");
+}
+Check(HlsManifest.RecognizeResponse("https://audio.example.invalid/stream", "audio/mpeg") == "audio/mpeg",
+    "The browser media classifier recognizes actual audio responses, including extensionless URLs");
+Check(PlayUrlResolver.TryBuildParserRequest("https://parser.example.invalid/route?type=hls&url=#unused",
+    "https://video.example.invalid/watch?v=1&b=2", out var parserRequest) &&
+    parserRequest.Query == "?type=hls&url=https%3A%2F%2Fvideo.example.invalid%2Fwatch%3Fv%3D1%26b%3D2" &&
+    parserRequest.Fragment.Length == 0, "Link resolution fills a configured URL parameter once and retains parser options");
+
+const string markedHls = """
+    #EXTM3U
+    #EXT-X-TARGETDURATION:6
+    #EXTINF:5,
+    content-a.ts
+    #EXT-X-DISCONTINUITY
+    #EXT-X-CUE-OUT:6
+    #EXTINF:6,
+    insert.ts
+    #EXT-X-CUE-IN
+    #EXT-X-DISCONTINUITY
+    #EXTINF:5,
+    content-b.ts
+    #EXT-X-ENDLIST
+    """;
+var cleanPlaylist = HlsPlaylistCleaner.Clean(markedHls);
+Check(cleanPlaylist.Contains("content-a.ts", StringComparison.Ordinal) && cleanPlaylist.Contains("content-b.ts", StringComparison.Ordinal) &&
+      !cleanPlaylist.Contains("insert.ts", StringComparison.Ordinal) &&
+      cleanPlaylist.Split('\n').Count(line => line == "#EXT-X-DISCONTINUITY") == 1,
+    "M3U8 cleaning removes only a balanced explicit interlude and keeps one discontinuity");
+foreach (var protectedPlaylist in new[]
+{
+    markedHls.Replace("#EXT-X-ENDLIST", ""), markedHls.Replace("#EXT-X-CUE-IN", ""),
+    markedHls.Replace("content-a.ts", "#EXT-X-BYTERANGE:1024@0\ncontent-a.ts"),
+    markedHls.Replace("#EXT-X-TARGETDURATION:6", "#EXT-X-KEY:METHOD=AES-128,URI=\"key.bin\"")
+}) Check(HlsPlaylistCleaner.Clean(protectedPlaylist) == protectedPlaylist,
+    "M3U8 cleaning preserves live, unbalanced, byte-range and encrypted manifests");
+var cleanProxy = true;
+using (var hlsProxy = new CloudMediaProxy(cleanHls: () => cleanProxy))
+using (var hlsHttp = new HttpClient())
+{
+    var hlsUrl = hlsProxy.Register(new CloudPlayResult("https://media.example.invalid/index.m3u8", new Dictionary<string, string>()),
+        null, 1, 1, markedHls);
+    var cleanedResponse = await hlsHttp.GetStringAsync(hlsUrl);
+    cleanProxy = false;
+    var originalResponse = await hlsHttp.GetStringAsync(hlsUrl);
+    Check(cleanedResponse.Split('\n').Count(line => line.StartsWith("#EXTINF:", StringComparison.Ordinal)) == 2 &&
+        originalResponse.Split('\n').Count(line => line.StartsWith("#EXTINF:", StringComparison.Ordinal)) == 3,
+        "The live proxy honours the cleanup setting across the same registered M3U8 URL");
+}
+
+if (verifyBundled)
+{
+    var magnetRoot = Directory.CreateDirectory(Path.Combine(args[0], "磁力播放")).FullName;
+    using var magnetDeadline = new CancellationTokenSource(TimeSpan.FromSeconds(45));
+    await CheckThrows<IOException>(() => MagnetMetadataWorker.ReadAsync("magnet:?dn=invalid", magnetRoot, magnetDeadline.Token),
+        "The packaged metadata subprocess starts with redirected IPC and exits cleanly on an invalid link");
+    var seedPath = Directory.CreateDirectory(Path.Combine(magnetRoot, "seed")).FullName;
+    var pcm = Path.Combine(seedPath, "测试音轨.wav");
+    using (var writer = new BinaryWriter(File.Create(pcm)))
+    {
+        const int bytes = 16000 * 2 * 15;
+        writer.Write("RIFF"u8);
+        writer.Write(bytes + 36);
+        writer.Write("WAVEfmt "u8);
+        writer.Write(16);
+        writer.Write((ushort)1);
+        writer.Write((ushort)1);
+        writer.Write(16000);
+        writer.Write(32000);
+        writer.Write((ushort)2);
+        writer.Write((ushort)16);
+        writer.Write("data"u8);
+        writer.Write(bytes);
+        writer.Write(new byte[bytes]);
+    }
+    using (var transcriptionDeadline = new CancellationTokenSource(TimeSpan.FromSeconds(30)))
+    using (var bailian = new BailianSubtitleService(database, new BailianMusicFixture()))
+    {
+        var lines = await bailian.TranscribeAudioAsync(new Uri(pcm).AbsoluteUri, null,
+            new AiSubtitleConfig("fixture-key"), TimeSpan.FromSeconds(15), null, transcriptionDeadline.Token);
+        Check(lines.Count == 2 && lines[0].Start == TimeSpan.FromSeconds(1) && lines[1].Text == "Nacht" &&
+              !Directory.EnumerateFiles(AudioExtractionService.CacheDirectory, "audio-*").Any(),
+            "Music ASR uses packaged audio extraction, uploads a disposable file and returns timed lyric lines");
+    }
+    magnetDeadline.CancelAfter(TimeSpan.FromSeconds(45));
+    var torrent = Torrent.Load(await new TorrentCreator(TorrentType.V1Only).CreateAsync(
+        new TorrentFileSource(pcm), magnetDeadline.Token));
+    var listenAddress = new IPEndPoint(IPAddress.Loopback, 0);
+    var seedListener = new PeerConnectionListener(listenAddress);
+    var seedSettings = new EngineSettingsBuilder(MagnetPlayback.Settings(seedPath))
+    {
+        DhtEndPoint = null,
+        ListenEndPoints = new Dictionary<string, IPEndPoint> { ["ipv4"] = listenAddress }
+    }.ToSettings();
+    using var seeder = new ClientEngine(seedSettings,
+        Factories.Default.WithPeerConnectionListenerCreator(_ => seedListener));
+    var manager = await seeder.AddAsync(torrent, seedPath);
+    await manager.StartAsync();
+    var port = seedListener.LocalEndPoint?.Port ?? throw new IOException("Loopback torrent seeder did not bind.");
+    var cache = Directory.CreateDirectory(Path.Combine(magnetRoot, "cache")).FullName;
+    var cacheSettings = new EngineSettingsBuilder(MagnetPlayback.Settings(cache)) { DhtEndPoint = null }.ToSettings();
+    await using var magnet = await MagnetPlayback.OpenFileAsync(torrent, cache, cacheSettings,
+        Factories.Default, magnetDeadline.Token, new Uri($"ipv4://127.0.0.1:{port}"));
+    using (var player = new PlayerService())
+    {
+        player.SetVolume(0);
+        await player.PlayAsync(new PlaybackRequest
+        {
+            Kind = PlaybackKind.Vod, Title = "测试音轨", Url = sampleMagnet, IsMusic = true, Magnet = magnet
+        }, magnetDeadline.Token);
+        var readyBy = DateTime.UtcNow.AddSeconds(12);
+        var playing = await player.ReadSnapshotAsync(magnetDeadline.Token);
+        while (playing.TimeMs < 450 && DateTime.UtcNow < readyBy)
+        {
+            await Task.Delay(150, magnetDeadline.Token);
+            playing = await player.ReadSnapshotAsync(magnetDeadline.Token);
+        }
+        Check(playing.TimeMs >= 450 && playing.LengthMs >= 14000 && playing.CanSeek && playing.AudioOnly,
+            "LibVLC decodes a peer-streamed audio file in the packaged player");
+        player.Seek(8000);
+        var seekBy = DateTime.UtcNow.AddSeconds(6);
+        while (playing.TimeMs < 7900 && DateTime.UtcNow < seekBy)
+        {
+            await Task.Delay(150, magnetDeadline.Token);
+            playing = await player.ReadSnapshotAsync(magnetDeadline.Token);
+        }
+        Check(playing.TimeMs >= 7900, "Magnet playback can seek and resume from a later piece");
+        await player.StopAsync();
+    }
+    await manager.StopAsync();
+    Check(!Directory.Exists(cache), "Stopping playback releases the peer session and removes its temporary data");
+}
+
 Console.WriteLine($"{checks} checks passed");
 
 static string EncryptTvBoxAesHex(string plainText, string key, string iv)
@@ -768,6 +1017,106 @@ static string EncryptTvBoxAesHex(string plainText, string key, string iv)
     var cipherHex = Convert.ToHexString(cipher).ToLowerInvariant();
     var ivHex = Convert.ToHexString(Encoding.UTF8.GetBytes(iv)).ToLowerInvariant();
     return prefixHex + cipherHex + ivHex;
+}
+
+sealed class OnlineMusicFixture : HttpMessageHandler
+{
+    protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken token)
+    {
+        var uri = request.RequestUri!;
+        HttpResponseMessage response;
+        if (uri.IdnHost == "lrclib.net" && uri.AbsolutePath == "/api/get") response = new(HttpStatusCode.NotFound);
+        else if (uri.IdnHost == "lrclib.net" && uri.AbsolutePath == "/api/search")
+            response = new(HttpStatusCode.OK)
+            {
+                Content = new StringContent("""
+                    [
+                      {"trackName":"星海","artistName":"其他歌手","duration":184,"syncedLyrics":"[00:01.00]错误"},
+                      {"trackName":"星海","artistName":"测试歌手","duration":218,"syncedLyrics":"[00:01.00]错误版本"},
+                      {"trackName":"星海","artistName":"测试歌手","albumName":"样本专辑","duration":184,"syncedLyrics":"[00:01.00]星光"}
+                    ]
+                    """)
+            };
+        else if (uri.IdnHost == "musicbrainz.org")
+            response = new(HttpStatusCode.OK)
+            {
+                Content = new StringContent("""
+                    {"recordings":[{"title":"星海","artist-credit":[{"name":"测试歌手"}],
+                       "releases":[{"title":"样本专辑","id":"fd6ffec7-63cd-4a74-ae17-342032c7b2d1"}]}]}
+                    """)
+            };
+        else if (uri.IdnHost == "coverartarchive.org")
+        {
+            response = new(HttpStatusCode.OK) { Content = new ByteArrayContent(new byte[8]) };
+            response.Content.Headers.ContentType = new MediaTypeHeaderValue("image/png");
+        }
+        else throw new InvalidOperationException("Unexpected online music route.");
+        return Task.FromResult(response);
+    }
+}
+
+sealed class BailianMusicFixture : HttpMessageHandler
+{
+    protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken token)
+    {
+        var uri = request.RequestUri!;
+        if (uri.IdnHost == "music-fixture.oss-cn-beijing.aliyuncs.com")
+        {
+            if (request.Headers.Authorization is not null)
+                throw new InvalidOperationException("The service key must stay on the Bailian API origin.");
+            if (request.Method == HttpMethod.Get && uri.AbsolutePath == "/result")
+                return Response("""{"transcripts":[{"sentences":[{"begin_time":1000,"end_time":1800,"text":"Hallo"},{"begin_time":3000,"end_time":4700,"text":"Nacht"}]}]}""");
+            if (request.Method == HttpMethod.Post && request.Content is MultipartFormDataContent form &&
+                form.LastOrDefault()?.Headers.ContentDisposition?.Name?.Trim('"') == "file" &&
+                (await form.Last().ReadAsByteArrayAsync(token)).Length > 1024)
+                return Response("{}");
+            throw new InvalidOperationException("Unexpected temporary music storage request.");
+        }
+        if (uri.IdnHost != "dashscope.aliyuncs.com" || request.Headers.Authorization?.Parameter != "fixture-key")
+            throw new InvalidOperationException("Unexpected Bailian request.");
+        if (uri.AbsolutePath == "/api/v1/uploads" && uri.Query.Contains("action=getPolicy&model=", StringComparison.Ordinal))
+            return Response("""{"data":{"upload_host":"https://music-fixture.oss-cn-beijing.aliyuncs.com","upload_dir":"music","oss_access_key_id":"test","policy":"example","signature":"example"}}""");
+        if (uri.AbsolutePath == "/api/v1/tasks/lyric-fixture")
+            return Response("""{"output":{"task_status":"SUCCEEDED","result":{"transcription_url":"https://music-fixture.oss-cn-beijing.aliyuncs.com/result"}}}""");
+        using var payload = JsonDocument.Parse(await request.Content!.ReadAsStringAsync(token));
+        if (uri.AbsolutePath == "/api/v1/services/audio/asr/transcription")
+        {
+            var input = payload.RootElement.GetProperty("input");
+            var audio = input.TryGetProperty("file_url", out var file) ? file.GetString() : input.GetProperty("file_urls")[0].GetString();
+            if (audio?.StartsWith("oss://music/audio-", StringComparison.Ordinal) == true &&
+                request.Headers.TryGetValues("X-DashScope-OssResourceResolve", out var resolver) && resolver.Single() == "enable")
+                return Response("""{"output":{"task_id":"lyric-fixture"}}""");
+            throw new InvalidOperationException("Music ASR did not reference its temporary upload.");
+        }
+        if (uri.AbsolutePath != "/compatible-mode/v1/chat/completions")
+            throw new InvalidOperationException("Unexpected music translation route.");
+        var opts = payload.RootElement.GetProperty("translation_options");
+        var text = payload.RootElement.GetProperty("messages")[0].GetProperty("content").GetString();
+        if (opts.GetProperty("source_lang").GetString() != "auto" || opts.GetProperty("target_lang").GetString() != "Japanese" ||
+            text is null || !text.Contains("[1] Hallo", StringComparison.Ordinal) || !text.Contains("[2] Nacht", StringComparison.Ordinal))
+            throw new InvalidOperationException("Music translation did not retain the selected language or cue order.");
+        return Response("""{"choices":[{"message":{"content":"[1] こんにちは\n[2] 夜"}}]}""");
+    }
+
+    private static HttpResponseMessage Response(string json) => new(HttpStatusCode.OK) { Content = new StringContent(json) };
+}
+
+sealed class AndroidDesktopFixture : HttpMessageHandler
+{
+    protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken token)
+    {
+        var uri = request.RequestUri!;
+        if (uri.Host != "desktop.example.invalid" || uri.AbsolutePath != "/desktop/v1" ||
+            !uri.Query.Contains("client=desktop", StringComparison.Ordinal) || uri.Query.Contains("private-app-data", StringComparison.Ordinal) ||
+            request.Headers.Contains("Cookie") || request.Headers.Contains("Authorization"))
+            throw new InvalidOperationException("Desktop adapter request escaped its public endpoint contract.");
+        return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent(uri.Query.Contains("play=episode&flag=HD", StringComparison.Ordinal)
+                ? """{"url":"https://desktop.example.invalid/song.mp3","contentType":"audio/mpeg","parse":0}"""
+                : """{"list":[{"vod_id":"item","vod_name":"演示资源"}]}""")
+        });
+    }
 }
 
 sealed class InternationalHostFixture : HttpMessageHandler

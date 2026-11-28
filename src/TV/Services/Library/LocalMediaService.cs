@@ -227,7 +227,11 @@ public sealed class LocalMediaService : IDisposable
             var files = Directory.EnumerateFiles(directory, basename + ".*").Take(32).ToArray();
             if (request.IsMusic)
             {
-                request.MusicLyrics = files.FirstOrDefault(path => IsExtension(path, ".lrc", ".txt"));
+                request.MusicLyrics = files.FirstOrDefault(path => Path.GetFileNameWithoutExtension(path).Equals(basename, StringComparison.OrdinalIgnoreCase) &&
+                    IsExtension(path, ".lrc", ".txt"));
+                request.MusicTranslatedLyrics = files.FirstOrDefault(path =>
+                    Path.GetFileNameWithoutExtension(path).Equals(basename + ".translated", StringComparison.OrdinalIgnoreCase) &&
+                    IsExtension(path, ".lrc", ".txt"));
                 request.MusicCover = files.FirstOrDefault(path => IsExtension(path, ".jpg", ".jpeg", ".png", ".webp"));
                 return;
             }

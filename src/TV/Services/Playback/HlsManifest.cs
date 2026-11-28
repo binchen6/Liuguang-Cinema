@@ -38,7 +38,8 @@ internal static partial class HlsManifest
             mediaType is "video/mp2t" or "video/iso.segment" or "audio/iso.segment")
             return null;
         if (mediaType?.Contains("mpegurl", StringComparison.OrdinalIgnoreCase) == true) return HlsContentType;
-        if (mediaType == "application/dash+xml" || mediaType?.StartsWith("video/", StringComparison.OrdinalIgnoreCase) == true)
+        if (mediaType == "application/dash+xml" || mediaType?.StartsWith("video/", StringComparison.OrdinalIgnoreCase) == true ||
+            mediaType?.StartsWith("audio/", StringComparison.OrdinalIgnoreCase) == true)
             return mediaType;
         if (mediaType is not (null or "" or "application/octet-stream" or "binary/octet-stream")) return null;
         return Path.GetExtension(path).ToLowerInvariant() switch
@@ -50,6 +51,12 @@ internal static partial class HlsManifest
             ".mkv" => "video/x-matroska",
             ".flv" => "video/x-flv",
             ".mov" => "video/quicktime",
+            ".mp3" => "audio/mpeg",
+            ".m4a" => "audio/mp4",
+            ".aac" => "audio/aac",
+            ".flac" => "audio/flac",
+            ".wav" => "audio/wav",
+            ".ogg" or ".opus" => "audio/ogg",
             _ => null
         };
     }

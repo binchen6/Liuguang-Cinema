@@ -43,6 +43,7 @@ import java.util.zip.ZipOutputStream;
  */
 final class ExternalJarLoader {
     private static final long MAX_JAR_BYTES = 32L * 1024 * 1024;
+    private static final long MAX_EXPANDED_BYTES = 96L * 1024 * 1024;
     private static final String[] GITHUB_MIRRORS = {
         "https://gh-proxy.com/",
         "https://cdn.gh-proxy.org/",
@@ -55,7 +56,7 @@ final class ExternalJarLoader {
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(45, TimeUnit.SECONDS)
         .followRedirects(true)
-        .followSslRedirects(true)
+        .followSslRedirects(false)
         .build();
 
     private final File cacheRoot;
@@ -83,7 +84,7 @@ final class ExternalJarLoader {
 
     private LoadedJar loadJar(String rawSpec) throws Exception {
         ParsedSpec spec = parseSpec(rawSpec);
-        String cacheKey = sha256Hex(spec.url + "|" + spec.md5);
+        String cacheKey = sha256Hex(spec.url + "|" + spec.algorithm + "|" + spec.digest);
         LoadedJar existing = loadedJars.get(cacheKey);
         if (existing != null) return existing;
 
@@ -93,6 +94,7 @@ final class ExternalJarLoader {
             if (existing != null) return existing;
 
             File rawFile = obtainRawJar(spec, cacheKey);
+            validateArchive(rawFile);
             String contentHash = sha256File(rawFile);
             File jvmJar = ensureJvmJar(rawFile, contentHash);
             Set<String> classNames = indexSpiderClasses(jvmJar);
@@ -144,14 +146,14 @@ final class ExternalJarLoader {
         if (spec.url.startsWith("file://")) {
             File local = new File(URI.create(spec.url));
             if (!local.isFile()) throw new IOException("Local spider jar not found: " + local);
-            if (!spec.md5.isEmpty() && !spec.md5.equalsIgnoreCase(md5File(local))) {
+            if (!matchesChecksum(spec, local)) {
                 throw new IOException("Local spider JAR checksum does not match the source configuration");
             }
             return local;
         }
-        File cached = new File(new File(cacheRoot, spec.md5.isEmpty() ? "raw-origin" : "raw"), cacheKey + ".jar");
+        File cached = new File(new File(cacheRoot, spec.digest.isEmpty() ? "raw-origin" : "raw"), cacheKey + ".jar");
         if (cached.isFile() && cached.length() > 128) {
-            if (spec.md5.isEmpty() || spec.md5.equalsIgnoreCase(md5File(cached))) {
+            if (matchesChecksum(spec, cached)) {
                 return cached;
             }
         }
@@ -163,7 +165,7 @@ final class ExternalJarLoader {
                 if (!isZipArchive(bytes)) {
                     throw new IOException("Downloaded spider is not a valid JAR/ZIP archive: " + candidate);
                 }
-                if (!spec.md5.isEmpty() && !spec.md5.equalsIgnoreCase(md5Bytes(bytes)))
+                if (!spec.digest.isEmpty() && !spec.digest.equalsIgnoreCase(digestBytes(spec.algorithm, bytes)))
                     throw new IOException("Spider JAR checksum does not match the source configuration");
                 File tmp = new File(cached.getParentFile(), cached.getName() + "." + System.nanoTime() + ".tmp");
                 try {
@@ -184,13 +186,38 @@ final class ExternalJarLoader {
         List<String> list = new ArrayList<>();
         list.add(spec.url);
         String lower = spec.url.toLowerCase(Locale.ROOT);
-        if (!spec.md5.isEmpty() &&
+        if ("SHA-256".equals(spec.algorithm) &&
                 (lower.startsWith("https://raw.githubusercontent.com/") || lower.startsWith("https://github.com/"))) {
             for (String mirror : GITHUB_MIRRORS) {
                 list.add(mirror + spec.url);
             }
         }
         return list;
+    }
+
+    private static boolean matchesChecksum(ParsedSpec spec, File file) throws IOException {
+        if (file.length() > MAX_JAR_BYTES) return false;
+        return spec.digest.isEmpty() || spec.digest.equalsIgnoreCase(digestBytes(spec.algorithm, Files.readAllBytes(file.toPath())));
+    }
+
+    private static void validateArchive(File file) throws IOException {
+        long total = 0;
+        try (java.util.jar.JarFile zip = new java.util.jar.JarFile(file)) {
+            if (zip.size() > 20_000) throw new IOException("Spider JAR contains too many entries");
+            var entries = zip.entries();
+            while (entries.hasMoreElements()) {
+                var entry = entries.nextElement();
+                long size = entry.getSize();
+                if (size < 0 || size > MAX_EXPANDED_BYTES - total)
+                    throw new IOException("Expanded spider JAR exceeds size limit");
+                if ("META-INF/MANIFEST.MF".equalsIgnoreCase(entry.getName()) && size > 1024 * 1024)
+                    throw new IOException("Spider JAR manifest exceeds size limit");
+                total += size;
+            }
+            var manifest = zip.getManifest();
+            if (manifest != null && manifest.getMainAttributes().getValue("Class-Path") != null)
+                throw new IOException("External JAR Class-Path is not supported");
+        }
     }
 
     private static byte[] downloadBytes(String url) throws IOException {
@@ -256,8 +283,9 @@ final class ExternalJarLoader {
                 if (dexEntry == null) continue;
                 byte[] dexBytes;
                 try (InputStream in = sourceZip.getInputStream(dexEntry)) {
-                    dexBytes = in.readAllBytes();
+                    dexBytes = in.readNBytes((int)MAX_JAR_BYTES + 1);
                 }
+                if (dexBytes.length > MAX_JAR_BYTES) throw new IOException("Spider DEX exceeds size limit");
                 Path singleDir = Files.createTempDirectory(converted.getParentFile().toPath(), "d2j-");
                 tempDirs.add(singleDir);
                 Dex2jar.from(dexBytes).skipExceptions(true).to(singleDir);
@@ -337,18 +365,16 @@ final class ExternalJarLoader {
     }
 
     private static ParsedSpec parseSpec(String raw) {
-        String trimmed = raw == null ? "" : raw.trim();
-        int semi = trimmed.indexOf(";md5;");
-        if (semi > 0) {
-            String url = trimmed.substring(0, semi).trim();
-            String md5 = trimmed.substring(semi + 5).trim();
-            int nextSemi = md5.indexOf(';');
-            if (nextSemi >= 0) md5 = md5.substring(0, nextSemi).trim();
-            return new ParsedSpec(url, md5);
-        }
-        int anySemi = trimmed.indexOf(';');
-        if (anySemi > 0) trimmed = trimmed.substring(0, anySemi).trim();
-        return new ParsedSpec(trimmed, "");
+        String[] parts = (raw == null ? "" : raw.trim()).split(";", 4);
+        String url = parts[0].trim();
+        if (parts.length == 1) return new ParsedSpec(url, "", "");
+        String method = parts[1].trim().toLowerCase(Locale.ROOT);
+        String digest = parts.length > 2 ? parts[2].trim() : "";
+        if ("sha256".equals(method) && digest.matches("[0-9a-fA-F]{64}"))
+            return new ParsedSpec(url, "SHA-256", digest);
+        if ("md5".equals(method) && digest.matches("[0-9a-fA-F]{32}"))
+            return new ParsedSpec(url, "MD5", digest);
+        throw new IllegalArgumentException("Invalid external JAR checksum spec");
     }
 
     private static boolean isZipArchive(byte[] bytes) {
@@ -376,21 +402,16 @@ final class ExternalJarLoader {
         }
     }
 
-    private static String md5Bytes(byte[] bytes) {
+    private static String digestBytes(String algorithm, byte[] bytes) {
         try {
-            MessageDigest md = MessageDigest.getInstance("MD5");
+            MessageDigest md = MessageDigest.getInstance(algorithm);
             return HexFormat.of().formatHex(md.digest(bytes));
         } catch (Exception ex) {
-            return "";
+            throw new IllegalArgumentException(ex);
         }
     }
 
-    private static String md5File(File file) {
-        try { return md5Bytes(Files.readAllBytes(file.toPath())); }
-        catch (IOException ex) { return ""; }
-    }
-
-    private record ParsedSpec(String url, String md5) { }
+    private record ParsedSpec(String url, String algorithm, String digest) { }
 
     private record LoadedJar(SpiderClassLoader classLoader, Set<String> spiderClasses) {
         Class<?> resolveSpiderClass(String api) throws ClassNotFoundException {

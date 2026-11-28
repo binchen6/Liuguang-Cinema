@@ -6,6 +6,7 @@ using System.Text;
 using TV.Services;
 using TV.Services.Library;
 using TV.Services.Persistence;
+using TV.Services.Playback;
 
 namespace TV;
 
@@ -14,6 +15,11 @@ internal static class Program
     [STAThread]
     private static void Main(string[] args)
     {
+        if (args is [MagnetMetadataWorker.Argument])
+        {
+            Environment.ExitCode = MagnetMetadataWorker.RunAsync().GetAwaiter().GetResult();
+            return;
+        }
         WinRT.ComWrappersSupport.InitializeComWrappers();
         var startupVideo = VideoArgument(args);
         AppInstance? instance = null;

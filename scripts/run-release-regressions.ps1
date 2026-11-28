@@ -21,12 +21,14 @@ $ref = Get-ChildItem -LiteralPath (Join-Path $dotnetHome 'packs/Microsoft.NETCor
     Where-Object { $_.Name -like '10.*' } | Sort-Object { [version]$_.Name } -Descending | Select-Object -First 1
 $references = Get-ChildItem -LiteralPath (Join-Path $ref.FullName 'ref/net10.0') -Filter '*.dll' |
     ForEach-Object { '/reference:"{0}"' -f $_.FullName }
+$torrentReferences = Get-ChildItem -LiteralPath $app -Filter 'MonoTorrent*.dll' -File |
+    ForEach-Object { '/reference:"{0}"' -f $_.FullName }
 $testBuild = Join-Path $profile 'TV.ReleaseRegression.dll'
 $assembly = Join-Path $app 'TV.ReleaseRegression.dll'
 $responseFile = Join-Path $profile 'compile.rsp'
 @('/nologo', '/target:exe', '/nullable:enable', '/langversion:latest',
     ('/out:"{0}"' -f $testBuild), ('/reference:"{0}/TV.dll"' -f $app), ('/reference:"{0}/LibVLCSharp.dll"' -f $app)) +
-    $references + ('"{0}/release-regressions.cs"' -f $PSScriptRoot) |
+    $references + $torrentReferences + ('"{0}/release-regressions.cs"' -f $PSScriptRoot) |
     Set-Content -LiteralPath $responseFile -Encoding utf8
 & $dotnet (Join-Path $dotnetHome "sdk/$sdk/Roslyn/bincore/csc.dll") /noconfig "@$responseFile"
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

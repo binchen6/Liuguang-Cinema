@@ -41,6 +41,7 @@ public sealed partial class CloudMediaProxy : IDisposable
         public CloudBlockCache? BlockCache { get; set; }
         public string[]? NextSegmentIds { get; set; }
         public string? PlaylistOwnerId { get; set; }
+        public bool PreserveTimeline { get; init; }
         public int SegmentIndex { get; set; } = -1;
         public int LastRequestedSegmentIndex { get; set; } = -1;
         public CancellationTokenSource? HlsPrefetchCts { get; set; }
@@ -63,11 +64,13 @@ public sealed partial class CloudMediaProxy : IDisposable
     private long _segmentCacheBytes;
     private readonly CancellationTokenSource _cts = new();
     private readonly HttpClient _http;
+    private readonly Func<bool> _cleanHls;
     private long _nextSweepAt;
     private readonly string _authority;
 
-    public CloudMediaProxy(DnsResolverService? dns = null)
+    public CloudMediaProxy(DnsResolverService? dns = null, Func<bool>? cleanHls = null)
     {
+        _cleanHls = cleanHls ?? (() => true);
         var handler = new SocketsHttpHandler
         {
             ConnectTimeout = TimeSpan.FromSeconds(10),
@@ -91,7 +94,7 @@ public sealed partial class CloudMediaProxy : IDisposable
     public event EventHandler<CloudProviderKind>? AuthenticationRequired;
 
     public string Register(CloudPlayResult result, CloudProviderKind? provider, int threads, int chunkSize, string? manifest = null,
-        Func<CancellationToken, Task<CloudPlayResult>>? refresh = null)
+        Func<CancellationToken, Task<CloudPlayResult>>? refresh = null, bool preserveTimeline = false)
     {
         if (!Uri.TryCreate(result.Url, UriKind.Absolute, out var origin) || !MediaRequestHeaders.IsHttpAddress(origin))
             throw new InvalidDataException("媒体地址必须使用 HTTP 或 HTTPS。");
@@ -109,7 +112,10 @@ public sealed partial class CloudMediaProxy : IDisposable
                 ReleaseSession(pair.Key);
         }
         var id = Guid.NewGuid().ToString("N");
-        _sessions[id] = new Session(result, provider, Math.Clamp(threads, 1, 6), Math.Clamp(chunkSize, 1, 8) * 1024 * 1024, now.AddHours(4), manifest, refresh);
+        _sessions[id] = new Session(result, provider, Math.Clamp(threads, 1, 6), Math.Clamp(chunkSize, 1, 8) * 1024 * 1024, now.AddHours(4), manifest, refresh)
+        {
+            PreserveTimeline = preserveTimeline
+        };
         var extension = DashManifest.IsPlaylist(result.Url, result.ContentType) ? ".mpd" :
             manifest is not null || HlsManifest.IsPlaylist(result.Url, result.ContentType)
                 ? ".m3u8" : result.FileExtension ?? Path.GetExtension(origin.AbsolutePath);
@@ -645,7 +651,10 @@ public sealed partial class CloudMediaProxy : IDisposable
 
     private string RewritePlaylist(string text, Uri baseUri, Session session)
     {
+        var preserveTimeline = session.PreserveTimeline || HlsPlaylistCleaner.HasSeparateRenditions(text);
+        if (!preserveTimeline && _cleanHls()) text = HlsPlaylistCleaner.Clean(text);
         var segmentIds = new List<string>();
+        var original = new Uri(session.Result.Url);
         string Resolve(string value, bool isPngWrappedSegment = false, bool trackSegment = false)
         {
             if (string.IsNullOrWhiteSpace(value) || value.StartsWith("data:", StringComparison.OrdinalIgnoreCase)) return value;
@@ -654,14 +663,13 @@ public sealed partial class CloudMediaProxy : IDisposable
             if (!Uri.TryCreate(value, UriKind.Absolute, out _) && MediaRequestHeaders.SameOrigin(baseUri, uri) &&
                 string.IsNullOrEmpty(uri.Query) && !string.IsNullOrEmpty(baseUri.Query))
                 uri = new UriBuilder(uri) { Query = baseUri.Query }.Uri;
-            var original = new Uri(session.Result.Url);
             var scoped = MediaRequestHeaders.ForTarget(session.Result.Headers, original, uri);
-            var cacheKey = isPngWrappedSegment ? ".ts:" + uri.AbsoluteUri : uri.AbsoluteUri;
+            var cacheKey = (preserveTimeline ? "original:" : "") + (isPngWrappedSegment ? ".ts:" : "") + uri.AbsoluteUri;
             var proxied = session.Resources.GetOrAdd(cacheKey, _ => new Lazy<string>(() =>
                 Register(new CloudPlayResult(uri.AbsoluteUri, scoped, FileExtension: isPngWrappedSegment ? ".ts" : null)
                 {
                     UnwrapPngHlsSegments = session.Result.UnwrapPngHlsSegments
-                }, session.Provider, session.Threads, Math.Max(1, session.ChunkSize / (1024 * 1024))))).Value;
+                }, session.Provider, session.Threads, Math.Max(1, session.ChunkSize / (1024 * 1024)), preserveTimeline: preserveTimeline))).Value;
             if (trackSegment && Uri.TryCreate(proxied, UriKind.Absolute, out var proxiedUri))
             {
                 var segId = proxiedUri.AbsolutePath.Split('/', StringSplitOptions.RemoveEmptyEntries).LastOrDefault()?.Split('.', 2)[0];

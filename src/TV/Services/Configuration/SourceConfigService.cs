@@ -580,6 +580,8 @@ public sealed partial class SourceConfigService : IDisposable
         {
             if (!string.IsNullOrWhiteSpace(site.Jar))
                 site.Jar = ResolveRelativeWithParams(parent, site.Jar);
+            if (TryHttpUri(parent, site.DesktopApi) is { } desktop)
+                site.DesktopApi = desktop.AbsoluteUri;
             if (site.Type is 0 or 1 or 4 || IsRelativeOrUrlPath(site.Api))
             {
                 if (TryHttpUri(parent, site.Api) is { } api) site.Api = api.AbsoluteUri;

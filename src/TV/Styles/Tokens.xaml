@@ -475,6 +475,9 @@
          4. 控件尺寸与克制圆角
          ============================================================ -->
     <x:Double x:Key="NavItemHeight">48</x:Double>
+    <Thickness x:Key="PlayerTopChromePadding">18,14,18,0</Thickness>
+    <Thickness x:Key="PlayerBottomChromeMargin">20,0,20,16</Thickness>
+    <x:Double x:Key="PlayerDockMaxWidth">1120</x:Double>
     <x:Double x:Key="PrimaryButtonHeight">44</x:Double>
     <x:Double x:Key="SecondaryButtonHeight">40</x:Double>
     <x:Double x:Key="IconButtonSize">40</x:Double>

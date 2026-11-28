@@ -10,6 +10,8 @@ namespace TV.Views;
 
 public sealed partial class LibraryPage : Page
 {
+    private async void OnOpenMagnetClick(object sender, RoutedEventArgs e) => await App.Window.OpenMagnetDialogAsync();
+
     private readonly NavigationRailController _segmentNav;
     private readonly CardHoverTracker _watchCards = new("WatchArt");
 

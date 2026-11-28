@@ -72,7 +72,7 @@ public sealed class AudioExtractionService
         IProgress<AiSubtitleProgress>? progress,
         CancellationToken token)
     {
-        progress?.Report(new AiSubtitleProgress("正在从视频提取音轨…", 0));
+        progress?.Report(new AiSubtitleProgress("正在提取媒体音轨…", 0));
 
         await Task.Run(async () =>
         {

@@ -62,8 +62,9 @@ public final class Bridge {
             String ext = request.has("ext") && !request.get("ext").isJsonNull() ? request.get("ext").getAsString() : "";
             String jar = text(request, "jar");
             String site = text(request, "key");
+            boolean externalBlocked = request.has("externalBlocked") && request.get("externalBlocked").getAsBoolean();
             SpiderKey spiderKey = new SpiderKey(site, api, jar);
-            Object spider = SPIDERS.computeIfAbsent(spiderKey, key -> create(jarLoader, api, ext, jar));
+            Object spider = SPIDERS.computeIfAbsent(spiderKey, key -> create(jarLoader, api, ext, jar, externalBlocked));
             String raw;
             try {
                 raw = invokeSpider(app, spider, ext, request);
@@ -74,7 +75,7 @@ public final class Bridge {
                         SPIDERS.put(spiderKey, builtinFallback);
                         raw = invokeSpider(app, builtinFallback, ext, request);
                     } else {
-                        throw new IllegalStateException("该站点依赖 Android ARM 原生库（.so），桌面端无法直接执行；请检查仓库资源包或切换其他站点。", ex);
+                        throw new NativeLibraryRequired(ex);
                     }
                 } else {
                     throw ex;
@@ -91,7 +92,7 @@ public final class Bridge {
             }
         } catch (Throwable error) {
             writeError(ipc, requestId, error);
-            error.printStackTrace();
+            System.err.println("[Bridge] Adapter failed: " + error.getClass().getSimpleName());
         }
     }
 
@@ -116,9 +117,7 @@ public final class Bridge {
     private static boolean isNativeLibraryFailure(Throwable error) {
         Throwable cur = error;
         for (int depth = 0; cur != null && depth < 10; depth++) {
-            if (cur instanceof UnsatisfiedLinkError || cur instanceof ExceptionInInitializerError) return true;
-            String msg = cur.getMessage();
-            if (msg != null && (msg.contains(".so") || msg.contains("UnsatisfiedLinkError") || msg.contains("FishNative"))) return true;
+            if (cur instanceof UnsatisfiedLinkError || cur instanceof NativeLibraryRequired) return true;
             cur = cur.getCause();
         }
         return false;
@@ -167,7 +166,8 @@ public final class Bridge {
         JsonObject response = new JsonObject();
         response.addProperty("requestId", id);
         response.addProperty("success", false);
-        response.addProperty("error", error.toString());
+        response.addProperty("errorCode", isNativeLibraryFailure(error) ? "android-native-library" :
+                error instanceof ExternalCodeDisabled ? "external-code-disabled" : "adapter-error");
         synchronized (ipc) {
             ipc.println(response);
             ipc.flush();
@@ -253,11 +253,12 @@ public final class Bridge {
         }
     }
 
-    private static Object create(ExternalJarLoader jarLoader, String api, String ext, String jar) {
+    private static Object create(ExternalJarLoader jarLoader, String api, String ext, String jar, boolean externalBlocked) {
         // Prefer desktop-verified built-in Java spiders first to avoid downloading/DEX-translating
         // multi-MB Android ARM (.so) JARs when a fast native desktop implementation already exists.
         Spider builtin = tryCreateBuiltin(api, ext);
         if (builtin != null) return builtin;
+        if (externalBlocked) throw new ExternalCodeDisabled();
 
         Throwable externalError = null;
         if (jar != null && !jar.isBlank() && api.startsWith("csp_")) {
@@ -265,17 +266,22 @@ public final class Bridge {
                 return jarLoader.createSpider(jar, api);
             } catch (Throwable ex) {
                 externalError = ex;
-                System.err.println("[Bridge] External jar load failed for " + api + " (" + jar + "): " + ex);
             }
         }
 
         if (externalError != null) {
             if (isNativeLibraryFailure(externalError)) {
-                throw new IllegalStateException("该站点依赖 Android ARM 原生库（.so），桌面端无法直接执行；请检查仓库资源包或切换其他站点。", externalError);
+                throw new NativeLibraryRequired(externalError);
             }
             throw new IllegalStateException("External jar and built-in fallback both failed for " + api + ": " + externalError.getMessage(), externalError);
         }
         throw new IllegalStateException("No compatible public spider implementation for " + api);
+    }
+
+    private static final class ExternalCodeDisabled extends RuntimeException { }
+
+    private static final class NativeLibraryRequired extends RuntimeException {
+        NativeLibraryRequired(Throwable cause) { super(cause); }
     }
 
     private static String text(JsonObject object, String name) {

@@ -12,7 +12,7 @@
         <!-- GPU 合成不规则真实日光与玻璃折射光场（无硬边椭圆，五层柔化散射+焦散光带） -->
         <Border x:Name="SolarStageHost" IsHitTestVisible="False" />
 
-        <Grid Margin="24,18,24,18" MaxWidth="1100" RowSpacing="14">
+        <Grid RowSpacing="14">
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="*" />
@@ -20,7 +20,7 @@
             </Grid.RowDefinitions>
 
             <!-- 顶栏：对称清透玻璃胶囊（左侧返回+标题，右侧封面与歌词菜单） -->
-            <Grid ColumnSpacing="12">
+            <Grid x:Name="HeaderChrome" Padding="{StaticResource PlayerTopChromePadding}" ColumnSpacing="12">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*" />
                     <ColumnDefinition Width="Auto" />
@@ -42,18 +42,29 @@
                                 Height="46" MinHeight="46" CornerRadius="23" Padding="16,0,14,0"
                                 VerticalAlignment="Center">
                     <DropDownButton.Flyout>
-                        <MenuFlyout Placement="BottomEdgeAlignedRight"
+                        <MenuFlyout Placement="BottomEdgeAlignedRight" Opening="OnMetadataMenuOpening"
                                     MenuFlyoutPresenterStyle="{StaticResource PlayerGlassMenuFlyoutPresenterStyle}">
                             <MenuFlyoutItem Text="匹配在线封面与歌词" Click="OnMatch" />
                             <MenuFlyoutItem Text="导入封面" Click="OnImportCover" />
-                            <MenuFlyoutItem Text="导入歌词" Click="OnImportLyrics" />
+                            <MenuFlyoutSubItem Text="歌词">
+                                <MenuFlyoutItem Text="导入原词" Click="OnImportLyrics" />
+                                <MenuFlyoutItem Text="导入译词" Click="OnImportTranslation" />
+                                <MenuFlyoutSeparator />
+                                <MenuFlyoutItem x:Name="GenerateLyricsItem" Text="百炼生成滚动歌词…" Click="OnGenerateLyrics" />
+                                <MenuFlyoutItem x:Name="TranslateLyricsItem" Text="百炼翻译歌词…" Click="OnTranslateLyrics" />
+                                <MenuFlyoutItem x:Name="CancelLyricsItem" Text="取消歌词任务" Click="OnCancelLyrics" />
+                                <MenuFlyoutSeparator />
+                                <ToggleMenuFlyoutItem x:Name="BilingualLyricsItem" Text="显示双语歌词" IsChecked="True" Click="OnLyricDisplayChanged" />
+                                <ToggleMenuFlyoutItem x:Name="TranslationPrimaryItem" Text="译文作为主语言" Click="OnLyricDisplayChanged" />
+                            </MenuFlyoutSubItem>
                         </MenuFlyout>
                     </DropDownButton.Flyout>
                 </DropDownButton>
             </Grid>
 
             <!-- 主舞台：左侧光学玻璃封面与曲目信息，右侧逐句歌词与光学高光 -->
-            <Grid Grid.Row="1" x:Name="TrackLayout" ColumnSpacing="44" RowSpacing="16">
+            <Grid Grid.Row="1" x:Name="TrackLayout" Margin="24,0" MaxWidth="{StaticResource PlayerDockMaxWidth}"
+                  ColumnSpacing="44" RowSpacing="16">
                 <Grid.RowDefinitions><RowDefinition Height="*" /><RowDefinition Height="0" /></Grid.RowDefinitions>
                 <Grid.ColumnDefinitions><ColumnDefinition Width="2*" /><ColumnDefinition Width="3*" /></Grid.ColumnDefinitions>
 
@@ -103,9 +114,14 @@
                                 <DataTemplate>
                                     <Border x:Name="LyricGlassPlate" CornerRadius="12" Padding="16,10" Margin="0,0,22,0"
                                             Background="Transparent" BorderBrush="Transparent" BorderThickness="1">
-                                        <TextBlock Text="{Binding Text}" TextWrapping="Wrap" FontSize="{StaticResource MusicLyricFontSize}"
-                                                   LineHeight="36" FontFamily="{StaticResource DisplayFontFamily}" FontWeight="SemiBold"
-                                                   Foreground="#FFF8F7F2" />
+                                        <StackPanel Spacing="3">
+                                            <TextBlock Text="{Binding Primary}" TextWrapping="Wrap" FontSize="{StaticResource MusicLyricFontSize}"
+                                                       LineHeight="36" FontFamily="{StaticResource DisplayFontFamily}" FontWeight="SemiBold"
+                                                       Foreground="#FFF8F7F2" />
+                                            <TextBlock Text="{Binding Secondary}" TextWrapping="Wrap" FontSize="16"
+                                                       LineHeight="23" FontFamily="{StaticResource BodyFontFamily}" Foreground="#DAF8F7F2"
+                                                       Visibility="{Binding Secondary, Converter={StaticResource MusicTextVisibility}}" />
+                                        </StackPanel>
                                     </Border>
                                 </DataTemplate>
                             </ListView.ItemTemplate>
@@ -118,6 +134,7 @@
 
             <!-- 底部清透光学玻璃控制坞：进度行严格同轴居中，控制行三栏对称平衡 -->
             <controls:GlassSurface x:Name="TransportGlass" Grid.Row="2" Style="{StaticResource PlayerDockGlassStyle}"
+                                   Margin="{StaticResource PlayerBottomChromeMargin}" MaxWidth="{StaticResource PlayerDockMaxWidth}"
                                    CornerRadius="20" Padding="18,10,18,12">
                 <Grid RowSpacing="8">
                     <Grid.RowDefinitions>
@@ -151,6 +168,14 @@
                             <ColumnDefinition Width="*" />
                         </Grid.ColumnDefinitions>
 
+                        <DropDownButton x:Name="AudioQualityButton" Content="音质" AutomationProperties.Name="音质"
+                                        Style="{StaticResource PlayerDropDownButtonStyle}" HorizontalAlignment="Left"
+                                        VerticalAlignment="Center" Visibility="Collapsed">
+                            <DropDownButton.Flyout>
+                                <MenuFlyout x:Name="AudioQualityFlyout" Opening="OnAudioQualityOpening" Placement="TopEdgeAlignedLeft"
+                                            MenuFlyoutPresenterStyle="{StaticResource PlayerGlassMenuFlyoutPresenterStyle}" />
+                            </DropDownButton.Flyout>
+                        </DropDownButton>
                         <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Center"
                                     VerticalAlignment="Center" Spacing="10">
                             <Button Style="{StaticResource PlayerIconButtonStyle}" Width="40" Height="40" MinWidth="40" MinHeight="40"

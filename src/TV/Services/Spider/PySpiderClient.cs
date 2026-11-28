@@ -20,10 +20,15 @@ public sealed class PySpiderClient
     private static readonly TimeSpan ScriptCacheTtl = TimeSpan.FromHours(6);
     private static readonly Encoding Utf8WithoutBom = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
     private readonly SourceHttpClient _http;
+    private readonly ExternalSpiderPolicy _externalCode;
     private readonly Lazy<Task<(string Exe, string? Prefix)?>> _python = new(() => Task.Run(FindPython));
     private readonly Lazy<string> _runtimeDirectory = new(EnsureRuntimeFiles);
 
-    public PySpiderClient(SourceHttpClient http) => _http = http;
+    public PySpiderClient(SourceHttpClient http, DatabaseService? database = null)
+    {
+        _http = http;
+        _externalCode = new ExternalSpiderPolicy(database ?? new DatabaseService());
+    }
 
     public static bool Supports(SourceSite site)
     {
@@ -88,6 +93,8 @@ public sealed class PySpiderClient
     private async Task<string> InvokeAsync(SourceSite site, string method, string[] args, CancellationToken token)
     {
         token.ThrowIfCancellationRequested();
+        if (!await _externalCode.IsEnabledAsync(token).ConfigureAwait(false))
+            throw new NotSupportedException("此站点需要受信任的外部 Python 适配器。可在「设置 → 片源」查看外部适配器选项。");
         var python = await _python.Value.WaitAsync(token).ConfigureAwait(false) ??
             throw new NotSupportedException("该站点需要 Python 3。请使用带 Python 运行时的流光影院安装包，或指定本机 Python 解释器。");
         var runtimeDir = _runtimeDirectory.Value;
@@ -171,10 +178,9 @@ public sealed class PySpiderClient
         var rawTarget = site.Api.Trim().Split('?', 2)[0].EndsWith(".py", StringComparison.OrdinalIgnoreCase)
             ? site.Api.Trim()
             : site.Ext.ValueKind == JsonValueKind.String ? (site.Ext.GetString()?.Trim() ?? "") : "";
-        if (rawTarget.StartsWith("file://", StringComparison.OrdinalIgnoreCase))
-            return new Uri(rawTarget).LocalPath;
-        if (!Uri.TryCreate(rawTarget, UriKind.Absolute, out var uri) || uri.Scheme is not ("http" or "https"))
-            throw new InvalidDataException($"不支持的 Python 爬虫地址：{rawTarget}");
+        if (!ExternalSpiderPolicy.TryExecutableUri(rawTarget, out var uri))
+            throw new InvalidDataException("Python 适配器需要 HTTPS 地址或本地文件。");
+        if (uri.IsFile) return uri.LocalPath;
 
         var dir = Path.Combine(AppPaths.Root, "spider", "py-origin-cache");
         Directory.CreateDirectory(dir);
@@ -187,8 +193,8 @@ public sealed class PySpiderClient
         try
         {
             // Python runs with the app user's permissions. Download executable scripts from their configured origin.
-            var payload = await _http.GetBytesAsync(uri.AbsoluteUri, headers, maxBytes: 4 * 1024 * 1024,
-                cancellationToken: token, scopeRedirectHeaders: true).ConfigureAwait(false);
+            var payload = await _http.GetTrustedBytesAsync(uri, headers, 4 * 1024 * 1024,
+                destination => MediaRequestHeaders.SameOrigin(uri, destination), token).ConfigureAwait(false);
             var content = SourceHttpClient.DecodeText(payload.Content);
             if (string.IsNullOrWhiteSpace(content) || content.TrimStart().StartsWith('<'))
                 throw new InvalidDataException("Python 爬虫地址返回了网页内容。");

@@ -2,7 +2,7 @@
       xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
       xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
       xmlns:controls="using:TV.Controls"
-      Background="Transparent" Loaded="OnLoaded">
+      Background="Transparent" Loaded="OnLoaded" NavigationCacheMode="Enabled">
     <Page.Resources>
         <!-- 设置页尺寸：左侧磨砂分区导轨、表单标签列、内容最大宽度 -->
         <x:Double x:Key="SettingsNavWidth">188</x:Double>
@@ -11,7 +11,6 @@
         <x:Double x:Key="SettingsContentMaxWidth">820</x:Double>
         <x:Double x:Key="SettingsRowMinHeight">52</x:Double>
         <Thickness x:Key="SettingsScrollPadding">4,0,20,24</Thickness>
-        <!-- 左侧分区导航样式 SettingsNavSectionStyle 统一收拢于 Styles/Navigation.xaml -->
     </Page.Resources>
 
     <Grid Padding="{StaticResource PagePaddingWide}" RowSpacing="20">
@@ -39,91 +38,77 @@
 
             <controls:GlassSurface Width="{StaticResource SettingsNavWidth}"
                                    CornerRadius="{StaticResource RadiusPanel}" Padding="8,10" VerticalAlignment="Top">
-                <ScrollViewer HorizontalScrollMode="Disabled" HorizontalScrollBarVisibility="Disabled"
-                              VerticalScrollMode="Enabled" VerticalScrollBarVisibility="Auto">
                 <Grid x:Name="SettingsNavHost">
-                    <StackPanel Spacing="2">
+                    <ListView x:Name="SettingsSections" Padding="0" BorderThickness="0" Background="Transparent"
+                              AutomationProperties.Name="设置分区" SelectionMode="Single"
+                              ScrollViewer.HorizontalScrollMode="Disabled" ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                              ScrollViewer.VerticalScrollBarVisibility="Auto"
+                              ItemContainerStyle="{StaticResource VerticalNavItemStyle}">
                         <!-- 片源 -->
-                        <Expander x:Name="SourceSection" Style="{StaticResource SettingsNavSectionStyle}"
+                        <ListViewItem x:Name="SourceSection"
                                   AutomationProperties.Name="片源" ToolTipService.ToolTip="片源">
-                            <Expander.Header>
-                                <StackPanel Orientation="Horizontal" Spacing="{StaticResource SpaceSmall}">
-                                    <controls:LineIcon PathData="{StaticResource IconGlobe}" IconSize="17" />
-                                    <TextBlock Text="片源" Style="{StaticResource NavItemTextStyle}" VerticalAlignment="Center" />
-                                </StackPanel>
-                            </Expander.Header>
-                        </Expander>
+                            <StackPanel Orientation="Horizontal" Spacing="{StaticResource SpaceSmall}">
+                                <controls:LineIcon PathData="{StaticResource IconGlobe}" IconSize="17" />
+                                <TextBlock Text="片源" Style="{StaticResource NavItemTextStyle}" VerticalAlignment="Center" />
+                            </StackPanel>
+                        </ListViewItem>
                         <!-- 播放 -->
-                        <Expander x:Name="PlaybackSection" Style="{StaticResource SettingsNavSectionStyle}"
+                        <ListViewItem x:Name="PlaybackSection"
                                   AutomationProperties.Name="播放" ToolTipService.ToolTip="播放">
-                            <Expander.Header>
-                                <StackPanel Orientation="Horizontal" Spacing="{StaticResource SpaceSmall}">
-                                    <controls:LineIcon PathData="{StaticResource IconPlayOutline}" IconSize="17" />
-                                    <TextBlock Text="播放" Style="{StaticResource NavItemTextStyle}" VerticalAlignment="Center" />
-                                </StackPanel>
-                            </Expander.Header>
-                        </Expander>
+                            <StackPanel Orientation="Horizontal" Spacing="{StaticResource SpaceSmall}">
+                                <controls:LineIcon PathData="{StaticResource IconPlayOutline}" IconSize="17" />
+                                <TextBlock Text="播放" Style="{StaticResource NavItemTextStyle}" VerticalAlignment="Center" />
+                            </StackPanel>
+                        </ListViewItem>
                         <!-- 弹幕与 AI -->
-                        <Expander x:Name="AiSection" Style="{StaticResource SettingsNavSectionStyle}"
+                        <ListViewItem x:Name="AiSection"
                                   AutomationProperties.Name="弹幕与 AI" ToolTipService.ToolTip="AI 字幕、翻译与弹弹play 弹幕">
-                            <Expander.Header>
-                                <StackPanel Orientation="Horizontal" Spacing="{StaticResource SpaceSmall}">
-                                    <controls:LineIcon PathData="{StaticResource IconSpark}" IconSize="17" />
-                                    <TextBlock Text="弹幕与 AI" Style="{StaticResource NavItemTextStyle}" VerticalAlignment="Center" />
-                                </StackPanel>
-                            </Expander.Header>
-                        </Expander>
+                            <StackPanel Orientation="Horizontal" Spacing="{StaticResource SpaceSmall}">
+                                <controls:LineIcon PathData="{StaticResource IconSpark}" IconSize="17" />
+                                <TextBlock Text="弹幕与 AI" Style="{StaticResource NavItemTextStyle}" VerticalAlignment="Center" />
+                            </StackPanel>
+                        </ListViewItem>
                         <!-- 网盘 -->
-                        <Expander x:Name="CloudSection" Style="{StaticResource SettingsNavSectionStyle}"
+                        <ListViewItem x:Name="CloudSection"
                                   AutomationProperties.Name="网盘" ToolTipService.ToolTip="网盘">
-                            <Expander.Header>
-                                <StackPanel Orientation="Horizontal" Spacing="{StaticResource SpaceSmall}">
-                                    <controls:LineIcon PathData="{StaticResource IconCloud}" IconSize="17" />
-                                    <TextBlock Text="网盘" Style="{StaticResource NavItemTextStyle}" VerticalAlignment="Center" />
-                                </StackPanel>
-                            </Expander.Header>
-                        </Expander>
+                            <StackPanel Orientation="Horizontal" Spacing="{StaticResource SpaceSmall}">
+                                <controls:LineIcon PathData="{StaticResource IconCloud}" IconSize="17" />
+                                <TextBlock Text="网盘" Style="{StaticResource NavItemTextStyle}" VerticalAlignment="Center" />
+                            </StackPanel>
+                        </ListViewItem>
                         <!-- 网络 -->
-                        <Expander x:Name="NetworkSection" Style="{StaticResource SettingsNavSectionStyle}"
+                        <ListViewItem x:Name="NetworkSection"
                                   AutomationProperties.Name="网络" ToolTipService.ToolTip="网络">
-                            <Expander.Header>
-                                <StackPanel Orientation="Horizontal" Spacing="{StaticResource SpaceSmall}">
-                                    <controls:LineIcon PathData="{StaticResource IconNetwork}" IconSize="17" />
-                                    <TextBlock Text="网络" Style="{StaticResource NavItemTextStyle}" VerticalAlignment="Center" />
-                                </StackPanel>
-                            </Expander.Header>
-                        </Expander>
+                            <StackPanel Orientation="Horizontal" Spacing="{StaticResource SpaceSmall}">
+                                <controls:LineIcon PathData="{StaticResource IconNetwork}" IconSize="17" />
+                                <TextBlock Text="网络" Style="{StaticResource NavItemTextStyle}" VerticalAlignment="Center" />
+                            </StackPanel>
+                        </ListViewItem>
                         <!-- 外观与内容 -->
-                        <Expander x:Name="AppearanceSection" Style="{StaticResource SettingsNavSectionStyle}"
+                        <ListViewItem x:Name="AppearanceSection"
                                   AutomationProperties.Name="外观与内容" ToolTipService.ToolTip="外观与内容">
-                            <Expander.Header>
-                                <StackPanel Orientation="Horizontal" Spacing="{StaticResource SpaceSmall}">
-                                    <controls:LineIcon PathData="{StaticResource IconPalette}" IconSize="17" />
-                                    <TextBlock Text="外观与内容" Style="{StaticResource NavItemTextStyle}" VerticalAlignment="Center" />
-                                </StackPanel>
-                            </Expander.Header>
-                        </Expander>
+                            <StackPanel Orientation="Horizontal" Spacing="{StaticResource SpaceSmall}">
+                                <controls:LineIcon PathData="{StaticResource IconPalette}" IconSize="17" />
+                                <TextBlock Text="外观与内容" Style="{StaticResource NavItemTextStyle}" VerticalAlignment="Center" />
+                            </StackPanel>
+                        </ListViewItem>
                         <!-- 存储 -->
-                        <Expander x:Name="StorageSection" Style="{StaticResource SettingsNavSectionStyle}"
+                        <ListViewItem x:Name="StorageSection"
                                   AutomationProperties.Name="存储" ToolTipService.ToolTip="存储">
-                            <Expander.Header>
-                                <StackPanel Orientation="Horizontal" Spacing="{StaticResource SpaceSmall}">
-                                    <controls:LineIcon PathData="{StaticResource IconStorage}" IconSize="17" />
-                                    <TextBlock Text="存储" Style="{StaticResource NavItemTextStyle}" VerticalAlignment="Center" />
-                                </StackPanel>
-                            </Expander.Header>
-                        </Expander>
+                            <StackPanel Orientation="Horizontal" Spacing="{StaticResource SpaceSmall}">
+                                <controls:LineIcon PathData="{StaticResource IconStorage}" IconSize="17" />
+                                <TextBlock Text="存储" Style="{StaticResource NavItemTextStyle}" VerticalAlignment="Center" />
+                            </StackPanel>
+                        </ListViewItem>
                         <!-- 关于 -->
-                        <Expander x:Name="AboutSection" Style="{StaticResource SettingsNavSectionStyle}"
+                        <ListViewItem x:Name="AboutSection"
                                   AutomationProperties.Name="关于" ToolTipService.ToolTip="关于">
-                            <Expander.Header>
-                                <StackPanel Orientation="Horizontal" Spacing="{StaticResource SpaceSmall}">
-                                    <controls:LineIcon PathData="{StaticResource IconInfo}" IconSize="17" />
-                                    <TextBlock Text="关于" Style="{StaticResource NavItemTextStyle}" VerticalAlignment="Center" />
-                                </StackPanel>
-                            </Expander.Header>
-                        </Expander>
-                    </StackPanel>
+                            <StackPanel Orientation="Horizontal" Spacing="{StaticResource SpaceSmall}">
+                                <controls:LineIcon PathData="{StaticResource IconInfo}" IconSize="17" />
+                                <TextBlock Text="关于" Style="{StaticResource NavItemTextStyle}" VerticalAlignment="Center" />
+                            </StackPanel>
+                        </ListViewItem>
+                    </ListView>
 
                     <!-- 物理弹性朱砂分区滑轨（内嵌 5px 避开圆角描边） -->
                     <Border x:Name="SettingsNavIndicator"
@@ -132,7 +117,6 @@
                             HorizontalAlignment="Left" VerticalAlignment="Top"
                             Margin="5,0,0,0" Opacity="0" IsHitTestVisible="False" />
                 </Grid>
-                </ScrollViewer>
             </controls:GlassSurface>
 
             <Grid Grid.Column="1" RowSpacing="{StaticResource SpaceSmall}">
@@ -340,6 +324,20 @@
                                     <Border Height="1" Background="{ThemeResource DividerBrush}" />
                                     <Grid MinHeight="{StaticResource SettingsRowMinHeight}" ColumnSpacing="{StaticResource SpaceLarge}">
                                         <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel VerticalAlignment="Center" Spacing="2">
+                                            <TextBlock Text="允许外部 Java 和 Python 适配器" Style="{StaticResource LabelText}" TextWrapping="Wrap" />
+                                            <TextBlock Text="仅对信任的仓库启用。外部适配器会以当前 Windows 用户的权限运行。" Style="{StaticResource MetaText}" TextWrapping="Wrap" />
+                                        </StackPanel>
+                                        <ToggleSwitch Grid.Column="1" IsOn="{Binding AllowExternalExecutables, Mode=TwoWay}"
+                                                      AutomationProperties.Name="允许外部 Java 和 Python 适配器"
+                                                      OnContent="" OffContent="" MinWidth="0" HorizontalAlignment="Right" VerticalAlignment="Center" />
+                                    </Grid>
+                                    <Border Height="1" Background="{ThemeResource DividerBrush}" />
+                                    <Grid MinHeight="{StaticResource SettingsRowMinHeight}" ColumnSpacing="{StaticResource SpaceLarge}">
+                                        <Grid.ColumnDefinitions>
                                             <ColumnDefinition Width="Auto" />
                                             <ColumnDefinition Width="*" />
                                         </Grid.ColumnDefinitions>
@@ -381,6 +379,19 @@
                                         <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
                                         <TextBlock Text="弱网自动画质" Style="{StaticResource LabelText}" VerticalAlignment="Center" />
                                         <ToggleSwitch Grid.Column="1" IsOn="{Binding AdaptiveQuality, Mode=TwoWay}" OnContent="" OffContent="" MinWidth="0" HorizontalAlignment="Right" VerticalAlignment="Center" />
+                                    </Grid>
+                                    <Border Height="1" Background="{ThemeResource DividerBrush}" />
+                                    <Grid MinHeight="{StaticResource SettingsRowMinHeight}" ColumnSpacing="{StaticResource SpaceLarge}">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel VerticalAlignment="Center" Spacing="2">
+                                            <TextBlock Text="M3U8 净化" Style="{StaticResource LabelText}" />
+                                            <TextBlock Text="跳过点播列表中明确标记的插播片段" Style="{StaticResource MetaText}" TextWrapping="Wrap" />
+                                        </StackPanel>
+                                        <ToggleSwitch Grid.Column="1" IsOn="{Binding CleanHls, Mode=TwoWay}" AutomationProperties.Name="M3U8 净化"
+                                                      OnContent="" OffContent="" MinWidth="0" HorizontalAlignment="Right" VerticalAlignment="Center" />
                                     </Grid>
                                     <Border Height="1" Background="{ThemeResource DividerBrush}" />
                                     <Grid MinHeight="{StaticResource SettingsRowMinHeight}" ColumnSpacing="{StaticResource SpaceLarge}">

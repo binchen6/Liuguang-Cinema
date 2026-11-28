@@ -16,6 +16,7 @@ public sealed class HttpSpiderProvider(SourceHttpClient http) : INativePlaybackP
     {
         if (site.Type == 4 && TryValidHttpUrl(site.Api, out var type4Url))
             return type4Url;
+        if (ResolveDesktopEndpoint(site) is { } desktop) return desktop.AbsoluteUri;
         if (site.Type == 3 && (site.Api.Equals("csp_T4", StringComparison.OrdinalIgnoreCase) ||
             site.Api.Equals("csp_T4Guard", StringComparison.OrdinalIgnoreCase)))
         {
@@ -33,6 +34,11 @@ public sealed class HttpSpiderProvider(SourceHttpClient http) : INativePlaybackP
         }
         return null;
     }
+
+    private static Uri? ResolveDesktopEndpoint(SourceSite site) => site.Type == 3 &&
+        site.Api.StartsWith("csp_", StringComparison.OrdinalIgnoreCase) &&
+        Uri.TryCreate(site.DesktopApi, UriKind.Absolute, out var uri) && MediaRequestHeaders.IsHttpAddress(uri) &&
+        (uri.Scheme == Uri.UriSchemeHttps || uri.IsLoopback) && uri.Fragment.Length == 0 ? uri : null;
 
     private static bool TryValidHttpUrl(string? candidate, out string url)
     {
@@ -67,7 +73,8 @@ public sealed class HttpSpiderProvider(SourceHttpClient http) : INativePlaybackP
             MediaRequestHeaders.IsHttpAddress(target) && ResolveBaseUrl(site) is { } httpEndpoint)
         {
             var origin = new Uri(httpEndpoint);
-            var headers = NativeSiteToolkit.CreateBrowserHeaders(origin, MediaRequestHeaders.ForTarget(site.GetHeaders(), origin, target));
+            var headers = NativeSiteToolkit.CreateBrowserHeaders(origin, ResolveDesktopEndpoint(site) is null
+                ? MediaRequestHeaders.ForTarget(site.GetHeaders(), origin, target) : null);
             return new SpiderPlayResult(target.AbsoluteUri, headers, 0, 0) { ReplaceHeaders = true };
         }
         var raw = await RequestAsync(site, token, [("play", id), ("flag", flag)]).ConfigureAwait(false);
@@ -108,6 +115,15 @@ public sealed class HttpSpiderProvider(SourceHttpClient http) : INativePlaybackP
         }
         var query = string.Join('&', parametersWithExt.Select(pair => pair.Key + "=" + Uri.EscapeDataString(pair.Value)));
         uri.Query = string.IsNullOrEmpty(uri.Query) ? query : uri.Query.TrimStart('?') + "&" + query;
+        if (ResolveDesktopEndpoint(site) is { } desktop)
+            return GetDesktopResponseAsync(uri.Uri, desktop, token);
         return http.GetStringAsync(uri.Uri.AbsoluteUri, site.GetHeaders(), token);
+    }
+
+    private async Task<string> GetDesktopResponseAsync(Uri address, Uri endpoint, CancellationToken token)
+    {
+        var payload = await http.GetTrustedBytesAsync(address, null, 4 * 1024 * 1024,
+            destination => MediaRequestHeaders.SameOrigin(endpoint, destination), token).ConfigureAwait(false);
+        return SourceHttpClient.DecodeText(payload.Content);
     }
 }

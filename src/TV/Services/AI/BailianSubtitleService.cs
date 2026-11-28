@@ -38,6 +38,14 @@ public sealed partial class BailianSubtitleService : IDisposable
         _ownsHttp = true;
     }
 
+    internal BailianSubtitleService(DatabaseService database, HttpMessageHandler handler)
+    {
+        _database = database;
+        _extractor = new AudioExtractionService();
+        _http = new HttpClient(handler) { Timeout = TimeSpan.FromMinutes(2) };
+        _ownsHttp = true;
+    }
+
     public async Task<AiSubtitleConfig> GetConfigAsync(CancellationToken token = default)
     {
         var apiKey = SecretStore.Unprotect(await _database.GetSettingAsync(AiSubtitleModels.SettingApiKey, token).ConfigureAwait(false));
@@ -104,8 +112,27 @@ public sealed partial class BailianSubtitleService : IDisposable
         TimeSpan? videoDuration = null)
     {
         var config = await GetConfigAsync(token).ConfigureAwait(false);
+        var cues = await TranscribeAudioAsync(mediaUrl, headers, config, videoDuration, progress, token).ConfigureAwait(false);
+        if (translateAfter)
+            cues = await TranslateCuesAsync(cues, config, progress, token).ConfigureAwait(false);
+
+        Directory.CreateDirectory(AudioExtractionService.CacheDirectory);
+        var safeHash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes($"{mediaUrl}|{config.AsrModel}|{(translateAfter ? config.TargetLanguage : "orig")}")))[..16].ToLowerInvariant();
+        var suffix = translateAfter ? $".{SanitizeToken(config.TargetLanguage)}" : string.Empty;
+        var outPath = Path.Combine(AudioExtractionService.CacheDirectory, $"ai-{safeHash}{suffix}.srt");
+        var srtContent = SubtitleFileCodec.WriteSrt(cues, bilingual: translateAfter && config.Bilingual);
+        await WriteAtomicTextAsync(outPath, srtContent, token).ConfigureAwait(false);
+
+        progress?.Report(new AiSubtitleProgress($"AI 字幕已生成（共 {cues.Count} 条）", 100));
+        return new AiSubtitleResult(outPath, cues.Count, config.AsrModel, translateAfter);
+    }
+
+    internal async Task<List<SubtitleCue>> TranscribeAudioAsync(
+        string mediaUrl, IReadOnlyDictionary<string, string>? headers, AiSubtitleConfig config,
+        TimeSpan? duration, IProgress<AiSubtitleProgress>? progress, CancellationToken token)
+    {
         if (!config.HasApiKey)
-            throw new InvalidOperationException("尚未配置阿里云百炼 API Key，请前往“设置 → 弹幕与 AI”获取并填入密钥。");
+            throw new InvalidOperationException("请在「设置 → 弹幕与 AI」配置阿里云百炼 API Key。");
 
         string? extractedAudio = null;
         try
@@ -120,28 +147,12 @@ public sealed partial class BailianSubtitleService : IDisposable
 
             var transcriptionUrl = await PollTranscriptionTaskAsync(taskId, config, progress, token).ConfigureAwait(false);
 
-            progress?.Report(new AiSubtitleProgress("正在对齐原视频时间轴并生成字幕文件…", 92));
+            progress?.Report(new AiSubtitleProgress("正在对齐识别结果的时间轴…", 92));
             var rawCues = await DownloadAndParseTranscriptionAsync(transcriptionUrl, token).ConfigureAwait(false);
-            var cues = SubtitleFileCodec.SplitAndAlignCues(rawCues, videoDuration);
+            var cues = SubtitleFileCodec.SplitAndAlignCues(rawCues, duration);
             if (cues.Count == 0)
-                throw new InvalidDataException("未能从该视频音轨中识别出有效语音内容。");
-
-            var isTranslated = false;
-            if (translateAfter)
-            {
-                cues = await TranslateCuesAsync(cues, config, progress, token).ConfigureAwait(false);
-                isTranslated = true;
-            }
-
-            Directory.CreateDirectory(AudioExtractionService.CacheDirectory);
-            var safeHash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes($"{mediaUrl}|{config.AsrModel}|{(isTranslated ? config.TargetLanguage : "orig")}")))[..16].ToLowerInvariant();
-            var suffix = isTranslated ? $".{SanitizeToken(config.TargetLanguage)}" : string.Empty;
-            var outPath = Path.Combine(AudioExtractionService.CacheDirectory, $"ai-{safeHash}{suffix}.srt");
-            var srtContent = SubtitleFileCodec.WriteSrt(cues, bilingual: isTranslated && config.Bilingual);
-            await WriteAtomicTextAsync(outPath, srtContent, token).ConfigureAwait(false);
-
-            progress?.Report(new AiSubtitleProgress($"AI 字幕已生成（共 {cues.Count} 条）", 100));
-            return new AiSubtitleResult(outPath, cues.Count, config.AsrModel, isTranslated);
+                throw new InvalidDataException("未能从该音轨中识别出有效内容。");
+            return cues;
         }
         finally
         {

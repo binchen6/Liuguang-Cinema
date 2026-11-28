@@ -15,23 +15,28 @@ public sealed class SpiderRuntime : IDisposable
     private readonly object _sync = new();
     private readonly SemaphoreSlim _writeLock = new(1, 1);
     private readonly ConcurrentDictionary<long, PendingRequest> _pending = new();
-    private readonly DatabaseService _database;
+    private readonly ExternalSpiderPolicy _externalCode;
     private Process? _process;
     private long _requestId;
     private bool _disposed;
     private static string? _javaPath;
 
-    public SpiderRuntime(DatabaseService database) => _database = database;
+    public SpiderRuntime(DatabaseService database) => _externalCode = new ExternalSpiderPolicy(database);
 
     public async Task<JsonElement> SendAsync(SourceSite site, string action, Dictionary<string, object?> parameters, CancellationToken cancellationToken = default)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
+        var jar = site.EffectiveJar;
+        var externalAllowed = jar.Length > 0 &&
+            ExternalSpiderPolicy.TryExecutableUri(jar.Split(';', 2)[0].Trim(), out _) &&
+            await _externalCode.IsEnabledAsync(cancellationToken).ConfigureAwait(false);
         var request = new Dictionary<string, object?>(parameters, StringComparer.OrdinalIgnoreCase)
         {
             ["api"] = site.Api,
             ["key"] = site.Key,
             ["action"] = action,
-            ["jar"] = site.EffectiveJar,
+            ["jar"] = externalAllowed ? jar : string.Empty,
+            ["externalBlocked"] = !externalAllowed && jar.Length > 0,
             ["ext"] = site.Ext.ValueKind switch
             {
                 JsonValueKind.String => site.Ext.GetString() ?? string.Empty,
@@ -39,9 +44,6 @@ public sealed class SpiderRuntime : IDisposable
                 _ => string.Empty
             }
         };
-        request["ext"] = await ApplyCloudCredentialsAsync(site, request["ext"] as string ?? string.Empty).ConfigureAwait(false);
-        if (!string.IsNullOrWhiteSpace(site.EffectiveJar))
-            await SyncExternalSpiderCloudFilesAsync().ConfigureAwait(false);
         var id = Interlocked.Increment(ref _requestId);
         request["requestId"] = id;
         var completion = new TaskCompletionSource<JsonElement>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -105,10 +107,14 @@ public sealed class SpiderRuntime : IDisposable
                         pending.Completion.TrySetResult(root.TryGetProperty("data", out var data) ? data.Clone() : default);
                     else
                     {
-                        var detail = root.TryGetProperty("error", out var errEl) ? errEl.GetString() : null;
-                        if (!string.IsNullOrWhiteSpace(detail))
-                            Diagnostics.Log($"Spider error (req {id}): {detail}");
-                        pending.Completion.TrySetException(new InvalidOperationException("站点适配器请求失败。"));
+                        var kind = root.TryGetProperty("errorCode", out var code) ? code.GetString() : null;
+                        Diagnostics.Log($"Spider error (req {id}): {kind ?? "adapter-error"}");
+                        pending.Completion.TrySetException(kind switch
+                        {
+                            "android-native-library" => new NotSupportedException("此站点需要 Android 原生库。可使用站点提供的桌面接口或仓库适配包。"),
+                            "external-code-disabled" => new NotSupportedException("此站点需要受信任的外部 Java 适配器。可在「设置 → 片源」查看外部适配器选项。"),
+                            _ => new InvalidOperationException("站点适配器请求失败。")
+                        });
                     }
                 }
             }
@@ -121,61 +127,6 @@ public sealed class SpiderRuntime : IDisposable
                 if (ReferenceEquals(pair.Value.Process, process) && _pending.TryRemove(pair.Key, out var pending))
                     pending.Completion.TrySetException(new InvalidOperationException("爬虫进程连接中断，请重试。", ex));
         }
-    }
-
-    private async Task<string> ApplyCloudCredentialsAsync(SourceSite site, string currentExt)
-    {
-        var api = site.Api;
-        if (api.Contains("Quark", StringComparison.OrdinalIgnoreCase))
-        {
-            var cookie = SecretStore.Unprotect(await _database.GetSettingAsync("cloud.quarkCookie"));
-            return cookie.Length > 0 ? JsonSerializer.Serialize(new { cookie }) : currentExt;
-        }
-        if (api.Equals("csp_UC", StringComparison.OrdinalIgnoreCase))
-        {
-            var cookie = SecretStore.Unprotect(await _database.GetSettingAsync("cloud.ucCookie"));
-            return cookie.Length > 0 ? JsonSerializer.Serialize(new { cookie }) : currentExt;
-        }
-        if (api.Contains("Ali", StringComparison.OrdinalIgnoreCase) || api.Contains("Wogg", StringComparison.OrdinalIgnoreCase))
-        {
-            var token = SecretStore.Unprotect(await _database.GetSettingAsync("cloud.aliToken"));
-            return token.Length > 0 ? JsonSerializer.Serialize(new { token }) : currentExt;
-        }
-        if (api.Contains("Cloud", StringComparison.OrdinalIgnoreCase))
-        {
-            var token = SecretStore.Unprotect(await _database.GetSettingAsync("cloud.aliToken"));
-            var cookie = SecretStore.Unprotect(await _database.GetSettingAsync("cloud.quarkCookie"));
-            return JsonSerializer.Serialize(new { token, cookie });
-        }
-        return currentExt;
-    }
-
-    private long _lastCloudSyncTick;
-
-    private async Task SyncExternalSpiderCloudFilesAsync()
-    {
-        var now = Environment.TickCount64;
-        if (now - Volatile.Read(ref _lastCloudSyncTick) < 30_000) return;
-        Volatile.Write(ref _lastCloudSyncTick, now);
-        try
-        {
-            var quark = SecretStore.Unprotect(await _database.GetSettingAsync("cloud.quarkCookie").ConfigureAwait(false));
-            var uc = SecretStore.Unprotect(await _database.GetSettingAsync("cloud.ucCookie").ConfigureAwait(false));
-            var ali = SecretStore.Unprotect(await _database.GetSettingAsync("cloud.aliToken").ConfigureAwait(false));
-            var dirs = new[]
-            {
-                Path.Combine(AppPaths.Root, "spider", "TV"),
-                Path.Combine(AppPaths.Root, "spider", "sdcard", "TV")
-            };
-            foreach (var dir in dirs)
-            {
-                Directory.CreateDirectory(dir);
-                if (quark.Length > 0) await File.WriteAllTextAsync(Path.Combine(dir, ".quarkcookie"), quark, Encoding.UTF8).ConfigureAwait(false);
-                if (uc.Length > 0) await File.WriteAllTextAsync(Path.Combine(dir, ".uccookie"), uc, Encoding.UTF8).ConfigureAwait(false);
-                if (ali.Length > 0) await File.WriteAllTextAsync(Path.Combine(dir, ".alitoken"), ali, Encoding.UTF8).ConfigureAwait(false);
-            }
-        }
-        catch { }
     }
 
     private void EnsureStarted()
