@@ -180,7 +180,7 @@ public sealed partial class PlayerPage : Page
             }
             return null;
         }
-        _videoSwapChainPanel = FindSwapChain(VideoView);
+        _videoSwapChainPanel = VideoView is { } view ? FindSwapChain(view) : null;
         return _videoSwapChainPanel;
     }
 
@@ -273,6 +273,47 @@ public sealed partial class PlayerPage : Page
         _danmakuSaveTimer.Tick += async (_, _) => await PersistDanmakuPreferencesAsync();
     }
 
+    private LibVLCSharp.Platforms.Windows.VideoView? VideoView { get; set; }
+    private MusicPlayerSurface? _musicSurface;
+
+    private void OnVideoOutputRequested(object? sender, EventArgs e)
+    {
+        if (VideoView is not null) return;
+        var view = new LibVLCSharp.Platforms.Windows.VideoView();
+        VideoView = view;
+        view.Initialized += OnVideoViewInitialized;
+        VideoStageHost.Children.Insert(0, view);
+    }
+
+    private void OnMusicPresentationRequested(object? sender, PlaybackRequest? request)
+    {
+        SyncMusicStage();
+        if (request is null) _musicSurface?.ClearTrack();
+        else _musicSurface?.LoadTrack(request);
+    }
+
+    private void SyncMusicStage()
+    {
+        var music = ViewModel.IsMusicMode;
+        if (music && _musicSurface is null)
+        {
+            _musicSurface = new MusicPlayerSurface(ViewModel);
+            MusicStage.Content = _musicSurface;
+        }
+        if (!music) _musicSurface?.ClearTrack();
+        MusicStage.Visibility = music ? Visibility.Visible : Visibility.Collapsed;
+        VideoStageHost.Visibility = music ? Visibility.Collapsed : Visibility.Visible;
+        ControlsLayer.Visibility = music ? Visibility.Collapsed : Visibility.Visible;
+        if (music)
+        {
+            _hideTimer.Stop();
+            UpdateCenterPlayVisibility();
+            RestoreCursor();
+            DanmakuLayer.ReleasePool();
+        }
+        else ShowControls();
+    }
+
     private void OnLoaded(object sender, RoutedEventArgs e)
     {
         ViewModel.PropertyChanged -= OnViewModelPropertyChanged;
@@ -289,6 +330,10 @@ public sealed partial class PlayerPage : Page
         ViewModel.PlaybackStateChanged += OnPlaybackStateChanged;
         ViewModel.SourceRecoveryOffered -= OnSourceRecoveryOffered;
         ViewModel.SourceRecoveryOffered += OnSourceRecoveryOffered;
+        ViewModel.VideoOutputRequested -= OnVideoOutputRequested;
+        ViewModel.VideoOutputRequested += OnVideoOutputRequested;
+        ViewModel.MusicPresentationRequested -= OnMusicPresentationRequested;
+        ViewModel.MusicPresentationRequested += OnMusicPresentationRequested;
 
         if (!_seekHandlersWired)
         {
@@ -320,13 +365,8 @@ public sealed partial class PlayerPage : Page
 
         Diagnostics.Log($"Player page loaded, output ready={ViewModel.Service.IsVideoOutputReady}");
         if (RateFlyout.Items.Count == 0) BuildFlyouts();
-        if (ViewModel.Service.IsVideoOutputReady)
-        {
-            VideoView.MediaPlayer = ViewModel.Service.MediaPlayer;
-            ViewModel.NotifyVideoReady();
-        }
-        VideoView.Initialized -= OnVideoViewInitialized;
-        VideoView.Initialized += OnVideoViewInitialized;
+        SyncMusicStage();
+        if (ViewModel.MusicRequest is { } musicRequest && ViewModel.IsMusicMode) OnMusicPresentationRequested(this, musicRequest);
         Focus(FocusState.Programmatic);
         _ = RefreshDanmakuToggleAsync();
         ShowControls();
@@ -337,10 +377,11 @@ public sealed partial class PlayerPage : Page
         Diagnostics.Log("VideoView initialization callback");
         try
         {
-            VideoView.MediaPlayer = null;
+            if (sender is not LibVLCSharp.Platforms.Windows.VideoView view) return;
+            view.MediaPlayer = null;
             await ViewModel.Service.EnsureInitializedAsync(e.SwapChainOptions);
-            if (!IsLoaded) return;
-            VideoView.MediaPlayer = ViewModel.Service.MediaPlayer;
+            if (!IsLoaded || !ReferenceEquals(view, VideoView)) return;
+            view.MediaPlayer = ViewModel.Service.MediaPlayer;
             ViewModel.Service.SetVolume(ViewModel.Volume);
             ViewModel.NotifyVideoReady();
             Diagnostics.Log("VideoView output attached");
@@ -386,6 +427,9 @@ public sealed partial class PlayerPage : Page
         ViewModel.SeekPerformed -= OnSeekPerformed;
         ViewModel.PlaybackStateChanged -= OnPlaybackStateChanged;
         ViewModel.SourceRecoveryOffered -= OnSourceRecoveryOffered;
+        ViewModel.VideoOutputRequested -= OnVideoOutputRequested;
+        ViewModel.MusicPresentationRequested -= OnMusicPresentationRequested;
+        _musicSurface?.ClearTrack();
         if (_seekHandlersWired)
         {
             SeekSlider.RemoveHandler(UIElement.PointerPressedEvent, _seekPressedHandler);
@@ -414,8 +458,13 @@ public sealed partial class PlayerPage : Page
         _hasLastScreenCursorPos = false;
         RestoreCursor();
         _videoSwapChainPanel = null;
-        VideoView.Initialized -= OnVideoViewInitialized;
-        VideoView.MediaPlayer = null;
+        if (VideoView is { } view)
+        {
+            view.Initialized -= OnVideoViewInitialized;
+            view.MediaPlayer = null;
+            VideoStageHost.Children.Remove(view);
+            VideoView = null;
+        }
     }
 
     private void OnWindowActivated(object sender, Microsoft.UI.Xaml.WindowActivatedEventArgs args)
@@ -450,6 +499,11 @@ public sealed partial class PlayerPage : Page
 
     private void OnSnapshotUpdated(object? sender, PlayerSnapshot snapshot)
     {
+        if (ViewModel.IsMusicMode)
+        {
+            _musicSurface?.UpdateClock(snapshot);
+            return;
+        }
         var ts = snapshot.CapturedAtTimestamp != 0 ? snapshot.CapturedAtTimestamp : Stopwatch.GetTimestamp();
         DanmakuLayer.SyncPlayback(snapshot.TimeMs / 1000d, ts, snapshot.Rate, snapshot.IsPlaying, ViewModel.IsBuffering);
         if (ViewModel.ShowMediaInfo)
@@ -559,8 +613,10 @@ public sealed partial class PlayerPage : Page
 
     private void OnViewModelPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
     {
+        if (e.PropertyName == nameof(PlayerViewModel.IsMusicMode)) SyncMusicStage();
         if (e.PropertyName == nameof(PlayerViewModel.RequiredLoginProvider) && ViewModel.RequiredLoginProvider is not null && IsLoaded)
             _ = ShowCloudLoginAsync();
+        if (ViewModel.IsMusicMode) return;
         if (e.PropertyName is nameof(PlayerViewModel.IsRealtimeSubtitleActive) or nameof(PlayerViewModel.SubtitleDelayMs) or nameof(PlayerViewModel.SubtitleSpeed))
             UpdateSubtitleIndicator();
         if (e.PropertyName is nameof(PlayerViewModel.IsPlaying) or nameof(PlayerViewModel.IsBuffering)
@@ -1861,6 +1917,7 @@ public sealed partial class PlayerPage : Page
 
     private void OnPointerMoved(object sender, PointerRoutedEventArgs e)
     {
+        if (ViewModel.IsMusicMode) return;
         _pointerInsidePage = true;
         var now = Environment.TickCount64;
 
@@ -1970,14 +2027,14 @@ public sealed partial class PlayerPage : Page
 
     private void OnTapped(object sender, TappedRoutedEventArgs e)
     {
-        if (e.Handled) return;
+        if (e.Handled || ViewModel.IsMusicMode) return;
         if (e.OriginalSource is FrameworkElement element && IsInsideControls(element)) return;
         if (_controlsVisible) HideControlsNow(); else ShowControls();
     }
 
     private void OnDoubleTapped(object sender, DoubleTappedRoutedEventArgs e)
     {
-        if (e.Handled) return;
+        if (e.Handled || ViewModel.IsMusicMode) return;
         if (e.OriginalSource is FrameworkElement element && IsInsideControls(element)) return;
         // 双击画面只切换控制层显隐；全屏必须显式点「全屏」按钮或按 F，避免误触全屏。
         if (_controlsVisible) HideControlsNow(); else ShowControls();
@@ -2005,6 +2062,7 @@ public sealed partial class PlayerPage : Page
 
     private void ShowControls(bool fromPointerMove = false)
     {
+        if (ViewModel.IsMusicMode) return;
         _lastPointerActivityTick = Environment.TickCount64;
         RestoreCursor(fromPointerMove);
         if (!_controlsVisible)
@@ -2029,6 +2087,7 @@ public sealed partial class PlayerPage : Page
     private void RestartHideTimerIfEligible()
     {
         _hideTimer.Stop();
+        if (ViewModel.IsMusicMode) return;
         if (_controlsVisible && ViewModel.IsPlaying && !IsPointerOverControls && !AnyFlyoutOpen() && !_seekDragging)
         {
             _hideTimer.Interval = TimeSpan.FromMilliseconds(HideIdleMs);
@@ -2064,7 +2123,7 @@ public sealed partial class PlayerPage : Page
 
     private void UpdateCenterPlayVisibility()
     {
-        var show = _controlsVisible && ViewModel.HasMedia && !ViewModel.IsPlaying
+        var show = !ViewModel.IsMusicMode && _controlsVisible && ViewModel.HasMedia && !ViewModel.IsPlaying
             && !ViewModel.IsBuffering && !ViewModel.ShowStatusPanel;
         if (show == _centerPlayVisible) return;
         _centerPlayVisible = show;

@@ -48,7 +48,7 @@
 
 - **64 位 Windows 10 1809（Build 17763）及以上**（推荐 Windows 11；不支持 Mica 或 HDR 时自动降级）
 - 支持 D3D11 的显卡驱动（不支持硬解时自动回退软解）
-- 无需管理员权限，无需预装 .NET、Java 或 VC++ 运行库（内置自包含运行时、裁剪版微软签名 OpenJDK 与本地 VC++ CRT DLL）
+- 客户端自带 .NET、Java 17、VC++ CRT 和 Python 3 嵌入版。缺少 WebView2 时，可联网按需安装 Evergreen 运行时。
 
 从 [GitHub Releases](https://github.com/binchen6/Liuguang-Cinema/releases) 下载：
 - `TV-Setup-<version>-x64.exe` — 标准安装器（推荐）
@@ -57,15 +57,16 @@
 > 社区开源发行版未附带商业 Authenticode 代码签名证书，在开启 Windows 11 **智能应用控制（SAC）** 或 SmartScreen 的设备上可能出现拦截，详见 [智能应用控制与签名说明](docs/smart-app-control.md)。下载后建议校验官方 SHA-256：
 
 ```powershell
-Get-FileHash .\TV-Setup-2.0.0-x64.exe -Algorithm SHA256
-Get-Content .\TV-Setup-2.0.0-x64.exe.sha256
+Get-FileHash .\TV-Setup-2.0.1-x64.exe -Algorithm SHA256
+Get-Content .\TV-Setup-2.0.1-x64.exe.sha256
 ```
 
 ---
 
 ## 常用操作与快捷键
 
-- **片源与资源包**：首次启动自动加载内置源并缓存；可在 **设置 → 片源** 导入仓库（支持自定义名称、随时重命名），并在 **仓库资源包** 卡片一键刷新、下载、更新或卸载专属适配包。
+- 在 **设置 → 片源** 导入仓库，在 **仓库资源包** 刷新清单、下载、更新、卸载或导入本地 ZIP。
+- **媒体库 → 本地媒体** 按视频和音乐筛选。打开音乐后，可在播放器中读取内嵌或同名封面和歌词文件、导入文件，或按曲名和歌手在线匹配。
 - **弹幕屏蔽**。右键点播放器里的弹幕开关，输入普通屏蔽词或正则表达式，再点「应用并关闭」。正则每行一条，`^跳过[0-9]{2,4}$` 会屏蔽「跳过120」。基础规则只筛选明确的整条招揽广告，可独立关闭。
 - **沉浸播控**：无操作 3 秒且鼠标未悬停控件时自动收起顶/底栏并隐藏鼠标；播放期防息屏/防休眠默认开启，可在 **设置 → 播放** 或播放器菜单切换。
 

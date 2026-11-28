@@ -7,4 +7,8 @@ public sealed record OnlineMediaMatch(string Title, string EpisodeTitle, long Ai
 
 public sealed record OnlineSubtitleTrack(string Name, Uri Address);
 
-public sealed record LocalMediaEntry(string Path, string Title, string Folder, long Size, DateTimeOffset ModifiedAt);
+public sealed record LocalMediaEntry(string Path, string Title, string Folder, long Size, DateTimeOffset ModifiedAt)
+{
+    public bool IsMusic => AudioMedia.IsAudio(Path);
+    public string MediaLabel => IsMusic ? "音乐" : "视频";
+}

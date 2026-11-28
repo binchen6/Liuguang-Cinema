@@ -57,7 +57,7 @@
                                 AutomationProperties.Name="本地媒体">
                     <DropDownButton.Flyout>
                         <MenuFlyout>
-                            <MenuFlyoutItem Text="导入视频文件（可多选）" Command="{Binding ImportFilesCommand}" />
+                            <MenuFlyoutItem Text="导入媒体文件（可多选）" Command="{Binding ImportFilesCommand}" />
                             <MenuFlyoutItem Text="导入文件夹并自动更新" Command="{Binding ImportFolderCommand}" />
                             <MenuFlyoutSeparator />
                             <MenuFlyoutItem Text="直接打开文件" Command="{Binding OpenFileCommand}" />
@@ -128,8 +128,8 @@
                         <ListViewItem AutomationProperties.Name="下载" ToolTipService.ToolTip="下载">
                             <TextBlock Text="下载" Style="{StaticResource NavSegmentTextStyle}" />
                         </ListViewItem>
-                        <ListViewItem AutomationProperties.Name="本地视频" ToolTipService.ToolTip="本地视频">
-                            <TextBlock Text="本地视频" Style="{StaticResource NavSegmentTextStyle}" />
+                        <ListViewItem AutomationProperties.Name="本地媒体" ToolTipService.ToolTip="本地媒体">
+                            <TextBlock Text="本地媒体" Style="{StaticResource NavSegmentTextStyle}" />
                         </ListViewItem>
                     </ListView>
                 </Grid>
@@ -379,9 +379,10 @@
                 </StackPanel>
             </Grid>
 
-            <!-- 本地视频 -->
+            <!-- 本地媒体 -->
             <Grid Visibility="{Binding IsLocalTab, Converter={StaticResource BoolToVisibility}}">
                 <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="*" />
                 </Grid.RowDefinitions>
@@ -408,11 +409,17 @@
                         </ItemsControl.ItemTemplate>
                     </ItemsControl>
                 </ScrollViewer>
-                <Grid Grid.Row="1">
+                <ComboBox Grid.Row="1" Margin="0,0,0,8" SelectedIndex="{Binding LocalMediaFilter, Mode=TwoWay}"
+                          AutomationProperties.Name="筛选本地媒体">
+                    <ComboBoxItem Content="全部媒体" />
+                    <ComboBoxItem Content="视频" />
+                    <ComboBoxItem Content="音乐" />
+                </ComboBox>
+                <Grid Grid.Row="2">
                     <ListView ItemsSource="{Binding LocalFiles}" SelectionMode="None" IsItemClickEnabled="False"
                               Padding="0,0,12,0" Background="Transparent" BorderThickness="0"
                               ScrollViewer.HorizontalScrollMode="Disabled"
-                              ItemContainerStyle="{StaticResource LibraryRowItemStyle}" AutomationProperties.Name="本地视频列表">
+                              ItemContainerStyle="{StaticResource LibraryRowItemStyle}" AutomationProperties.Name="本地媒体列表">
                         <ListView.ItemTemplate>
                             <DataTemplate>
                                 <Border BorderBrush="{ThemeResource DividerBrush}" BorderThickness="0,0,0,1">
@@ -430,7 +437,8 @@
                                                 <Border Width="56" Height="44" CornerRadius="{StaticResource RadiusControl}"
                                                         Background="{ThemeResource GlassChipBrush}" BorderBrush="{ThemeResource GlassEdgeBrush}" BorderThickness="1"
                                                         VerticalAlignment="Center">
-                                                    <controls:LineIcon PathData="{StaticResource IconVod}" IconSize="20" Foreground="{ThemeResource PrimaryTextBrush}" />
+                                                    <TextBlock Text="{Binding MediaLabel}" Style="{StaticResource MetaText}"
+                                                               HorizontalAlignment="Center" VerticalAlignment="Center" />
                                                 </Border>
                                                 <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="{StaticResource SpaceTiny}">
                                                     <TextBlock Text="{Binding Title}" Style="{StaticResource CardTitleText}" MaxLines="1" />
@@ -460,7 +468,7 @@
                                                Foreground="{ThemeResource SecondaryTextBrush}" />
                         </Border>
                         <TextBlock Text="{Binding EmptyLocal}" Style="{StaticResource SectionTitleText}" TextAlignment="Center" />
-                        <TextBlock Text="导入一个或多个视频文件，或选择文件夹自动读取新增、修改和删除。"
+                        <TextBlock Text="导入视频或音乐文件，也可以监视文件夹。"
                                    Style="{StaticResource SecondaryText}" TextAlignment="Center" TextWrapping="Wrap" />
                         <StackPanel Orientation="Horizontal" Spacing="{StaticResource SpaceMini}" HorizontalAlignment="Center">
                             <Button Content="导入文件" Command="{Binding ImportFilesCommand}" Style="{StaticResource PrimaryButtonStyle}" />

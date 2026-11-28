@@ -9,11 +9,12 @@ namespace TV.Services.Library;
 public sealed class LocalMediaService : IDisposable
 {
     private readonly DatabaseService database;
-    private static readonly HashSet<string> SupportedExtensions = new(StringComparer.OrdinalIgnoreCase)
+    private static readonly HashSet<string> VideoExtensions = new(StringComparer.OrdinalIgnoreCase)
     {
         ".mp4", ".m4v", ".mkv", ".webm", ".avi", ".mov", ".ts", ".m2ts", ".mts", ".flv", ".f4v",
         ".wmv", ".asf", ".mpg", ".mpeg", ".vob", ".3gp", ".3g2", ".rm", ".rmvb", ".ogv"
     };
+    private static readonly HashSet<string> SupportedExtensions = new(VideoExtensions.Concat(AudioMedia.Extensions), StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, FileSystemWatcher> _watchers = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, byte> _pending = new(StringComparer.OrdinalIgnoreCase);
     private readonly SemaphoreSlim _refreshGate = new(1, 1);
@@ -53,7 +54,7 @@ public sealed class LocalMediaService : IDisposable
 
     public async Task<int> ImportFilesAsync(IEnumerable<string> paths, CancellationToken token = default)
     {
-        var files = paths.Where(IsVideo).Distinct(StringComparer.OrdinalIgnoreCase).Select(path => Read(path, string.Empty)).OfType<LocalMediaEntry>().ToArray();
+        var files = paths.Where(IsSupportedMedia).Distinct(StringComparer.OrdinalIgnoreCase).Select(path => Read(path, string.Empty)).OfType<LocalMediaEntry>().ToArray();
         if (files.Length > 0) await database.SaveLocalFilesAsync(files, null, token).ConfigureAwait(false);
         Changed?.Invoke(this, EventArgs.Empty);
         return files.Length;
@@ -111,7 +112,7 @@ public sealed class LocalMediaService : IDisposable
                 {
                     var options = new EnumerationOptions { RecurseSubdirectories = true, IgnoreInaccessible = true,
                         AttributesToSkip = FileAttributes.ReparsePoint | FileAttributes.System, ReturnSpecialDirectories = false };
-                    foreach (var path in Directory.EnumerateFiles(folder, "*", options).Where(IsVideo).Take(5000))
+                    foreach (var path in Directory.EnumerateFiles(folder, "*", options).Where(IsSupportedMedia).Take(5000))
                         if (Read(path, folder) is { } file) result.Add(file);
                 }
                 catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
@@ -165,7 +166,7 @@ public sealed class LocalMediaService : IDisposable
 
     private void Schedule(string path, string folder)
     {
-        if (!IsVideo(path) || _lifetime.IsCancellationRequested) return;
+        if (!IsSupportedMedia(path) || _lifetime.IsCancellationRequested) return;
         _pending.TryAdd(folder, 0);
         _refreshTimer.Change(TimeSpan.FromMilliseconds(900), Timeout.InfiniteTimeSpan);
     }
@@ -200,7 +201,7 @@ public sealed class LocalMediaService : IDisposable
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { return null; }
     }
 
-    public static bool IsVideo(string path) => SupportedExtensions.Contains(Path.GetExtension(path));
+    public static bool IsSupportedMedia(string path) => SupportedExtensions.Contains(Path.GetExtension(path));
 
     private static bool IsExtension(string path, params string[] extensions) =>
         extensions.Contains(Path.GetExtension(path), StringComparer.OrdinalIgnoreCase);
@@ -208,9 +209,10 @@ public sealed class LocalMediaService : IDisposable
     public static PlaybackRequest CreateRequest(string path)
     {
         var file = Path.GetFullPath(path);
-        if (!File.Exists(file) || !IsVideo(file)) throw new FileNotFoundException("本地视频不存在或格式不受支持。", file);
+        if (!File.Exists(file) || !IsSupportedMedia(file)) throw new FileNotFoundException("本地媒体不存在或格式不受支持。", file);
         var request = new PlaybackRequest { Kind = PlaybackKind.Vod, Url = new Uri(file).AbsoluteUri,
-            Title = Path.GetFileNameWithoutExtension(file), SiteKey = "local", VodId = file, Subtitle = Path.GetFileName(Path.GetDirectoryName(file) ?? string.Empty) };
+            Title = Path.GetFileNameWithoutExtension(file), SiteKey = "local", VodId = file, IsMusic = AudioMedia.IsAudio(file),
+            Subtitle = Path.GetFileName(Path.GetDirectoryName(file) ?? string.Empty) };
         AttachSidecars(request, file);
         return request;
     }
@@ -223,6 +225,12 @@ public sealed class LocalMediaService : IDisposable
             if (directory is null) return;
             var basename = Path.GetFileNameWithoutExtension(file);
             var files = Directory.EnumerateFiles(directory, basename + ".*").Take(32).ToArray();
+            if (request.IsMusic)
+            {
+                request.MusicLyrics = files.FirstOrDefault(path => IsExtension(path, ".lrc", ".txt"));
+                request.MusicCover = files.FirstOrDefault(path => IsExtension(path, ".jpg", ".jpeg", ".png", ".webp"));
+                return;
+            }
             request.Subtitles = files.Where(path => IsExtension(path, ".srt", ".ass", ".ssa", ".vtt")).Select(path => new Uri(path)).ToList();
             var danmaku = files.FirstOrDefault(path => IsExtension(path, ".xml", ".json"));
             if (danmaku is not null) request.Danmaku = new Uri(danmaku);

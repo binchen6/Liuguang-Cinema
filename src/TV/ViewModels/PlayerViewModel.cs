@@ -169,6 +169,10 @@ public sealed partial class PlayerViewModel : ObservableObject
 
     /// <summary>播放器页面把 VideoView 挂好后调用，避免“先播后挂”导致黑屏无声。</summary>
     public void NotifyVideoReady() => _viewReady.TrySetResult();
+    internal event EventHandler? VideoOutputRequested;
+    internal event EventHandler<PlaybackRequest?>? MusicPresentationRequested;
+    [ObservableProperty] private bool _isMusicMode;
+    internal PlaybackRequest? MusicRequest { get; private set; }
 
     internal PlaybackRequest? GetResumeRequest()
     {
@@ -244,6 +248,9 @@ public sealed partial class PlayerViewModel : ObservableObject
         if (token.IsCancellationRequested) return;
         request = request.Copy();
         _request = request;
+        IsMusicMode = request.IsMusic || AudioMedia.IsAudio(request.Url);
+        MusicRequest = null;
+        if (IsMusicMode) MusicPresentationRequested?.Invoke(this, null);
         OnPropertyChanged(nameof(HasMedia));
         _resolvedMedia = null;
         _isLive = request.Kind == PlaybackKind.Live;
@@ -307,12 +314,18 @@ public sealed partial class PlayerViewModel : ObservableObject
                 media = await _services.Playback.ResolveAsync(request, SelectedQuality, GetHdrOutputAsync, token);
             }
             pendingMedia = media;
+            IsMusicMode = media.IsMusic;
+            if (media.IsMusic)
+            {
+                MusicRequest = media;
+                MusicPresentationRequested?.Invoke(this, media);
+            }
             _isLocalFile = Uri.TryCreate(media.Url, UriKind.Absolute, out var mediaUri) && mediaUri.IsFile;
             SubtitleDelayMs = 0;
             AudioDelayMs = 0;
             MediaInfoText = string.Empty;
             StatusMessage = "正在打开媒体…";
-            await _viewReady.Task.WaitAsync(TimeSpan.FromSeconds(8), token);
+            if (!media.IsMusic) await EnsureVideoOutputAsync(token);
             await _services.Player.PlayAsync(media, token);
             if (!IsCurrentLoad(generation, token)) return;
             if (media.Subtitles.FirstOrDefault(u => u.IsFile && File.Exists(u.LocalPath)) is { } sidecarSub)
@@ -323,7 +336,7 @@ public sealed partial class PlayerViewModel : ObservableObject
             _resolvedMedia = media;
             SelectedQuality = DisplayQuality(media, SelectedQuality);
             if (!string.IsNullOrWhiteSpace(media.Notice)) QualityMessage = media.Notice;
-            DanmakuChanged?.Invoke(this, media.Danmaku);
+            if (!media.IsMusic) DanmakuChanged?.Invoke(this, media.Danmaku);
             _timer.Start();
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested) { }
@@ -336,6 +349,11 @@ public sealed partial class PlayerViewModel : ObservableObject
         catch (UcPlaybackRestrictionException ex) when (IsCurrentLoad(generation, token))
         {
             StatusMessage = ex.Message;
+        }
+        catch (Exception ex) when (IsCurrentLoad(generation, token) && IsPreconditionFailure(ex))
+        {
+            if (!_autoSwitchLine || !TryNextLine())
+                StatusMessage = "上游拒绝了当前播放线路（412）。请检查站点登录状态或切换线路。";
         }
         catch (Exception ex)
         {
@@ -352,6 +370,13 @@ public sealed partial class PlayerViewModel : ObservableObject
         {
             if (!ReferenceEquals(_resolvedMedia, pendingMedia)) ReleaseMedia(pendingMedia, _resolvedMedia);
         }
+    }
+
+    private static bool IsPreconditionFailure(Exception? error)
+    {
+        for (; error is not null; error = error.InnerException)
+            if (error is HttpRequestException { StatusCode: System.Net.HttpStatusCode.PreconditionFailed }) return true;
+        return false;
     }
 
     public async Task ResumeAfterCloudLoginAsync()
@@ -740,8 +765,14 @@ public sealed partial class PlayerViewModel : ObservableObject
 
     private async Task<bool> GetHdrOutputAsync(CancellationToken token)
     {
-        await _viewReady.Task.WaitAsync(TimeSpan.FromSeconds(8), token);
+        await EnsureVideoOutputAsync(token);
         return _services.Player.HasHdrSurface && VideoDisplay.IsHdrActive(App.Window.AppWindow.Id);
+    }
+
+    private Task EnsureVideoOutputAsync(CancellationToken token)
+    {
+        VideoOutputRequested?.Invoke(this, EventArgs.Empty);
+        return _viewReady.Task.WaitAsync(TimeSpan.FromSeconds(8), token);
     }
 
     internal async Task<DanDanPlayEpisode> MatchDanDanPlayAsync(CancellationToken token)
@@ -1176,6 +1207,14 @@ public sealed partial class PlayerViewModel : ObservableObject
             var nowMs = PlaybackSeekCoordinator.NowMs();
             var decision = _seek.EvaluateTick(snapshot, (long)PositionMs, nowMs, _isLocalFile);
 
+            if (snapshot.AudioOnly && !IsMusicMode && !_isLive && _resolvedMedia is { } audio)
+            {
+                audio.IsMusic = true;
+                IsMusicMode = true;
+                MusicRequest = audio;
+                MusicPresentationRequested?.Invoke(this, audio);
+            }
+
             if (IsPlaying != decision.EffectivePlaying)
             {
                 IsPlaying = decision.EffectivePlaying;
@@ -1216,10 +1255,10 @@ public sealed partial class PlayerViewModel : ObservableObject
                     PositionMs = decision.DisplayPositionMs;
                     UpdatePositionText(decision.DisplayPositionMs);
                 }
-                ApplyEpisodeTiming(decision.DisplayPositionMs, snapshot.LengthMs);
+                if (!IsMusicMode) ApplyEpisodeTiming(decision.DisplayPositionMs, snapshot.LengthMs);
                 if (!_externalSubtitleSpeedBaked && Math.Abs(SubtitleSpeed - 1.0) > 0.0005)
                     ApplyEffectiveSubtitleDelay(decision.DisplayPositionMs);
-                if (decision.SuggestLowerQuality && _adaptiveQuality && !SelectedQuality.RequestsOriginal)
+                if (!IsMusicMode && decision.SuggestLowerQuality && _adaptiveQuality && !SelectedQuality.RequestsOriginal)
                     _ = LowerQualityAfterBufferingAsync();
             }
             else

@@ -75,6 +75,16 @@ public sealed partial class VodViewModel : ObservableObject
     [ObservableProperty, NotifyPropertyChangedFor(nameof(HasPendingVerification))]
     private SiteVerificationRequiredException? _pendingVerification;
     public bool HasPendingVerification => PendingVerification is not null;
+    public bool HasSiteTool => SelectedSite?.Tool is SourceTool.Settings or SourceTool.Files or SourceTool.Market or SourceTool.Push;
+    public bool IsPushSite => SelectedSite?.Tool == SourceTool.Push;
+    public string SiteToolAction => SelectedSite?.Tool switch
+    {
+        SourceTool.Settings => "打开应用设置",
+        SourceTool.Files => "打开本地媒体",
+        SourceTool.Market => "管理网盘账户",
+        SourceTool.Push => "播放链接",
+        _ => ""
+    };
     [ObservableProperty] private string _detailStatus = string.Empty;
     [ObservableProperty] private bool _isFavorite;
     [ObservableProperty] private string _typeFilter = "全部";
@@ -205,6 +215,21 @@ public sealed partial class VodViewModel : ObservableObject
         StatusMessage = $"正在读取 {site.Name}…";
         try
         {
+            if (site.Tool is SourceTool.Settings or SourceTool.Push)
+            {
+                DisplayHome(site, new CmsResponse());
+                StatusMessage = site.Tool == SourceTool.Settings
+                    ? "可在应用设置中管理片源、播放和网盘账号。"
+                    : "粘贴媒体链接，也可以打开投屏接收。";
+                return;
+            }
+            if (site.Tool is SourceTool.Files or SourceTool.Market)
+            {
+                var result = await _services.Vod.GetHomeAsync(site, token);
+                token.ThrowIfCancellationRequested();
+                DisplayHome(site, result);
+                return;
+            }
             var preferDouban = _preferDouban ?? await _services.Database.GetSettingAsync("vod.recommendations", token) == "1";
             var trendingTask = preferDouban ? ReadTrendingSafeAsync(token) : null;
             var siteTask = ReadHomeResultAsync(site, allowFallback, token);
@@ -282,7 +307,12 @@ public sealed partial class VodViewModel : ObservableObject
                 {
                     DisplayHome(site, new CmsResponse());
                     StatusMessage = PendingVerification is not null ? PendingVerification.Message
-                        : homeStatus == HttpStatusCode.Forbidden ? "该站点拒绝访问（403）" : "片源暂不可用";
+                        : homeStatus switch
+                        {
+                            HttpStatusCode.Forbidden => "该站点拒绝访问（403）",
+                            HttpStatusCode.PreconditionFailed => "站点拒绝当前请求（412）。请检查账号会话或切换线路。",
+                            _ => "片源暂不可用"
+                        };
                 }
                 return;
             }
@@ -680,6 +710,9 @@ public sealed partial class VodViewModel : ObservableObject
 
     partial void OnSelectedSiteChanged(SourceSite? value)
     {
+        OnPropertyChanged(nameof(HasSiteTool));
+        OnPropertyChanged(nameof(IsPushSite));
+        OnPropertyChanged(nameof(SiteToolAction));
         if (_initialized && !_suppressSelection && value is not null)
         {
             if (Services.Vod.Native.MyDriveVodProvider.Supports(value))
@@ -696,6 +729,15 @@ public sealed partial class VodViewModel : ObservableObject
             _ = _services.Database.SetSettingAsync(HomeSiteSettingKey(_services.Config.ActiveRepositoryId), value.Key);
             _ = LoadHomeAsync();
         }
+    }
+
+    internal void PlayPushedLink(Uri uri)
+    {
+        _play(new PlaybackRequest
+        {
+            Kind = PlaybackKind.Vod, Title = uri.Host, Url = uri.AbsoluteUri, SiteKey = SelectedSite?.Key ?? "",
+            Subtitle = "推送接收", IsMusic = AudioMedia.IsAudio(uri.AbsoluteUri)
+        });
     }
 
     partial void OnSelectedCategoryChanged(VodCategory? value)

@@ -109,26 +109,14 @@ public sealed class RepoPackService : IDisposable
         if (!forceRefresh && _cachedManifest is not null && DateTimeOffset.UtcNow - _manifestFetchedAt < TimeSpan.FromMinutes(15))
             return _cachedManifest;
 
-        var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-        {
-            ["User-Agent"] = "Liuguang-Cinema/RepoPack",
-            ["Accept"] = "application/json"
-        };
+        if (!Uri.TryCreate(_manifestUrl, UriKind.Absolute, out var uri) ||
+            (uri.Scheme != Uri.UriSchemeHttps && !(uri.Scheme == Uri.UriSchemeHttp && uri.IsLoopback)) ||
+            uri.UserInfo.Length != 0)
+            throw new InvalidOperationException("资源包清单地址无效。");
 
         try
         {
-            if (!Uri.TryCreate(_manifestUrl, UriKind.Absolute, out var uri) ||
-                (uri.Scheme != Uri.UriSchemeHttps && !(uri.Scheme == Uri.UriSchemeHttp && uri.IsLoopback)) ||
-                uri.UserInfo.Length != 0)
-                throw new InvalidDataException("资源包清单地址无效。");
-
-            // The origin supplies the digest. Mirrors can serve the ZIP only after we have that digest.
-            using var deadline = CancellationTokenSource.CreateLinkedTokenSource(token);
-            deadline.CancelAfter(TimeSpan.FromSeconds(7));
-            var payload = await _http.GetTrustedBytesAsync(uri, headers, 2 * 1024 * 1024,
-                destination => MediaRequestHeaders.SameOrigin(uri, destination), deadline.Token).ConfigureAwait(false);
-            var text = SourceHttpClient.DecodeText(payload.Content);
-            var parsed = ParseManifest(text);
+            var (parsed, text) = await FetchManifestAsync(uri, token).ConfigureAwait(false);
             _cachedManifest = parsed;
             _manifestFetchedAt = DateTimeOffset.UtcNow;
             var temporary = _manifestCachePath + "." + Guid.NewGuid().ToString("N") + ".tmp";
@@ -156,9 +144,67 @@ public sealed class RepoPackService : IDisposable
                     _cachedManifest = ParseManifest(cachedText);
                     return _cachedManifest;
                 }
-                catch (Exception) when (!token.IsCancellationRequested) { }
+                catch (Exception cacheError) when (cacheError is IOException or InvalidDataException or UnauthorizedAccessException or JsonException) { }
             }
-            throw new InvalidOperationException("仓库资源包清单获取失败：" + ex.Message, ex);
+            var reason = ex is OperationCanceledException or TimeoutException
+                ? "连接 GitHub 超时，请检查网络后刷新，或从本地导入 ZIP。"
+                : ex.Message;
+            throw new InvalidOperationException("仓库资源包清单获取失败。 " + reason, ex);
+        }
+    }
+
+    private async Task<(RepoPackManifest Manifest, string Json)> FetchManifestAsync(Uri origin, CancellationToken token)
+    {
+        var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["User-Agent"] = "Liuguang-Cinema/RepoPack",
+            ["Accept"] = "application/json"
+        };
+
+        // Both official endpoints serve the manifest that supplies ZIP checksums.
+        using var stop = CancellationTokenSource.CreateLinkedTokenSource(token);
+        var candidates = new List<Task<(RepoPackManifest, string)>> { FetchAsync(origin, headers, TimeSpan.Zero) };
+        if (origin.AbsoluteUri.Equals(DefaultManifestUrl, StringComparison.Ordinal))
+        {
+            var api = new Uri("https://api.github.com/repos/" + DefaultRepository + "/contents/manifest.json?ref=main");
+            candidates.Add(FetchAsync(api, new Dictionary<string, string>(headers)
+            {
+                ["Accept"] = "application/vnd.github.raw+json"
+            }, TimeSpan.FromMilliseconds(500)));
+        }
+
+        Exception? lastError = null;
+        try
+        {
+            while (candidates.Count > 0)
+            {
+                var result = await Task.WhenAny(candidates).ConfigureAwait(false);
+                candidates.Remove(result);
+                try { return await result.ConfigureAwait(false); }
+                catch (Exception ex) when (!token.IsCancellationRequested &&
+                    ex is OperationCanceledException or HttpRequestException or IOException or InvalidDataException or JsonException)
+                {
+                    lastError = ex;
+                }
+            }
+            throw lastError ?? new InvalidDataException("未收到有效的资源包清单。");
+        }
+        finally
+        {
+            await stop.CancelAsync().ConfigureAwait(false);
+            try { await Task.WhenAll(candidates).ConfigureAwait(false); }
+            catch (Exception ex) when (ex is OperationCanceledException or HttpRequestException or IOException or InvalidDataException or JsonException) { }
+        }
+
+        async Task<(RepoPackManifest, string)> FetchAsync(Uri address, Dictionary<string, string> requestHeaders, TimeSpan delay)
+        {
+            await Task.Delay(delay, stop.Token).ConfigureAwait(false);
+            using var deadline = CancellationTokenSource.CreateLinkedTokenSource(stop.Token);
+            deadline.CancelAfter(TimeSpan.FromSeconds(12));
+            var payload = await _http.GetTrustedBytesAsync(address, requestHeaders, 2 * 1024 * 1024,
+                destination => MediaRequestHeaders.SameOrigin(address, destination), deadline.Token).ConfigureAwait(false);
+            var json = SourceHttpClient.DecodeText(payload.Content);
+            return (ParseManifest(json), json);
         }
     }
 
@@ -254,54 +300,109 @@ public sealed class RepoPackService : IDisposable
         {
             Directory.CreateDirectory(_packsRoot);
             var tempZip = Path.Combine(_packsRoot, $"{entry.Id}-{Guid.NewGuid():N}.zip");
-            var stagingDir = Path.Combine(_packsRoot, $".staging-{entry.Id}-{Guid.NewGuid():N}");
-            var targetDir = Path.Combine(_packsRoot, entry.Id);
             try
             {
                 var routeLabel = await GitHubMirrorService.DownloadVerifiedFileAsync(
                     _downloads, entry.DownloadUrl, tempZip, entry.Sha256,
                     MaxPackZipBytes, progress, token).ConfigureAwait(false);
-
-                Directory.CreateDirectory(stagingDir);
-                ExtractZipSafely(tempZip, stagingDir);
-
-                var packJsonPath = Path.Combine(stagingDir, "pack.json");
-                if (!File.Exists(packJsonPath))
-                    throw new InvalidDataException("资源包缺少 pack.json 描述文件。");
-                var def = ParsePackDefinition(await File.ReadAllTextAsync(packJsonPath, token).ConfigureAwait(false));
-                if (string.IsNullOrWhiteSpace(def.Id)) def.Id = entry.Id;
-                if (!def.Id.Equals(entry.Id, StringComparison.OrdinalIgnoreCase) ||
-                    !string.Equals(def.Version, entry.Version, StringComparison.OrdinalIgnoreCase))
-                    throw new InvalidDataException("资源包标识或版本与清单不一致。");
-                token.ThrowIfCancellationRequested();
-
-                // Atomic swap into targetDir
-                var backupDir = targetDir + ".bak";
-                if (Directory.Exists(backupDir)) Directory.Delete(backupDir, recursive: true);
-                if (Directory.Exists(targetDir)) Directory.Move(targetDir, backupDir);
-                try
-                {
-                    Directory.Move(stagingDir, targetDir);
-                    if (Directory.Exists(backupDir)) Directory.Delete(backupDir, recursive: true);
-                }
-                catch
-                {
-                    if (!Directory.Exists(targetDir) && Directory.Exists(backupDir))
-                        Directory.Move(backupDir, targetDir);
-                    throw;
-                }
-
-                ReloadInstalledPacks();
-                Changed?.Invoke(this, EventArgs.Empty);
+                await InstallArchiveAsync(tempZip, entry, token).ConfigureAwait(false);
                 return routeLabel;
             }
-            finally
-            {
-                try { if (File.Exists(tempZip)) File.Delete(tempZip); } catch { }
-                try { if (Directory.Exists(stagingDir)) Directory.Delete(stagingDir, recursive: true); } catch { }
-            }
+            finally { TryDeleteFile(tempZip); }
         }
         finally { _ioGate.Release(); }
+    }
+
+    public async Task<RepoPackDefinition> ImportPackAsync(string path, CancellationToken token = default)
+    {
+        var zip = new FileInfo(path);
+        if (!zip.Extension.Equals(".zip", StringComparison.OrdinalIgnoreCase) || zip.Length > MaxPackZipBytes)
+            throw new InvalidDataException("请选择不超过 32 MiB 的 ZIP 资源包。");
+        await _ioGate.WaitAsync(token).ConfigureAwait(false);
+        try
+        {
+            Directory.CreateDirectory(_packsRoot);
+            return await InstallArchiveAsync(zip.FullName, null, token).ConfigureAwait(false);
+        }
+        finally { _ioGate.Release(); }
+    }
+
+    private async Task<RepoPackDefinition> InstallArchiveAsync(string archive, RepoPackManifestEntry? entry, CancellationToken token)
+    {
+        var stagingDir = Path.Combine(_packsRoot, ".staging-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            Directory.CreateDirectory(stagingDir);
+            await Task.Run(() => ExtractZipSafely(archive, stagingDir), token).ConfigureAwait(false);
+            var packJsonPath = Path.Combine(stagingDir, "pack.json");
+            if (!File.Exists(packJsonPath)) throw new InvalidDataException("资源包缺少根目录的 pack.json 描述文件。");
+            var def = ParsePackDefinition(await File.ReadAllTextAsync(packJsonPath, token).ConfigureAwait(false));
+            if (string.IsNullOrWhiteSpace(def.Id) && entry is not null) def.Id = entry.Id;
+            ValidatePackId(def.Id);
+            if (!Version.TryParse(def.Version?.TrimStart('v', 'V'), out _))
+                throw new InvalidDataException("资源包需要有效的版本号。");
+            if (entry is not null && (!def.Id.Equals(entry.Id, StringComparison.OrdinalIgnoreCase) ||
+                !string.Equals(def.Version, entry.Version, StringComparison.OrdinalIgnoreCase)))
+                throw new InvalidDataException("资源包标识或版本与清单不一致。");
+            ValidatePackRules(def, stagingDir);
+            token.ThrowIfCancellationRequested();
+
+            var targetDir = Path.Combine(_packsRoot, def.Id);
+            var backupDir = targetDir + ".bak";
+            if (!Directory.Exists(targetDir) && Directory.Exists(backupDir))
+                Directory.Move(backupDir, targetDir);
+            if (Directory.Exists(backupDir)) Directory.Delete(backupDir, recursive: true);
+            if (Directory.Exists(targetDir)) Directory.Move(targetDir, backupDir);
+            try { Directory.Move(stagingDir, targetDir); }
+            catch
+            {
+                if (Directory.Exists(backupDir)) Directory.Move(backupDir, targetDir);
+                throw;
+            }
+            TryDeleteDirectory(backupDir);
+            ReloadInstalledPacks();
+            Changed?.Invoke(this, EventArgs.Empty);
+            return def;
+        }
+        finally { TryDeleteDirectory(stagingDir); }
+    }
+
+    private static void ValidatePackRules(RepoPackDefinition definition, string directory)
+    {
+        var root = Path.TrimEndingDirectorySeparator(Path.GetFullPath(directory)) + Path.DirectorySeparatorChar;
+        foreach (var rule in definition.Sites)
+        {
+            if (string.IsNullOrWhiteSpace(rule.Key) && string.IsNullOrWhiteSpace(rule.Api))
+                throw new InvalidDataException("资源包规则缺少站点 key 或 api。");
+            switch (rule.Kind?.ToLowerInvariant())
+            {
+                case "js":
+                    var file = Path.GetFullPath(Path.Combine(root, rule.ScriptFile ?? ""));
+                    if (!file.StartsWith(root, StringComparison.OrdinalIgnoreCase) ||
+                        !Path.GetExtension(file).Equals(".js", StringComparison.OrdinalIgnoreCase) || !File.Exists(file))
+                        throw new InvalidDataException("资源包规则引用的 JavaScript 文件无效或不存在。");
+                    break;
+                case "alias":
+                case "cms":
+                case "bili-preset":
+                case "info":
+                    break;
+                default:
+                    throw new InvalidDataException("资源包包含不支持的规则类型。");
+            }
+        }
+    }
+
+    private static void TryDeleteFile(string path)
+    {
+        try { File.Delete(path); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
+    }
+
+    private static void TryDeleteDirectory(string path)
+    {
+        try { if (Directory.Exists(path)) Directory.Delete(path, recursive: true); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
     }
 
     public async Task RemovePackAsync(string packId, CancellationToken token = default)
@@ -362,30 +463,40 @@ public sealed class RepoPackService : IDisposable
             fullDest += Path.DirectorySeparatorChar;
 
         using var archive = ZipFile.OpenRead(zipPath);
+        if (archive.Entries.Count > 1024) throw new InvalidDataException("资源包文件数量超过上限。");
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         long totalUncompressed = 0;
         foreach (var entry in archive.Entries)
         {
             var destPath = Path.GetFullPath(Path.Combine(fullDest, entry.FullName));
             if (!destPath.StartsWith(fullDest, StringComparison.OrdinalIgnoreCase))
                 throw new InvalidDataException($"资源包包含非法路径（已阻止 Zip-Slip）：{entry.FullName}");
+            if (entry.FullName.Contains(':') || !seen.Add(Path.TrimEndingDirectorySeparator(destPath)))
+                throw new InvalidDataException("资源包包含重复或非法路径。");
 
             if (string.IsNullOrEmpty(entry.Name))
             {
                 Directory.CreateDirectory(destPath);
                 continue;
             }
+            if (Path.GetExtension(entry.Name).ToLowerInvariant() is not (".json" or ".js" or ".md" or ".txt" or ""))
+                throw new InvalidDataException("资源包只允许规则、JavaScript 和说明文本。");
 
             totalUncompressed += entry.Length;
             if (totalUncompressed > 64 * 1024 * 1024)
                 throw new InvalidDataException("资源包解压体积超过安全上限。");
 
             Directory.CreateDirectory(Path.GetDirectoryName(destPath)!);
-            entry.ExtractToFile(destPath, overwrite: true);
+            entry.ExtractToFile(destPath, overwrite: false);
         }
     }
 
     private static RepoPackManifest ParseManifest(string json)
     {
+        using var document = JsonDocument.Parse(json.TrimStart('\uFEFF'));
+        if (document.RootElement.ValueKind != JsonValueKind.Object ||
+            !document.RootElement.TryGetProperty("packs", out var entries) || entries.ValueKind != JsonValueKind.Array)
+            throw new InvalidDataException("资源包清单缺少 packs 列表。");
         var manifest = JsonSerializer.Deserialize<RepoPackManifest>(json.TrimStart('\uFEFF'), JsonUtil.Options)
             ?? throw new InvalidDataException("资源包清单为空。");
         if (manifest.SchemaVersion != 1) throw new InvalidDataException("资源包清单版本不受支持。");

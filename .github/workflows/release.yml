@@ -121,7 +121,7 @@ jobs:
             if ($installedVersion -ne "$version.0") { throw "Unexpected installed version $installedVersion" }
           }
           Test-InstallPackage $setup $installed
-          pwsh -NoProfile -File ./scripts/run-release-regressions.ps1 -AppDirectory $installed
+          pwsh -NoProfile -File ./scripts/run-release-regressions.ps1 -AppDirectory $installed -VerifyBundledRuntimes
           if ($LASTEXITCODE -ne 0) { throw 'Installed application regression checks failed' }
           node --test server/dandanplay-relay/worker.test.mjs
           if ($LASTEXITCODE -ne 0) { throw 'DanDanPlay relay regression checks failed' }

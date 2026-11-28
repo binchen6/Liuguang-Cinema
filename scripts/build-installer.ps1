@@ -122,6 +122,35 @@ $jar = Join-Path $root "engine/catvod/target/catvod-engine-1.0.0.jar"
 if (-not (Test-Path $jar)) { throw "CatVod JAR is missing: $jar" }
 Copy-Item $jar (Join-Path $runtime "catvod-engine.jar") -Force
 
+$prerequisites = (New-Item -ItemType Directory -Path (Join-Path $artifacts 'prerequisites') -Force).FullName
+function Get-RuntimePrerequisite([string]$Name, [uri]$Source) {
+    $destination = Join-Path $prerequisites $Name
+    if (-not (Test-Path -LiteralPath $destination -PathType Leaf)) {
+        $temporary = "$destination.$publishId.partial"
+        try {
+            Invoke-WebRequest -Uri $Source -OutFile $temporary -TimeoutSec 120
+            Move-Item -LiteralPath $temporary -Destination $destination
+        } finally {
+            if (Test-Path -LiteralPath $temporary) { Remove-Item -LiteralPath $temporary -Force }
+        }
+    }
+    return $destination
+}
+
+$pythonZip = Get-RuntimePrerequisite 'python-3.14.10-embed-amd64.zip' 'https://www.python.org/ftp/python/3.14.10/python-3.14.10-embed-amd64.zip'
+$pythonDigest = '90905e64a840557d8c1bc4f5b74db3d7ee85e3ffb217611cac1c7813acea4159'
+if ((Get-FileHash -LiteralPath $pythonZip -Algorithm SHA256).Hash -ne $pythonDigest) {
+    throw "The Python.org archive failed SHA-256 verification: $pythonZip"
+}
+[IO.Compression.ZipFile]::ExtractToDirectory($pythonZip, (Join-Path $runtime 'python'))
+
+$webViewBootstrapper = Get-RuntimePrerequisite 'MicrosoftEdgeWebView2Setup.exe' 'https://go.microsoft.com/fwlink/p/?LinkId=2124703'
+$webViewSignature = Get-AuthenticodeSignature -LiteralPath $webViewBootstrapper
+if ($webViewSignature.Status -ne 'Valid' -or $webViewSignature.SignerCertificate.Subject -notmatch '(?:^|,\s*)CN=Microsoft Corporation(?:,|$)') {
+    throw "The WebView2 bootstrapper does not have a valid Microsoft signature: $webViewBootstrapper"
+}
+Copy-Item -LiteralPath $webViewBootstrapper -Destination (Join-Path $runtime 'MicrosoftEdgeWebView2Setup.exe') -Force
+
 $javaOutput = Join-Path $runtime "java"
 $modules = "java.base,java.datatransfer,java.xml,java.prefs,java.desktop,java.logging,java.security.sasl,java.naming,java.net.http,java.scripting,java.transaction.xa,java.sql,jdk.charsets,jdk.crypto.ec,jdk.crypto.mscapi,jdk.httpserver,jdk.localedata,jdk.unsupported,jdk.zipfs"
 & "$env:JAVA_HOME\bin\jlink.exe" --add-modules $modules --compress=2 --no-header-files --no-man-pages --strip-debug --output $javaOutput
@@ -244,7 +273,7 @@ foreach ($folder in $keepVlcPlugins.Keys) {
 $lua = Join-Path $vlc "lua"
 Remove-PublishDirectory $lua
 Get-ChildItem $vlc -File -Filter "*.lib" -ErrorAction SilentlyContinue | Remove-Item -Force
-foreach ($native in "libvlc.dll", "libvlccore.dll", "plugins", "TV.exe", "vcruntime140.dll", "msvcp140.dll", "runtime/catvod-engine.jar", "runtime/java/bin/java.exe") {
+foreach ($native in "libvlc.dll", "libvlccore.dll", "plugins", "TV.exe", "vcruntime140.dll", "msvcp140.dll", "runtime/catvod-engine.jar", "runtime/java/bin/java.exe", "runtime/python/python.exe", "runtime/python/LICENSE.txt", "runtime/MicrosoftEdgeWebView2Setup.exe") {
     if ($native -in @("TV.exe", "vcruntime140.dll", "msvcp140.dll")) { $path = Join-Path $publish $native }
     elseif ($native.StartsWith("runtime/")) { $path = Join-Path $publish $native }
     else { $path = Join-Path $vlc $native }

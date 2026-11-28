@@ -531,7 +531,7 @@ public sealed partial class SettingsViewModel : ObservableObject
     {
         if (IsLoadingRepoPacks) return;
         IsLoadingRepoPacks = true;
-        if (forceRefresh) RepoPackStatus = "正在经国内加速通道获取仓库资源包清单…";
+        if (forceRefresh) RepoPackStatus = "正在从 GitHub 获取仓库资源包清单…";
         try
         {
             var manifest = await _services.RepoPacks.GetManifestAsync(forceRefresh);
@@ -581,6 +581,22 @@ public sealed partial class SettingsViewModel : ObservableObject
             RepoPackStatus = $"下载「{item.Name}」失败：{ex.Message}";
             StatusMessage = RepoPackStatus;
         }
+        finally { IsDownloadingRepoPack = false; }
+    }
+
+    public async Task ImportRepoPackAsync(string path)
+    {
+        if (IsDownloadingRepoPack) return;
+        IsDownloadingRepoPack = true;
+        RepoPackDownloadProgress = 0;
+        try
+        {
+            var pack = await _services.RepoPacks.ImportPackAsync(path);
+            var installed = new RepoPackManifest { Packs = RepoPacks.Where(item => item.Entry is not null).Select(item => item.Entry!).ToList() };
+            SyncRepoPacksCollection(installed);
+            RepoPackStatus = $"已从本地导入并启用「{pack.Name}」v{pack.Version}";
+        }
+        catch (Exception ex) { RepoPackStatus = "导入资源包失败。 " + ex.Message; }
         finally { IsDownloadingRepoPack = false; }
     }
 

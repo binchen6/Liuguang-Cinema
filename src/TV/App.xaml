@@ -13,31 +13,30 @@
                 <ResourceDictionary Source="ms-appx:///Styles/Navigation.xaml" />
             </ResourceDictionary.MergedDictionaries>
 
-            <!-- 播放器专属光学磨砂玻璃材质（规避 WinUI AcrylicBrush 在 SwapChainPanel 上变黑块的硬件限制：
-                 采用半透明烟熏晶透基底 + 乳白磨砂漫射光影 + 1:1 酸蚀微晶磨砂粒 + 双层菲涅尔厚玻璃倒角 + 顶部焦散高光丝） -->
+            <!-- 播放器清透玻璃由有色基底、内倒角和焦散边光构成。 -->
             <LinearGradientBrush x:Key="PlayerGlassBrush" StartPoint="0.1,0" EndPoint="0.9,1">
-                <GradientStop Color="#4C1B2130" Offset="0" />
-                <GradientStop Color="#5E131722" Offset="0.45" />
-                <GradientStop Color="#720B0E16" Offset="1" />
+                <GradientStop Color="#30202937" Offset="0" />
+                <GradientStop Color="#40151A25" Offset="0.48" />
+                <GradientStop Color="#620B0E16" Offset="1" />
             </LinearGradientBrush>
             <LinearGradientBrush x:Key="PlayerGlassPillBrush" StartPoint="0.1,0" EndPoint="0.9,1">
-                <GradientStop Color="#5E1C2232" Offset="0" />
-                <GradientStop Color="#70131722" Offset="0.48" />
-                <GradientStop Color="#840B0E16" Offset="1" />
+                <GradientStop Color="#40272F3C" Offset="0" />
+                <GradientStop Color="#48131722" Offset="0.48" />
+                <GradientStop Color="#6D0B0E16" Offset="1" />
             </LinearGradientBrush>
             <LinearGradientBrush x:Key="PlayerGlassFlyoutBrush" StartPoint="0.1,0" EndPoint="0.9,1">
                 <GradientStop Color="#D6161B28" Offset="0" />
                 <GradientStop Color="#E40E111A" Offset="1" />
             </LinearGradientBrush>
             <LinearGradientBrush x:Key="PlayerGlassVolumeBrush" StartPoint="0.12,0" EndPoint="0.88,1">
-                <GradientStop Color="#30F4F8FF" Offset="0" />
-                <GradientStop Color="#16E4ECFF" Offset="0.22" />
-                <GradientStop Color="#0AE0E8FF" Offset="0.50" />
+                <GradientStop Color="#34F4F8FF" Offset="0" />
+                <GradientStop Color="#12E4ECFF" Offset="0.19" />
+                <GradientStop Color="#04E0E8FF" Offset="0.50" />
                 <GradientStop Color="#2C04060D" Offset="1" />
             </LinearGradientBrush>
             <LinearGradientBrush x:Key="PlayerGlassInnerBevelBrush" StartPoint="0,0" EndPoint="0,1">
-                <GradientStop Color="#2EFFFFFF" Offset="0" />
-                <GradientStop Color="#0AFFFFFF" Offset="0.35" />
+                <GradientStop Color="#44FFFFFF" Offset="0" />
+                <GradientStop Color="#0EFFFFFF" Offset="0.35" />
                 <GradientStop Color="#06000000" Offset="0.72" />
                 <GradientStop Color="#30000000" Offset="1" />
             </LinearGradientBrush>
@@ -54,10 +53,10 @@
                 <GradientStop Color="#00FFFFFF" Offset="1" />
             </LinearGradientBrush>
             <LinearGradientBrush x:Key="PlayerGlassBorderBrush" StartPoint="0.1,0" EndPoint="0.9,1">
-                <GradientStop Color="#8CFFFFFF" Offset="0" />
-                <GradientStop Color="#38FFFFFF" Offset="0.24" />
-                <GradientStop Color="#1CFFFFFF" Offset="0.74" />
-                <GradientStop Color="#4CFFFFFF" Offset="1" />
+                <GradientStop Color="#9CFFFFFF" Offset="0" />
+                <GradientStop Color="#44F4FAFF" Offset="0.24" />
+                <GradientStop Color="#20D9E3F7" Offset="0.74" />
+                <GradientStop Color="#57FFFFFF" Offset="1" />
             </LinearGradientBrush>
             <LinearGradientBrush x:Key="PlayerGlassSheenBrush" StartPoint="0,0" EndPoint="0,1">
                 <GradientStop Color="#28FFFFFF" Offset="0" />

@@ -1,5 +1,5 @@
-using System.Collections.Concurrent;
 using System.Globalization;
+using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.Json;
 using TV.Models;
@@ -18,8 +18,6 @@ namespace TV.Services.Vod.Native;
 /// </summary>
 public sealed class UniversalProtocolVodProvider(SourceHttpClient http, CloudDriveService? cloud = null) : INativePlaybackProvider
 {
-    private readonly ConcurrentDictionary<string, string> _appBasePrefixCache = new(StringComparer.OrdinalIgnoreCase);
-
     private static readonly HashSet<string> AppApiNames = new(StringComparer.OrdinalIgnoreCase)
     {
         "csp_AppYsV2", "csp_AppYsV2Guard",
@@ -561,11 +559,12 @@ public sealed class UniversalProtocolVodProvider(SourceHttpClient http, CloudDri
 
     private sealed record CloudCatalogEntry(string CategoryKey, string CategoryName, string Title, string ShareUrl, string Remarks);
 
-    private readonly ConcurrentDictionary<string, (List<CloudCatalogEntry> Entries, DateTimeOffset ExpiresAt)> _cloudCatalogCache = new(StringComparer.OrdinalIgnoreCase);
+    private sealed record CloudCatalogCache(List<CloudCatalogEntry> Entries, DateTimeOffset ExpiresAt);
+    private readonly ConditionalWeakTable<SourceSite, CloudCatalogCache> _cloudCatalogCache = new();
 
     private async Task<List<CloudCatalogEntry>> LoadCloudCatalogAsync(SourceSite site, CancellationToken token)
     {
-        if (_cloudCatalogCache.TryGetValue(site.Key, out var cached) && cached.ExpiresAt > DateTimeOffset.UtcNow)
+        if (_cloudCatalogCache.TryGetValue(site, out var cached) && cached.ExpiresAt > DateTimeOffset.UtcNow)
             return cached.Entries;
 
         var entries = new List<CloudCatalogEntry>();
@@ -599,7 +598,8 @@ public sealed class UniversalProtocolVodProvider(SourceHttpClient http, CloudDri
             }
         }
 
-        _cloudCatalogCache[site.Key] = (entries, DateTimeOffset.UtcNow.AddMinutes(10));
+        if (entries.Count > 0)
+            _cloudCatalogCache.AddOrUpdate(site, new CloudCatalogCache(entries, DateTimeOffset.UtcNow.AddMinutes(10)));
         return entries;
     }
 
@@ -637,7 +637,7 @@ public sealed class UniversalProtocolVodProvider(SourceHttpClient http, CloudDri
         var items = entries.Take(60).Select(e => ToCloudCatalogVod(site, e)).ToList();
         return new CmsResponse
         {
-            HomeCategoryName = "网盘精选",
+            HomeCategoryName = site.Tool == SourceTool.Files ? "共享文件" : "网盘合集",
             Categories = categories,
             List = items,
             Page = 1,

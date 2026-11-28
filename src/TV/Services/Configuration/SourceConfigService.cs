@@ -10,6 +10,10 @@ namespace TV.Services.Configuration;
 
 public sealed partial class SourceConfigService : IDisposable
 {
+    private static readonly HashSet<string> LinkExtensionFields = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "site", "sites", "siteUrl", "host", "hosts", "url", "urls", "baseUrl", "homeUrl", "endpoint"
+    };
     public const string BuiltInRepositoryId = "builtin";
     public const string BuiltInRepositoryName = "内置仓库";
     private const string SettingActiveRepo = "source.activeRepo";
@@ -478,6 +482,7 @@ public sealed partial class SourceConfigService : IDisposable
     {
         var results = new List<ImportedRepository>();
         var visited = new HashSet<Uri>();
+        var completed = new HashSet<Uri>();
         var pending = new Queue<(Uri Uri, string Name, bool IsRoot)>();
         pending.Enqueue((root, root.Host, true));
         var errors = new List<string>();
@@ -489,12 +494,7 @@ public sealed partial class SourceConfigService : IDisposable
             {
                 if (visited.Add(entry.Uri))
                 {
-                    var current = entry;
-                    batch.Add(Task.Run(async () =>
-                    {
-                        var (doc, err, baseUri) = await ReadRepositoryEntryAsync(current.Uri, current.Name, token).ConfigureAwait(false);
-                        return (doc, err, baseUri, current.Name, current.IsRoot);
-                    }, token));
+                    batch.Add(ReadEntryAsync(entry));
                 }
                 if (batch.Count >= 6) break;
             }
@@ -506,6 +506,7 @@ public sealed partial class SourceConfigService : IDisposable
                     if (error is not null) errors.Add(error);
                     continue;
                 }
+                if (!completed.Add(baseUri)) continue;
 
                 // Expand multi-warehouse (`storeHouse`) and multi-repo (`urls`) entries
                 foreach (var house in document.StoreHouse.Take(16))
@@ -523,7 +524,7 @@ public sealed partial class SourceConfigService : IDisposable
                 {
                     HydrateDocument(document, isBuiltIn: false);
                     var displayName = string.IsNullOrWhiteSpace(entryName) ? baseUri.Host : entryName;
-                    var groupUrl = isRoot ? null : root.AbsoluteUri;
+                    var groupUrl = isRoot && baseUri == root ? null : root.AbsoluteUri;
                     results.Add(new ImportedRepository(baseUri.AbsoluteUri, displayName, document, groupUrl));
                 }
             }
@@ -533,6 +534,13 @@ public sealed partial class SourceConfigService : IDisposable
             throw new InvalidDataException(errors.FirstOrDefault() ?? "配置中没有可用的点播或直播源。");
         if (errors.Count > 0) Diagnostics.Log($"多仓部分条目读取失败：{string.Join(" · ", errors)}");
         return results;
+
+        async Task<(ConfigDocument? Document, string? Error, Uri? BaseUri, string Name, bool IsRoot)> ReadEntryAsync(
+            (Uri Uri, string Name, bool IsRoot) entry)
+        {
+            var (document, error, baseUri) = await ReadRepositoryEntryAsync(entry.Uri, entry.Name, token).ConfigureAwait(false);
+            return (document, error, baseUri, entry.Name, entry.IsRoot);
+        }
     }
 
     private async Task<(ConfigDocument? Document, string? Error, Uri? BaseUri)> ReadRepositoryEntryAsync(Uri uri, string name, CancellationToken token)
@@ -576,28 +584,14 @@ public sealed partial class SourceConfigService : IDisposable
             {
                 if (TryHttpUri(parent, site.Api) is { } api) site.Api = api.AbsoluteUri;
             }
-            if (site.Ext.ValueKind == JsonValueKind.String)
-            {
-                var rawExt = site.Ext.GetString();
-                if (!string.IsNullOrWhiteSpace(rawExt))
-                {
-                    var normalizedExt = ResolveRelativeSegments(parent, rawExt);
-                    if (!string.Equals(normalizedExt, rawExt, StringComparison.Ordinal))
-                        site.Ext = JsonSerializer.SerializeToElement(normalizedExt);
-                }
-            }
-            else if (site.Ext.ValueKind == JsonValueKind.Object)
-            {
-                var normalizedObj = NormalizeExtObject(parent, site.Ext, out var changed);
-                if (changed) site.Ext = normalizedObj;
-            }
+            site.Ext = NormalizeExtLinks(parent, site.Ext, addressField: true);
             if (!string.IsNullOrWhiteSpace(document.Spider) && string.IsNullOrWhiteSpace(site.RepositorySpider))
                 site.RepositorySpider = document.Spider;
         }
         foreach (var live in document.Lives)
             if (TryHttpUri(parent, live.Url) is { } url) live.Url = url.AbsoluteUri;
         foreach (var parser in document.Parses)
-            if ((parser.Url.StartsWith('/') || parser.Url.StartsWith("./", StringComparison.Ordinal) || parser.Url.StartsWith("../", StringComparison.Ordinal))
+            if (IsRelativeOrUrlPath(parser.Url)
                 && TryHttpUri(parent, parser.Url) is { } url)
                 parser.Url = url.AbsoluteUri;
     }
@@ -624,46 +618,71 @@ public sealed partial class SourceConfigService : IDisposable
         return trimmed;
     }
 
-    private static JsonElement NormalizeExtObject(Uri parent, JsonElement obj, out bool changed)
+    private static JsonElement NormalizeExtLinks(Uri parent, JsonElement value, bool addressField = false, int depth = 0)
     {
-        changed = false;
-        var dict = new Dictionary<string, object?>(StringComparer.Ordinal);
-        foreach (var prop in obj.EnumerateObject())
+        if (depth >= 5) return value;
+        switch (value.ValueKind)
         {
-            if (prop.Value.ValueKind == JsonValueKind.String)
-            {
-                var raw = prop.Value.GetString() ?? string.Empty;
-                var norm = ResolveRelativeSegments(parent, raw);
-                if (!string.Equals(norm, raw, StringComparison.Ordinal)) changed = true;
-                dict[prop.Name] = norm;
-            }
-            else
-            {
-                dict[prop.Name] = prop.Value;
-            }
+            case JsonValueKind.Object:
+                var properties = new Dictionary<string, JsonElement>(StringComparer.Ordinal);
+                var objectChanged = false;
+                foreach (var property in value.EnumerateObject())
+                {
+                    var nested = NormalizeExtLinks(parent, property.Value, LinkExtensionFields.Contains(property.Name), depth + 1);
+                    objectChanged |= !nested.Equals(property.Value);
+                    properties[property.Name] = nested;
+                }
+                return objectChanged ? JsonSerializer.SerializeToElement(properties) : value;
+            case JsonValueKind.Array:
+                var items = new List<JsonElement>();
+                var arrayChanged = false;
+                foreach (var item in value.EnumerateArray())
+                {
+                    var nested = NormalizeExtLinks(parent, item, addressField, depth + 1);
+                    arrayChanged |= !nested.Equals(item);
+                    items.Add(nested);
+                }
+                return arrayChanged ? JsonSerializer.SerializeToElement(items) : value;
+            case JsonValueKind.String:
+                var raw = value.GetString() ?? string.Empty;
+                var trimmed = raw.Trim();
+                if (trimmed.StartsWith('{') || trimmed.StartsWith('['))
+                {
+                    try
+                    {
+                        using var document = JsonDocument.Parse(trimmed);
+                        var normalized = NormalizeExtLinks(parent, document.RootElement, addressField, depth + 1);
+                        return normalized.Equals(document.RootElement) ? value : JsonSerializer.SerializeToElement(normalized.GetRawText());
+                    }
+                    catch (JsonException) { return value; }
+                }
+
+                var resolved = ResolveRelativeSegments(parent, raw, addressField);
+                return resolved.Equals(raw, StringComparison.Ordinal) ? value : JsonSerializer.SerializeToElement(resolved);
+            default:
+                return value;
         }
-        return changed ? JsonSerializer.SerializeToElement(dict) : obj;
     }
 
-    private static string ResolveRelativeSegments(Uri parent, string raw)
+    private static string ResolveRelativeSegments(Uri parent, string raw, bool addressField)
     {
-        if (!raw.Contains("./", StringComparison.Ordinal) && !raw.Contains("../", StringComparison.Ordinal))
-            return raw;
-        if (raw.Contains("$$$", StringComparison.Ordinal))
+        foreach (var separator in new[] { "$$$", "|", "," })
         {
-            var parts = raw.Split("$$$");
+            if (!raw.Contains(separator, StringComparison.Ordinal) || separator != "$$$" && !addressField) continue;
+            var parts = raw.Split(separator);
             for (var i = 0; i < parts.Length; i++)
-            {
-                var p = parts[i].Trim();
-                if ((p.StartsWith("./", StringComparison.Ordinal) || p.StartsWith("../", StringComparison.Ordinal)) && TryHttpUri(parent, p) is { } u)
-                    parts[i] = u.AbsoluteUri;
-            }
-            return string.Join("$$$", parts);
+                parts[i] = Resolve(parts[i]);
+            return string.Join(separator, parts);
         }
-        var trimmed = raw.Trim();
-        if ((trimmed.StartsWith("./", StringComparison.Ordinal) || trimmed.StartsWith("../", StringComparison.Ordinal)) && TryHttpUri(parent, trimmed) is { } single)
-            return single.AbsoluteUri;
-        return raw;
+        return Resolve(raw);
+
+        string Resolve(string item)
+        {
+            var trimmed = item.Trim();
+            var relative = trimmed.StartsWith("./", StringComparison.Ordinal) || trimmed.StartsWith("../", StringComparison.Ordinal) ||
+                addressField && trimmed.StartsWith('/');
+            return relative && TryHttpUri(parent, trimmed) is { } uri ? uri.AbsoluteUri : item;
+        }
     }
 
     private async Task<(ConfigDocument Document, string Raw, string FinalUrl)> FetchDocumentAsync(string url, int depth, CancellationToken cancellationToken)
@@ -697,6 +716,20 @@ public sealed partial class SourceConfigService : IDisposable
         document.Parses ??= [];
         document.Flags ??= [];
         document.Ads ??= [];
+        document.Urls.RemoveAll(static entry => entry is null);
+        document.StoreHouse.RemoveAll(static entry => entry is null);
+        document.Sites.RemoveAll(static site => site is null);
+        document.Lives.RemoveAll(static live => live is null);
+        document.Parses.RemoveAll(static parser => parser is null);
+        foreach (var site in document.Sites)
+        {
+            site.Api = site.Api?.Trim() ?? string.Empty;
+            site.Name = site.Name?.Trim() ?? string.Empty;
+            site.Jar ??= string.Empty;
+            site.Key = string.IsNullOrWhiteSpace(site.Key) ? ComputeRepositoryId(site.Api + "\n" + site.Name) : site.Key.Trim();
+            if (site.Name.Length == 0) site.Name = site.Key;
+            site.Categories ??= [];
+        }
         return document;
     }
 

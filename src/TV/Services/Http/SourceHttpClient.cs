@@ -69,6 +69,7 @@ public sealed class SourceHttpClient : IDisposable
     /// <summary>
     /// Performs an HTTP GET returning status code, Set-Cookie headers, and body without throwing on 4xx/5xx,
     /// allowing providers to detect CAPTCHA / WAF verification challenges accurately.
+    /// With a matching content-type predicate, a successful media response is returned without buffering its body.
     /// </summary>
     public async Task<HttpExchangeResult> GetExchangeAsync(
         string url,
@@ -76,7 +77,8 @@ public sealed class SourceHttpClient : IDisposable
         int maxBytes = 4 * 1024 * 1024,
         CancellationToken cancellationToken = default,
         bool scopeRedirectHeaders = false,
-        TimeSpan? requestTimeout = null)
+        TimeSpan? requestTimeout = null,
+        Func<string, bool>? skipBodyForContentType = null)
     {
         if (!Uri.TryCreate(url, UriKind.Absolute, out var uri) || uri.Scheme is not ("http" or "https"))
             throw new ArgumentException("仅支持有效的 HTTP/HTTPS 地址。", nameof(url));
@@ -87,7 +89,10 @@ public sealed class SourceHttpClient : IDisposable
         var setCookies = ReadSetCookies(response);
         var hasCf = response.Headers.TryGetValues("cf-mitigated", out var cfValues) &&
             cfValues.Any(v => v.Contains("challenge", StringComparison.OrdinalIgnoreCase));
-        var payload = await ReadPayloadAsync(response, uri, maxBytes, timeout.Token).ConfigureAwait(false);
+        var contentType = response.Content.Headers.ContentType?.MediaType ?? string.Empty;
+        var payload = response.IsSuccessStatusCode && !hasCf && skipBodyForContentType?.Invoke(contentType) == true
+            ? new HttpPayload([], contentType, response.RequestMessage?.RequestUri ?? uri)
+            : await ReadPayloadAsync(response, uri, maxBytes, timeout.Token).ConfigureAwait(false);
         return new HttpExchangeResult(payload, response.StatusCode, setCookies, hasCf);
     }
 

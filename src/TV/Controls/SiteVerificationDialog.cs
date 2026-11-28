@@ -6,6 +6,7 @@ using Microsoft.UI.Xaml.Media.Imaging;
 using Microsoft.Web.WebView2.Core;
 using TV.Services;
 using TV.Services.Http;
+using TV.Services.Playback;
 using TV.Services.Persistence;
 using Windows.Storage.Streams;
 using Windows.System;
@@ -313,8 +314,7 @@ public sealed class SiteVerificationDialog
         {
             try
             {
-                var env = await CoreWebView2Environment.CreateWithOptionsAsync(
-                    null, Path.Combine(AppPaths.Root, "webview2"), new CoreWebView2EnvironmentOptions());
+                var env = await WebViewRuntime.CreateEnvironmentAsync();
                 await webView.EnsureCoreWebView2Async(env);
                 var core = webView.CoreWebView2;
                 core.Settings.AreDefaultScriptDialogsEnabled = true;

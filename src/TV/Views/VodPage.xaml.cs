@@ -117,6 +117,37 @@ public sealed partial class VodPage : Page
 
     private void OnSearchClick(object sender, RoutedEventArgs e) => App.Window.OpenSearch();
 
+    private void OnSiteCastClick(object sender, RoutedEventArgs e) => App.Window.Navigate("cast");
+
+    private async void OnSiteToolClick(object sender, RoutedEventArgs e)
+    {
+        switch (ViewModel.SelectedSite?.Tool)
+        {
+            case SourceTool.Settings:
+                App.Window.Navigate("settings");
+                break;
+            case SourceTool.Files:
+                App.Window.ViewModel.Library.SelectedTab = 3;
+                App.Window.Navigate("library");
+                break;
+            case SourceTool.Market:
+                App.Window.Navigate("cloud");
+                break;
+            case SourceTool.Push when XamlRoot is not null:
+                var input = new TextBox { Header = "媒体直链或网盘分享地址", PlaceholderText = "https://", MaxLength = 4096 };
+                var dialog = new ContentDialog
+                {
+                    XamlRoot = XamlRoot, Title = "播放推送链接", Content = input,
+                    PrimaryButtonText = "播放", CloseButtonText = "取消"
+                };
+                if (await dialog.ShowAsync() != ContentDialogResult.Primary) return;
+                if (Uri.TryCreate(input.Text.Trim(), UriKind.Absolute, out var uri) && TV.Services.Http.MediaRequestHeaders.IsHttpAddress(uri))
+                    ViewModel.PlayPushedLink(uri);
+                else ViewModel.StatusMessage = "请输入有效的 HTTP 或 HTTPS 链接。";
+                break;
+        }
+    }
+
     private void OnRepoMenuOpening(object? sender, object e)
     {
         RepoSwitcherFlyout.Items.Clear();

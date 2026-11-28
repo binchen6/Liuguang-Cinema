@@ -3,7 +3,8 @@ param(
     [string]$AppDirectory = 'src/TV/bin/x64/Release/net10.0-windows10.0.19041.0/win-x64',
     [string]$OutputDirectory = 'artifacts/qa-release',
     [switch]$VerifyDefaultService,
-    [switch]$VerifyPython
+    [switch]$VerifyPython,
+    [switch]$VerifyBundledRuntimes
 )
 
 $ErrorActionPreference = 'Stop'
@@ -35,6 +36,7 @@ try {
         '--depsfile', (Join-Path $app 'TV.deps.json'), $assembly, $profile)
     if ($VerifyDefaultService) { $launchArgs += '--verify-default-service' }
     if ($VerifyPython) { $launchArgs += '--verify-python' }
+    if ($VerifyBundledRuntimes) { $launchArgs += '--verify-bundled-runtimes' }
     & $dotnet @launchArgs
     $regressionExitCode = $LASTEXITCODE
 }

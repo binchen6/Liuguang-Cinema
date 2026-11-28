@@ -28,6 +28,7 @@ public sealed class VodItem
     [JsonPropertyName("type_name")] public string TypeName { get; set; } = string.Empty;
     [JsonPropertyName("vod_play_from")] public string PlayFrom { get; set; } = string.Empty;
     [JsonPropertyName("vod_play_url")] public string PlayUrl { get; set; } = string.Empty;
+    [JsonPropertyName("vod_lyrics")] public string? Lyrics { get; set; }
 
     public string SiteKey { get; set; } = string.Empty;
     public string SiteName { get; set; } = string.Empty;
@@ -91,6 +92,9 @@ public sealed class PlaybackRequest
     public string VodId { get; set; } = string.Empty;
     public string? Picture { get; set; }
     public long StartPositionMs { get; set; }
+    public bool IsMusic { get; set; }
+    public string? MusicCover { get; set; }
+    public string? MusicLyrics { get; set; }
     public Dictionary<string, string> Headers { get; set; } = new(StringComparer.OrdinalIgnoreCase);
     public VodItem? Item { get; set; }
     public List<PlaybackLine> Lines { get; set; } = [];
@@ -115,6 +119,7 @@ public sealed class PlaybackRequest
     {
         Kind = Kind, Title = Title, Subtitle = Subtitle, Url = Url, SiteKey = SiteKey, VodId = VodId,
         Picture = Picture, StartPositionMs = StartPositionMs, Headers = new(Headers, StringComparer.OrdinalIgnoreCase),
+        IsMusic = IsMusic, MusicCover = MusicCover, MusicLyrics = MusicLyrics,
         Item = Item, Lines = Lines, LineIndex = LineIndex, EpisodeIndex = EpisodeIndex, Channel = Channel,
         Subtitles = [.. Subtitles], AudioTracks = [.. AudioTracks], CloudSubtitles = CloudSubtitles, Danmaku = Danmaku,
         RecoverMissingSource = RecoverMissingSource,

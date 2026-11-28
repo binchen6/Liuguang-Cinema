@@ -349,6 +349,10 @@
         </Grid>
 
         <StackPanel Grid.Row="1" Orientation="Horizontal" HorizontalAlignment="Center" Spacing="16" Margin="0,12,0,0">
+            <Button Content="{Binding SiteToolAction}" Style="{StaticResource SecondaryButtonStyle}"
+                    Visibility="{Binding HasSiteTool, Converter={StaticResource BoolToVisibility}}" Click="OnSiteToolClick" />
+            <Button Content="打开投屏接收" Style="{StaticResource SecondaryButtonStyle}"
+                    Visibility="{Binding IsPushSite, Converter={StaticResource BoolToVisibility}}" Click="OnSiteCastClick" />
             <TextBlock Text="{Binding StatusMessage}" Style="{StaticResource MetaText}" VerticalAlignment="Center"
                        MaxWidth="460" TextTrimming="CharacterEllipsis" />
             <Button Content="完成验证" Style="{StaticResource PrimaryButtonStyle}"

@@ -3,7 +3,6 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.Web.WebView2.Core;
 using System.Text.Json;
 using TV.Services.Http;
-using TV.Services.Persistence;
 
 namespace TV.Services.Playback;
 
@@ -18,15 +17,16 @@ public sealed partial class SniffService
     private static readonly TimeSpan DefaultTimeout = TimeSpan.FromSeconds(22);
     private readonly DispatcherQueue _dispatcher;
     private readonly SemaphoreSlim _gate = new(1, 1);
-    private Panel? _host;
+    private Canvas? _host;
     private WebView2? _webView;
     private Task<bool>? _ready;
     private CachedMedia? _recent;
+    internal string? RuntimeIssue { get; private set; }
     private sealed record CachedMedia(string Page, string? UserAgent, Func<Uri, bool>? Filter, SniffedMedia Media, DateTimeOffset ExpiresAt);
 
     public SniffService(DispatcherQueue dispatcher) => _dispatcher = dispatcher;
 
-    public void Attach(Panel host) => _host = host;
+    public void Attach(Canvas host) => _host = host;
 
     public void Detach()
     {
@@ -34,22 +34,25 @@ public sealed partial class SniffService
         _host = null;
         _ready = null;
         _recent = null;
+        RuntimeIssue = null;
         if (_webView is not { } webView) return;
         _webView = null;
         webView.Close();
         host?.Children.Remove(webView);
     }
 
-    private WebView2 CreateView(Panel host)
+    private static WebView2 CreateView(Canvas host)
     {
         var view = new WebView2
         {
-            Width = 8,
-            Height = 8,
+            Width = 640,
+            Height = 360,
             Opacity = 0.01,
             IsHitTestVisible = false,
             DefaultBackgroundColor = Windows.UI.Color.FromArgb(0, 0, 0, 0)
         };
+        // WebView2 uses its own HWND, so a parent's opacity does not reliably hide it.
+        Canvas.SetLeft(view, -1024);
         host.Children.Add(view);
         return view;
     }
@@ -144,67 +147,45 @@ public sealed partial class SniffService
         }
     }
 
-    private Task<bool> EnsureReadyAsync() => _ready ??= RunOnUi<bool>(async _ =>
+    private Task<bool> EnsureReadyAsync()
     {
-        try
+        if (_ready is { IsCompletedSuccessfully: true, Result: false }) _ready = null;
+        return _ready ??= RunOnUi<bool>(async _ =>
         {
             if (_host is not { } host) return false;
             var webView = _webView ??= CreateView(host);
-            var environment = await CoreWebView2Environment.CreateWithOptionsAsync(null, Path.Combine(AppPaths.Root, "webview2"), new CoreWebView2EnvironmentOptions());
-            if (_host is null) return false;
-            await webView.EnsureCoreWebView2Async(environment);
-            if (_host is null) return false;
-            var core = webView.CoreWebView2;
-            core.Settings.AreDefaultScriptDialogsEnabled = false;
-            core.Settings.IsStatusBarEnabled = false;
-            core.Settings.AreHostObjectsAllowed = false;
-            core.Settings.IsWebMessageEnabled = false;
-            core.Settings.AreDevToolsEnabled = false;
-            core.NewWindowRequested += (_, args) => args.Handled = true;
-            core.DownloadStarting += (_, args) => args.Cancel = true;
-            core.PermissionRequested += (_, args) => args.State = CoreWebView2PermissionState.Deny;
-            core.LaunchingExternalUriScheme += (_, args) => args.Cancel = true;
-            return true;
-        }
-        catch (Exception ex)
-        {
-            if (_host is null) return false;
-            Diagnostics.Log("Sniffer init failed: " + ex.Message);
-            _ready = null;
-            // 目标机器没有 WebView2 运行时：尝试用安装包内置的引导程序静默安装一次
-            if (await TryInstallWebView2RuntimeAsync().ConfigureAwait(false)) return await EnsureReadyAsync().ConfigureAwait(false);
-            return false;
-        }
-    }, CancellationToken.None);
-
-    private bool _installAttempted;
-
-    private async Task<bool> TryInstallWebView2RuntimeAsync()
-    {
-        if (_installAttempted) return false;
-        _installAttempted = true;
-        try
-        {
-            var bootstrapper = Path.Combine(AppContext.BaseDirectory, "runtime", "MicrosoftEdgeWebView2Setup.exe");
-            if (!File.Exists(bootstrapper)) return false;
-            Diagnostics.Log("WebView2 runtime missing, installing bundled bootstrapper...");
-            var process = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+            try
             {
-                FileName = bootstrapper,
-                Arguments = "/silent /install",
-                UseShellExecute = false,
-                CreateNoWindow = true
-            });
-            if (process is null) return false;
-            await process.WaitForExitAsync().WaitAsync(TimeSpan.FromMinutes(3)).ConfigureAwait(false);
-            Diagnostics.Log("WebView2 bootstrapper exited: " + process.ExitCode);
-            return process.ExitCode == 0;
-        }
-        catch (Exception ex)
-        {
-            Diagnostics.Log("WebView2 bootstrapper failed: " + ex.Message);
-            return false;
-        }
+                var environment = await WebViewRuntime.CreateEnvironmentAsync();
+                if (!ReferenceEquals(_webView, webView)) return false;
+                await webView.EnsureCoreWebView2Async(environment);
+                if (!ReferenceEquals(_webView, webView)) return false;
+                var core = webView.CoreWebView2;
+                core.Settings.AreDefaultScriptDialogsEnabled = false;
+                core.Settings.IsStatusBarEnabled = false;
+                core.Settings.AreHostObjectsAllowed = false;
+                core.Settings.IsWebMessageEnabled = false;
+                core.Settings.AreDevToolsEnabled = false;
+                core.NewWindowRequested += (_, args) => args.Handled = true;
+                core.DownloadStarting += (_, args) => args.Cancel = true;
+                core.PermissionRequested += (_, args) => args.State = CoreWebView2PermissionState.Deny;
+                core.LaunchingExternalUriScheme += (_, args) => args.Cancel = true;
+                RuntimeIssue = null;
+                return true;
+            }
+            catch (Exception ex)
+            {
+                if (ReferenceEquals(_webView, webView))
+                {
+                    RuntimeIssue = ex is WebViewRuntimeUnavailableException ? ex.Message : null;
+                    Diagnostics.Log($"Sniffer init failed: {ex.GetType().Name}");
+                    _webView = null;
+                    webView.Close();
+                    host.Children.Remove(webView);
+                }
+                return false;
+            }
+        }, CancellationToken.None);
     }
 
     private async Task<SniffedMedia?> SniffCoreAsync(string pageUrl, string? userAgent, Func<Uri, bool>? allowMedia, CancellationToken cancellationToken)

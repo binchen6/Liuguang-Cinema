@@ -505,13 +505,11 @@
         <Setter Property="InnerBevelBrush" Value="{StaticResource PlayerGlassInnerBevelBrush}" />
         <Setter Property="CausticBrush" Value="{StaticResource PlayerGlassCausticBrush}" />
         <Setter Property="BottomBevelBrush" Value="{StaticResource PlayerGlassBottomBevelBrush}" />
-        <Setter Property="FrostGrainOpacity" Value="0.085" />
         <Setter Property="OpticsProfile" Value="Cinema" />
     </Style>
 
     <Style x:Key="PlayerPillGlassStyle" TargetType="controls:GlassSurface" BasedOn="{StaticResource PlayerDockGlassStyle}">
         <Setter Property="Background" Value="{StaticResource PlayerGlassPillBrush}" />
-        <Setter Property="FrostGrainOpacity" Value="0.10" />
     </Style>
 
     <Style x:Key="AppPanelGlassStyle" TargetType="controls:GlassSurface" BasedOn="{StaticResource BaseGlassSurfaceStyle}">

@@ -77,7 +77,7 @@ internal static class Program
         try
         {
             var fullPath = Path.GetFullPath(path);
-            return File.Exists(fullPath) && LocalMediaService.IsVideo(fullPath) ? fullPath : null;
+            return File.Exists(fullPath) && LocalMediaService.IsSupportedMedia(fullPath) ? fullPath : null;
         }
         catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
         {

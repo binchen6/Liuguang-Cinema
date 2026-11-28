@@ -17,6 +17,9 @@
 | BouncyCastle (`bcprov-jdk18on`) | 外部安卓爬虫加密与签名兼容 | [Bouncy Castle](https://www.bouncycastle.org/) 1.80，MIT 兼容许可 |
 | VideoLAN / LibVLCSharp | 音视频硬件/软件解码、多音轨、字幕与 Windows 渲染 | LibVLC 3.0.24、LibVLCSharp.WinUI 3.10.0（[源码说明](third_party/VideoLAN/SOURCE.md)，LGPL-2.1-or-later） |
 | .NET / WinUI / NuGet 包 | 桌面 UI、SQLite、AngleSharp、SkiaSharp、QRCoder 等 | 版本锁定于 `src/TV/packages.lock.json`；各包许可随安装包 `licenses/` 目录分发 |
+| CPython 3.14.10 x64 嵌入版 | 无系统 Python 时运行兼容的 TVBox Python 脚本 | Python Software Foundation License。官方 ZIP 的许可随 `runtime/python/LICENSE.txt` 分发。[Python.org](https://www.python.org/downloads/release/python-31410/) |
+| Microsoft Edge WebView2 Evergreen 引导程序 | 缺少 WebView2 时按需安装浏览器运行时 | 微软签名的可再分发引导程序。[Microsoft Learn](https://learn.microsoft.com/en-us/microsoft-edge/webview2/concepts/distribution) |
+| TagLibSharp 2.3.0 | 读取音频自带的歌词、封面与曲目信息 | LGPL-2.1-only。[对应源码](https://github.com/mono/taglib-sharp/tree/TaglibSharp-2.3.0.0)，[NuGet 包](https://www.nuget.org/packages/TagLibSharp/2.3.0) |
 | Inno Setup 简体中文翻译 | 安装器与增量更新器简体中文界面 | [Inno-Setup-Chinese-Simplified-Translation](https://github.com/kira-96/Inno-Setup-Chinese-Simplified-Translation)，MIT（留存 `installer/Languages`） |
 
 `engine/catvod/src` 另含桌面 JSON IPC 桥接、Android 兼容垫片与项目维护补丁（启用 JVM 默认 TLS 校验并限制跨域凭据转发）。实际编入依赖以 `engine/catvod/pom.xml` 与 `src/TV/TV.csproj` 为准。
@@ -29,6 +32,7 @@
 - **弹弹play 开放弹幕网络**：[doc.dandanplay.com/open](https://doc.dandanplay.com/open/)，用于可选的在线弹幕匹配与拉取。
 - **阿里云百炼 / DashScope API**：用于可选的 AI 字幕生成、翻译与实时字幕，由用户自行申请 API Key 并按官方计费与服务条款使用。
 - **豆瓣**：用于公开元数据与推荐信息展示，相关权利归原权利人。
+- **在线音乐元数据**：手动匹配时使用 [LRCLIB](https://lrclib.net/docs) 获取歌词，通过 [MusicBrainz](https://musicbrainz.org/doc/MusicBrainz_API) 与 [Cover Art Archive](https://musicbrainz.org/doc/Cover_Art_Archive/API) 获取匹配封面。相关权利归原权利人。
 
 ## 许可边界
 

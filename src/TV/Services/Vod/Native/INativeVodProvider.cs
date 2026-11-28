@@ -39,8 +39,6 @@ public sealed class NativeVodProviderRouter
         Playback.SniffService? browser = null) =>
         new([
             new WoggNativeProvider(http, cloud),
-            new HttpSpiderProvider(http),
-            new UniversalProtocolVodProvider(http, cloud),
             new HtmlVodProvider(http),
             bilibili,
             new ChangZhangVodProvider(http, browser is null ? null : browser.ReadPageHtmlAsync),
@@ -60,7 +58,9 @@ public sealed class NativeVodProviderRouter
             new PanSearchVodProvider(http, cloud),
             new KanqiuVodProvider(http),
             new PushVodProvider(cloud),
-            new MyDriveVodProvider(cloud)
+            new MyDriveVodProvider(cloud),
+            new HttpSpiderProvider(http),
+            new UniversalProtocolVodProvider(http, cloud)
         ]);
 
     public static bool IsSearchOnly(SourceSite site) =>

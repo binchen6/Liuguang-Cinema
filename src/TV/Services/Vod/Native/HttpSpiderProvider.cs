@@ -63,6 +63,13 @@ public sealed class HttpSpiderProvider(SourceHttpClient http) : INativePlaybackP
 
     public async Task<SpiderPlayResult> ResolvePlayAsync(SourceSite site, string flag, string id, CancellationToken token)
     {
+        if (PlayUrlResolver.IsDirectMediaUrl(id) && Uri.TryCreate(id, UriKind.Absolute, out var target) &&
+            MediaRequestHeaders.IsHttpAddress(target) && ResolveBaseUrl(site) is { } httpEndpoint)
+        {
+            var origin = new Uri(httpEndpoint);
+            var headers = NativeSiteToolkit.CreateBrowserHeaders(origin, MediaRequestHeaders.ForTarget(site.GetHeaders(), origin, target));
+            return new SpiderPlayResult(target.AbsoluteUri, headers, 0, 0) { ReplaceHeaders = true };
+        }
         var raw = await RequestAsync(site, token, [("play", id), ("flag", flag)]).ConfigureAwait(false);
         using var document = JsonDocument.Parse(raw);
         return SpiderVodClient.ReadPlayResult(document.RootElement);

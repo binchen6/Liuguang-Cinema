@@ -389,6 +389,47 @@ Check(UniversalAutoHtmlVodProvider.Supports(autoHtmlSite), "UniversalAutoHtmlVod
 var autoHome = await autoHtmlProvider.GetHomeAsync(autoHtmlSite);
 Check(autoHome.Categories.Count >= 2 && autoHome.List.Count >= 1 && autoHome.List[0].Name == "银河漫游", "UniversalAutoHtmlVodProvider extracts categories and Panlian cards generically");
 
+using var discoveryFixture = new AutomaticDiscoveryFixture();
+using var discoveryHttp = new SourceHttpClient(discoveryFixture);
+using var discoveryConfig = new SourceConfigService(discoveryHttp, customDb);
+await discoveryConfig.ImportAsync("https://archive.example.invalid/repositories/depot.json");
+var discoveryRepos = discoveryConfig.Repositories.Where(repo => !repo.IsBuiltIn && repo.Url.Contains("archive.example.invalid", StringComparison.Ordinal)).ToArray();
+Check(discoveryRepos.Length == 2, "Nested repositories deduplicate redirects and retain usable leaves after a partial failure");
+var htmlSite = discoveryRepos.Single(repo => repo.Name == "HTML").Document.Sites.Single();
+var cmsSite = discoveryRepos.Single(repo => repo.Name == "CMS").Document.Sites.Single();
+Check(htmlSite.Key == cmsSite.Key && htmlSite.Searchable == 1 && htmlSite.Filterable == 0 &&
+    htmlSite.Ext.GetProperty("config").GetProperty("sites")[1].GetString() == "https://archive.example.invalid/repositories/a/catalog/",
+    "Repository import resolves nested relative URLs and boolean capability flags");
+Check(UniversalAutoHtmlVodProvider.Supports(cmsSite), "An embedded JSON ext string retains its normalized CMS endpoint");
+var autodetect = new UniversalAutoHtmlVodProvider(discoveryHttp);
+var coldSearch = await autodetect.SearchAsync(htmlSite, "科学 站", 1);
+var discoveredHome = await autodetect.GetHomeAsync(htmlSite);
+Check(coldSearch.List.Single().Name == "科学搜索结果" && discoveredHome.List.Single().Name == "太空站" && discoveryFixture.HtmlHomeReads == 1,
+    "Cold search discovers the site's GET form, tries the backup subpath, and reuses home discovery");
+var categoryId = discoveredHome.Categories.Single().Id;
+var firstPage = await autodetect.GetCategoryAsync(htmlSite, categoryId, 1);
+var lastPage = await autodetect.GetCategoryAsync(htmlSite, categoryId, 2);
+Check(firstPage.PageCount == 2 && lastPage.PageCount == 2 && lastPage.List.Single().Name == "第二页",
+    "HTML pagination follows the real cursor link and terminates at the last page");
+var htmlDetail = await autodetect.GetDetailAsync(htmlSite, discoveredHome.List.Single().Id);
+var htmlEpisode = htmlDetail.PlayUrl.Split('$', 2)[1];
+var htmlPlay = await autodetect.ResolvePlayAsync(htmlSite, "在线播放", htmlEpisode, default);
+Check(htmlPlay.Url == "https://media.example.invalid/files/stream" && htmlPlay.Parse == 0 && htmlPlay.ContentType == "video/mp4" &&
+    htmlPlay.ReplaceHeaders && !htmlPlay.Headers.ContainsKey("Cookie"),
+    "Semantic video elements resolve without a browser and cross-origin playback excludes site credentials");
+var audioStream = await autodetect.ResolvePlayAsync(htmlSite, "音频", "https://media.example.invalid/files/audio", default);
+Check(audioStream.Parse == 0 && audioStream.ContentType == "audio/flac" && discoveryFixture.AudioReadAttempts == 1,
+    "Extensionless audio is classified from response headers without buffering the media");
+var cmsResult = await autodetect.SearchAsync(cmsSite, "纸飞机", 1);
+Check(cmsResult.List.Single().Id == "cms-one" && cmsResult.PageCount == 1 && (await autodetect.GetHomeAsync(htmlSite)).List.Single().Id.StartsWith('/'),
+    "Two repositories with the same site key keep independent HTML and CMS routes without phantom pagination");
+discoveryFixture.PrimaryCmsAvailable = false;
+var onBackup = await autodetect.SearchAsync(cmsSite, "纸飞机", 1);
+Check(onBackup.List.Single().Id == "cms-backup", "A stale CMS route returning 412 is rediscovered on its configured backup endpoint");
+var readyT4 = await new HttpSpiderProvider(discoveryHttp).ResolvePlayAsync(
+    new SourceSite { Type = 4, Api = "https://archive.example.invalid/no-t4-player" }, "默认", "https://media.example.invalid/files/video.mp4", default);
+Check(readyT4.Parse == 0 && readyT4.Url.EndsWith("/video.mp4", StringComparison.Ordinal), "A type-4 direct stream does not require a player endpoint");
+
 var jsAesClient = new JsSpiderClient(customHttp);
 var jsAesRule = """
     var rule = {
@@ -417,8 +458,16 @@ var jsSelHome = await jsAesClient.ExecuteInlineHomeAsync(new SourceSite { Key = 
 Check(jsSelHome.List.Count == 1 && jsSelHome.List[0].Name == "作者：B" && jsSelHome.List[0].Id == "https://m.ting15.com/book/1.html",
     "JsSpiderClient :eq() selector and self-anchor a&&href resolve accurately");
 
-if (args.Contains("--verify-python"))
+var verifyBundled = args.Contains("--verify-bundled-runtimes");
+if (verifyBundled || args.Contains("--verify-python"))
 {
+    if (verifyBundled)
+    {
+        var bundledPython = Path.Combine(AppContext.BaseDirectory, "runtime", "python", "python.exe");
+        Check(File.Exists(bundledPython) && File.Exists(Path.Combine(AppContext.BaseDirectory, "runtime", "MicrosoftEdgeWebView2Setup.exe")),
+            "The Windows payload includes Python and the WebView2 bootstrapper");
+        Environment.SetEnvironmentVariable("TV_PYTHON_EXECUTABLE", bundledPython);
+    }
     var pythonScript = Path.Combine(Directory.CreateDirectory(Path.Combine(args[0], "测试 爬虫")).FullName, "本地.py");
     await File.WriteAllTextAsync(pythonScript, """
         from base.spider import Spider as BaseSpider
@@ -438,6 +487,15 @@ if (args.Contains("--verify-python"))
     var pythonResponses = await Task.WhenAll(Enumerable.Range(0, 4).Select(_ => python.GetHomeAsync(pythonSite)));
     Check(pythonResponses.All(item => item.List.Single().Name == "中文 Python 回归"),
         "Python launcher, concurrent requests, UTF-8 IPC, and non-ASCII paths work together");
+    if (verifyBundled)
+    {
+        Environment.SetEnvironmentVariable("JAVA_HOME", Path.Combine(args[0], "不存在的 JDK"));
+        Environment.SetEnvironmentVariable("JAVA_TOOL_OPTIONS", "-XX:InvalidFixtureOption");
+        using var java = new SpiderRuntime(customDb);
+        var javaResponse = await java.SendAsync(new SourceSite { Key = "java_fixture", Api = "csp_PanTa", Type = 3 }, "home", []);
+        Check(javaResponse.ValueKind == JsonValueKind.Object && javaResponse.TryGetProperty("list", out _),
+            "The bundled Java engine answers IPC without using the machine's JAVA_HOME or JVM options");
+    }
 }
 
 var mirrorRoutes = GitHubMirrorService.BuildCandidateRoutes("https://github.com/binchen6/Liuguang-RepoPacks/releases/download/v1.0.0/y456y-pack-v1.0.0.zip");
@@ -503,6 +561,16 @@ var autoRes = await packSvc.AutoInstallForRepositoryAsync("http://www.y456y.com"
 Check(autoRes.Matched && autoRes.Installed && packSvc.TryGetInstalled("demo", out _), "RepoPackService matches host, downloads via China mirror, verifies SHA-256, and auto-installs pack");
 Check(packFixtureHandler.SawMirrorDownload && packFixtureHandler.SawOriginManifest,
     "RepoPackService reads the digest from the origin and uses mirrors for the verified ZIP");
+using (var alternatePack = new RepoPackService(packFixtureHttp, packDns, Path.Combine(args[0], "alternate-packs")))
+{
+    packFixtureHandler.RawUnavailable = true;
+    Check((await alternatePack.GetManifestAsync()).Packs.Single().Id == "demo" && packFixtureHandler.SawApiManifest,
+        "Resource-pack refresh uses GitHub's contents API if the raw endpoint is unreachable");
+    packFixtureHandler.ApiUnavailable = true;
+    Check((await alternatePack.GetManifestAsync(forceRefresh: true)).Packs.Single().Id == "demo",
+        "A failed refresh retains an origin-verified cached manifest");
+}
+packFixtureHandler.RawUnavailable = packFixtureHandler.ApiUnavailable = false;
 var mismatchedEntry = new RepoPackManifestEntry
 {
     Id = "demo", Version = "2.0.0", DownloadUrl = "https://github.com/binchen6/Liuguang-RepoPacks/releases/download/v1.0.0/demo-pack.zip", Sha256 = demoSha
@@ -515,9 +583,42 @@ var packNative = NativeVodProviderRouter.CreateDefault(customHttp, packCloud, pa
 var packVod = new RepoPackVodProvider(packSvc, packNative, packBili, jsAesClient, new CmsClient(customHttp));
 var infoHome = await packVod.GetHomeAsync(new SourceSite { Key = "d1", Name = "演示", Type = 3, Api = "csp_DemoInfo" });
 Check(infoHome.List.Count == 1 && infoHome.List[0].Content == "资源包生效", "RepoPackVodProvider executes installed pack rule immediately");
+using var fallbackRuntime = new SpiderRuntime(customDb);
+var routed = new VodClientRouter(new CmsClient(discoveryHttp), new SpiderVodClient(fallbackRuntime), packNative,
+    autoHtml: autodetect, repoPack: packVod);
+var unsupportedWeb = new SourceSite
+{
+    Key = "pack-fallback", Api = "csp_DemoInfo", Type = 3, Name = "通用不匹配",
+    Ext = JsonSerializer.SerializeToElement("https://archive.example.invalid/blank/")
+};
+var fallbackHome = await routed.GetHomeAsync(unsupportedWeb);
+var fallbackDetail = await routed.GetDetailAsync(unsupportedWeb, fallbackHome.List.Single().Id);
+Check(fallbackDetail.Content == "资源包生效", "A matched package serves detail after a confirmed generic mismatch");
+var verifiedOnly = new SourceSite
+{
+    Key = "pack-verification", Api = "csp_DemoInfo", Type = 3, Name = "验证站点",
+    Ext = JsonSerializer.SerializeToElement("https://archive.example.invalid/verification/")
+};
+await CheckThrows<SiteVerificationRequiredException>(() => routed.GetHomeAsync(verifiedOnly),
+    "The package fallback does not replace a site's verification requirement");
 await packSvc.RemovePackAsync("demo");
 Check(!SpiderCatalog.IsAvailable("csp_DemoInfo"), "Removing a pack removes its dynamically registered API");
 Check(!packSvc.TryGetInstalled("demo", out _), "RepoPackService uninstalls pack cleanly");
+var manualPack = await packSvc.ImportPackAsync(demoZip);
+Check(manualPack.Id == "demo" && packVod.CanHandle(new SourceSite { Api = "csp_DemoInfo" }),
+    "Manual ZIP import installs an adaptation offline and hot-enables its rule");
+await CheckThrows<InvalidDataException>(() => packSvc.ImportPackAsync(evilZip),
+    "Manual ZIP import rejects an invalid archive before replacing installed rules");
+Check(packSvc.TryGetInstalled("demo", out _), "A rejected manual ZIP leaves the installed package active");
+
+var lyricLines = MusicMetadataService.ParseLyrics("[offset:-150]\n[00:02.05][00:05.120]第一句\n[00:02.05]译文\n[00:04]中间");
+Check(lyricLines.Count == 3 && lyricLines[0].TimeMs == 1900 && lyricLines[0].Text == "第一句\n译文" &&
+    MusicMetadataService.ActiveLine(lyricLines, 1899) == -1 && MusicMetadataService.ActiveLine(lyricLines, 4500) == 1,
+    "Timed lyrics apply offsets, merge translations and locate the current line after a seek");
+Check(AudioMedia.IsAudio("https://music.example.invalid/recording.FLAC?quality=original") &&
+    !AudioMedia.IsAudio("https://music.example.invalid/recording.mp4?title=track.mp3") &&
+    new LocalMediaEntry(@"C:\Music\条目.opus", "条目", "", 4, DateTimeOffset.Now).IsMusic,
+    "Music and video classification handles local filenames and signed stream URLs");
 
 if (args.Contains("--verify-default-service", StringComparer.Ordinal))
 {
@@ -548,6 +649,94 @@ static string EncryptTvBoxAesHex(string plainText, string key, string iv)
     var cipherHex = Convert.ToHexString(cipher).ToLowerInvariant();
     var ivHex = Convert.ToHexString(Encoding.UTF8.GetBytes(iv)).ToLowerInvariant();
     return prefixHex + cipherHex + ivHex;
+}
+
+sealed class AutomaticDiscoveryFixture : HttpMessageHandler
+{
+    internal int HtmlHomeReads { get; private set; }
+    internal int AudioReadAttempts { get; private set; }
+    internal bool PrimaryCmsAvailable { get; set; } = true;
+
+    protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var uri = request.RequestUri!;
+        var path = uri.AbsolutePath;
+        var query = uri.Query;
+        return Task.FromResult(Reply());
+
+        HttpResponseMessage Reply()
+        {
+            if (uri.Host == "media.example.invalid" && path == "/files/audio")
+            {
+                AudioReadAttempts++;
+                var audio = Response("", "audio/flac");
+                audio.Content.Headers.ContentLength = 16 * 1024 * 1024;
+                return audio;
+            }
+            if (uri.Host != "archive.example.invalid") return Response("", status: HttpStatusCode.NotFound);
+            if (path == "/repositories/depot.json") return Response("""
+                {"urls":[{"name":"HTML","url":"./a/leaf.json"},{"name":"重复","url":"./alias.json"},
+                {"name":"分发","url":"./nested.json"},{"name":"失效","url":"./gone.json"}]}
+                """);
+            if (path == "/repositories/alias.json")
+            {
+                var redirect = Response("", status: HttpStatusCode.Redirect);
+                redirect.Headers.Location = new Uri("./a/leaf.json", UriKind.Relative);
+                return redirect;
+            }
+            if (path == "/repositories/nested.json")
+                return Response("""{"storeHouse":[{"sourceName":"CMS","sourceUrl":"./b/leaf.json"}],"urls":[{"name":"循环","url":"./depot.json"}]}""");
+            if (path == "/repositories/a/leaf.json") return Response("""
+                {"sites":[null,{"key":"shared","name":"子目录","type":"3","api":"csp_FixtureUnknown","searchable":true,
+                "filterable":false,"header":{"Cookie":"fixture=opaque"},
+                "ext":{"config":{"sites":["./old/","./catalog/"]}}}]}
+                """);
+            if (path == "/repositories/b/leaf.json") return Response("""
+                {"sites":[{"key":"shared","name":"无首页接口","type":3,"api":"csp_FixtureUnknown",
+                "ext":"{\"site\":[\"./api.php/provide/vod/?source=archive\",\"./backup/api/vod?source=archive\"]}"}]}
+                """);
+            if (path == "/repositories/a/old/") return Response("", status: HttpStatusCode.ServiceUnavailable);
+            if (path == "/repositories/a/catalog/")
+            {
+                HtmlHomeReads++;
+                return Response("""
+                    <html><header><nav><a href="category/science/">科学</a></nav></header>
+                      <form method="get" action="search?collection=lab"><input type="search" name="keyword"></form>
+                    """ + Card("first", "太空站") + "</html>", "text/html");
+            }
+            if (path == "/repositories/a/catalog/search" && query.Contains("collection=lab", StringComparison.Ordinal) &&
+                Uri.UnescapeDataString(query).Contains("keyword=科学 站", StringComparison.Ordinal))
+                return Response("<html>" + Card("first", "科学搜索结果") + "</html>", "text/html");
+            if (path == "/repositories/a/catalog/category/science/")
+                return query == "?cursor=next"
+                    ? Response("<html>" + Card("second", "第二页") + "</html>", "text/html")
+                    : Response("<html>" + Card("first", "第一页") + "<nav><a rel='next' href='?cursor=next'>下一页</a></nav></html>", "text/html");
+            if (path == "/repositories/a/catalog/movie/first")
+                return Response("""
+                    <html><h1>太空站</h1><video><source src="https://media.example.invalid/files/stream" type="video/mp4"></video></html>
+                    """, "text/html");
+            if (path is "/repositories/b/api.php/provide/vod/" or "/repositories/b/backup/api/vod")
+            {
+                if (!query.Contains("source=archive", StringComparison.Ordinal))
+                    return Response("", status: HttpStatusCode.NotFound);
+                if (path.EndsWith("/vod/", StringComparison.Ordinal) && !PrimaryCmsAvailable)
+                    return Response("", status: HttpStatusCode.PreconditionFailed);
+                return Response(path.EndsWith("/vod/", StringComparison.Ordinal)
+                    ? """{"class":[{"type_id":"1","type_name":"短片"}],"pagecount":1,"list":[{"vod_id":"cms-one","vod_name":"纸飞机"}]}"""
+                    : """{"data":{"pagecount":"1","list":[{"vod_id":"cms-backup","vod_name":"备用纸飞机"}]}}""");
+            }
+            if (path == "/blank/") return Response("<html><h1>没有公开目录</h1></html>", "text/html");
+            if (path == "/verification/") return Response("<html><h1>请人工验证</h1></html>", "text/html", HttpStatusCode.Forbidden);
+            return Response("", status: HttpStatusCode.NotFound);
+        }
+
+        HttpResponseMessage Response(string body, string mime = "application/json", HttpStatusCode status = HttpStatusCode.OK) =>
+            new(status) { Content = new StringContent(body, Encoding.UTF8, mime), RequestMessage = request };
+
+        static string Card(string id, string title) =>
+            $"<main><article><a href='/repositories/a/catalog/movie/{id}'><img src='poster.jpg' alt='{title}'></a></article></main>";
+    }
 }
 
 sealed class RelayAndUniversalFixture : HttpMessageHandler
@@ -785,13 +974,21 @@ sealed class RepoPackFixtureHandler(string manifestJson, byte[] zipBytes) : Http
 {
     internal bool SawMirrorDownload { get; private set; }
     internal bool SawOriginManifest { get; private set; }
+    internal bool SawApiManifest { get; private set; }
+    internal bool RawUnavailable { get; set; }
+    internal bool ApiUnavailable { get; set; }
 
     protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
     {
         var url = request.RequestUri?.AbsoluteUri ?? string.Empty;
-        if (url.EndsWith("manifest.json", StringComparison.OrdinalIgnoreCase))
+        if (request.RequestUri?.AbsolutePath.EndsWith("/manifest.json", StringComparison.OrdinalIgnoreCase) == true)
         {
-            SawOriginManifest = request.RequestUri?.Host == "raw.githubusercontent.com";
+            var raw = request.RequestUri.Host == "raw.githubusercontent.com";
+            SawOriginManifest |= raw;
+            SawApiManifest |= !raw && request.RequestUri.Host == "api.github.com" &&
+                request.Headers.Accept.Any(media => media.MediaType == "application/vnd.github.raw+json");
+            if (raw ? RawUnavailable : ApiUnavailable)
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.ServiceUnavailable));
             return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
             {
                 Content = new StringContent(manifestJson, Encoding.UTF8, "application/json")

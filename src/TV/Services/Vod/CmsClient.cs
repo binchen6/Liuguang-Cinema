@@ -79,7 +79,7 @@ public sealed class CmsClient
         return response;
     }
 
-    private static CmsResponse ParseXml(string xml)
+    internal static CmsResponse ParseXml(string xml)
     {
         using var text = new StringReader(xml);
         using var reader = System.Xml.XmlReader.Create(text, new System.Xml.XmlReaderSettings

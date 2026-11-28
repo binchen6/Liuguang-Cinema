@@ -11,6 +11,8 @@
 
         <!-- 极克制建筑宣纸/暗室底纹：为全站磨砂玻璃提供柔和透光纵深；进入沉浸播放时自动折叠零开销 -->
         <controls:LiquidBackdrop x:Name="AppBackdrop" Grid.ColumnSpan="2" />
+        <Canvas x:Name="BackgroundBrowserHost" Grid.ColumnSpan="2" IsHitTestVisible="False"
+                AutomationProperties.AccessibilityView="Raw" />
 
         <!-- 五层光学磨砂玻璃导航导轨：光隙品牌 + 键帽搜索 + 画册编号一级导航 + 设置 -->
         <Border x:Name="NavPane" Grid.Column="0"

@@ -7,12 +7,12 @@
 | 优先级 | 何时采用 | 实现方式 |
 | --- | --- | --- |
 | **原生** | 已有 C# 适配器可接入，或多个仓库共用同一站点的稳定接口，且需要独立处理认证、详情、分集、画质或播放 | 根据稳定的 `api`、站点域名或 `ext` 结构匹配。实现 `INativeVodProvider`，需要解析播放时实现 `INativePlaybackProvider`。按实需实现分类筛选和清晰度接口，在 `NativeVodProviderRouter.CreateDefault` 注册，并核对更宽泛的匹配器是否会提前接管。 |
-| **通用** | 接口、协议或 HTML 结构可覆盖一类站点 | 优先直接配置标准 CMS JSON/XML 或 HTTP 爬虫。复用 `UniversalProtocolVodProvider` 已接入的协议和 `UniversalAutoHtmlVodProvider` 的通用页面识别。公开的 drpy2 或 CatVod JS 通过 Jint 执行。Python 适配依赖本机 Python 3。已有 Java CatVod 或 DEX/JAR 兼容入口适合复用已能在桌面运行的实现。 |
+| **通用** | 接口、协议或 HTML 结构可覆盖一类站点 | 优先直接配置标准 CMS JSON/XML 或 HTTP 爬虫。复用 `UniversalProtocolVodProvider` 已接入的协议和 `UniversalAutoHtmlVodProvider` 的通用页面识别。drpy2 或 CatVod JS 通过 Jint 执行。Python 脚本可使用本机 Python 3 或随包分发的嵌入版。Java CatVod 或 DEX/JAR 适配复用桌面 Java 运行时。 |
 | **单独适配包** | 差异稳定地局限于某个仓库或少数站点，现有原生和通用实现经过实测仍缺少相应规则 | 通过 `RepoPackService` 发布声明式配置或一个随包 JavaScript 文件。通用解析器的问题应修在通用层，仓库特有的选择器、字段映射和说明才放入包中。 |
 
 原生与通用层都应复用 `SourceHttpClient`、现有媒体模型和播放解析入口。沿请求链传递取消令牌。首页、分类和搜索返回稳定的站点标识及条目 ID，详情保留真实线路和分集，播放结果保留所需请求头、字幕和弹幕。认证数据来自本机已有的账号会话。
 
-**现行运行时行为**。`VodClientRouter` 按是否匹配选择处理器。同一请求的 HTTP 失败、空数据或鉴权失败不会触发逐层重试。`NativeVodProviderRouter` 按注册顺序返回首个匹配项。未命中时，路由检查 JS、Python，再检查专属覆盖规则、通用 HTML、普通资源包，最后按站点类型交给 Java CatVod 或 CMS。
+**现行运行时行为**。`NativeVodProviderRouter` 按注册顺序先检查站点专用适配，再检查通用协议。随后依次处理 JS、Python、显式覆盖规则、通用 HTML、资源包和 Java CatVod 或 CMS。通用 HTML 确认接口或页面形态不匹配时可使用已经安装且明确命中的资源包。超时、站点验证和账号限制保留相应状态。
 
 `overrideUniversal` 默认为 `false`。只有在已验证 `UniversalProtocolVodProvider` 或通用 HTML 会将该站点错识别为另一种站型时，才可为一个明确的站点 `key` 设置为 `true`，并在包说明中附复现和验证结果。专用原生适配器和已识别的 JS/Python 脚本按自身入口处理。
 
@@ -24,6 +24,9 @@
 - 每个点播站点提供稳定的 `key`、可读的 `name`、与接口协议相符的 `type` 和 `api`。同一仓库内的 `key` 必须唯一。需要专属规则时使用仓库前缀，例如 `example_archive`，避免多个仓库之间重名。
 - `ext` 按对应适配器的输入填写。公开的 `api`、`jar`、`ext`、`lives`、`parses` 资源优先使用 HTTPS。使用相对地址时，以所在配置文件的地址验证实际解析结果。
 - 按站点的真实能力填写 `searchable`、`quickSearch`、`filterable` 等开关。工具入口或受限站点用说明展示。共享配置中使用公开接口、去标识化样例和必要的静态请求头。
+- 使用通用 HTML 时，可在 `ext.site` 填写站点地址数组。按照首选到备用的顺序排列，保留实际子目录、端口和固定查询参数。站点提供标准 CMS 接口时，直接填写该接口。HTML 页面使用同源 GET 搜索表单及可访问的下一页链接时，客户端可识别实际搜索和分页地址。
+- 文件浏览、网盘市场和推送接收使用对应的操作入口。音频站点应返回实际音频地址或音频 Content-Type。需要随地址返回歌词或封面时，爬虫播放响应可使用 `lyrics`、`lrc`、`cover` 字段。
+- Python 脚本依赖外部模块时，使用已装好模块的 Python 3。可通过 `TV_PYTHON_EXECUTABLE` 指定解释器绝对路径。缺少 WebView2 时，安装包可按需启动微软签名的在线引导程序。
 
 下面是一个使用标准 CMS 的单仓配置。换成实际接口后可直接导入。
 
@@ -132,7 +135,15 @@ example-archive-v1.0.0.zip           # 一次发布的包体
 }
 ```
 
-包内容准备好后，在打包目录执行以下命令。先上传 ZIP，再更新清单。ZIP 由发布地址或镜像提供，摘要以配置的清单来源为准。
+### 创建、上传和验收
+
+1. 在 [适配包仓库](https://github.com/binchen6/Liuguang-RepoPacks) 的 `packs/<id>/` 编写 `pack.json`、脚本和说明。升级沿用 `id` 并提升版本号，写明站点命中范围、公开接口、测试样本和所需会话。
+2. 从包目录的内容创建 ZIP，确认 ZIP 根目录直接含有 `pack.json`。在客户端「设置 → 片源 → 仓库资源包 → 导入 ZIP」离线安装，切换目标仓库核对规则是否生效，再测试卸载与恢复。
+3. 以 `<id>-v<版本>.zip` 命名，在适配包仓库的对应 GitHub Release 上传。使用公开 HTTPS 下载地址重新下载，核对 SHA-256 和字节数。
+4. ZIP 可公开下载后再提交 `manifest.json`，同步 `id`、`version`、`downloadUrl`、`sha256`、`sizeBytes`、`siteCount` 和匹配条件。客户端从 GitHub 官方地址取得摘要，镜像只传输 ZIP。
+5. 用新的客户端数据目录刷新清单、导入目标仓库、验证自动匹配和可用线路。需要回滚时，把清单指回之前已经验证的 ZIP 和摘要，并保留公开的历史版本。
+
+以下命令在打包目录执行。手动导入使用你选中的 ZIP，可先按同样的方法核对发布者提供的摘要。
 
 ```powershell
 $packDirectory = '.\example-archive'

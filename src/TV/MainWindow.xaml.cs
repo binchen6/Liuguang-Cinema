@@ -73,7 +73,7 @@ public sealed partial class MainWindow : Window
         {
             _navRail = NavigationMotion.AttachVerticalCustom(NavPaneContent, FloatingNavIndicator, ResolveActiveNavTarget);
             MotionService.AttachTactile(NavSearchButton, 1.015f, 0.975f, 0f);
-            App.Services.Sniffer.Attach(ShellRoot);
+            App.Services.Sniffer.Attach(BackgroundBrowserHost);
         }
         ViewModel = new MainViewModel(App.Services, DispatcherQueue);
         Diagnostics.Log("ViewModel initialized");

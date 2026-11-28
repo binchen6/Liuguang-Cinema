@@ -159,7 +159,10 @@ public sealed class CloudDriveService : IDisposable
     }
 
     public string ProxyMedia(CloudPlayResult media, string? manifest = null) =>
-        _mediaProxy.Value.Register(media, null, media.UseBoundedRanges ? 3 : 1, media.UseBoundedRanges ? 2 : 4, manifest);
+        ProxyMedia(media, manifest, null);
+
+    internal string ProxyMedia(CloudPlayResult media, string? manifest, Func<CancellationToken, Task<CloudPlayResult>>? refresh) =>
+        _mediaProxy.Value.Register(media, null, media.UseBoundedRanges ? 3 : 1, media.UseBoundedRanges ? 2 : 4, manifest, refresh);
 
     public void ReleaseMedia(string? address)
     {

@@ -65,11 +65,11 @@
 
 | 语义角色 | 资源键 | 参数 / 色值 | 主要用途 |
 | --- | --- | --- | --- |
-| 主控制坞基底 | `PlayerGlassBrush` | `#4C1B2130 → #5E131722 → #720B0E16`（微晶 `0.085`） | 底部悬浮控制坞、顶部双浮岛、投屏预览坞 |
-| 悬浮胶囊/圆镜 | `PlayerGlassPillBrush` | `#5E1C2232 → #70131722 → #840B0E16`（微晶 `0.10`） | 暂停按钮、OSD、HUD、字幕条、状态卡 |
+| 主控制坞基底 | `PlayerGlassBrush` | `#30202937 → #40151A25 → #620B0E16`，清透无颗粒 | 底部悬浮控制坞、顶部双浮岛、投屏预览坞 |
+| 悬浮胶囊/圆镜 | `PlayerGlassPillBrush` | `#40272F3C → #48131722 → #6D0B0E16`，清透无颗粒 | 暂停按钮、OSD、HUD、字幕条、状态卡 |
 | 菜单与弹层 | `PlayerGlassFlyoutBrush` | `#D6161B28 → #E40E111A` | 倍速、画质、音轨、字幕与更多选项弹层 |
-| 体积漫射 / 内倒角 | `PlayerGlassVolumeBrush` / `InnerBevelBrush` | `#30F4F8FF → #2C04060D` / `#2EFFFFFF → #30000000` | L2 体积光影、L4 内 `1px` 倒角边 |
-| 焦散丝 / 菲涅尔框 | `PlayerGlassCausticBrush` / `BorderBrush` | 顶部高光丝 / `#8CFFFFFF → #4CFFFFFF` | L5 顶部高光与 L4 外描边 |
+| 体积漫射 / 内倒角 | `PlayerGlassVolumeBrush` / `InnerBevelBrush` | `#34F4F8FF → #2C04060D` / `#44FFFFFF → #30000000` | L2 体积光影、L4 内 `1px` 倒角边 |
+| 焦散丝 / 菲涅尔框 | `PlayerGlassCausticBrush` / `BorderBrush` | 顶部高光丝 / `#9CFFFFFF → #57FFFFFF` | L5 顶部高光与 L4 外描边 |
 
 ### 4.2 深色主题（Dark / 默认）
 

@@ -46,9 +46,7 @@ public sealed class PlayUrlResolver
             || path.EndsWith(".mkv", StringComparison.OrdinalIgnoreCase)
             || path.EndsWith(".mov", StringComparison.OrdinalIgnoreCase)
             || path.EndsWith(".avi", StringComparison.OrdinalIgnoreCase)
-            || path.EndsWith(".mp3", StringComparison.OrdinalIgnoreCase)
-            || path.EndsWith(".m4a", StringComparison.OrdinalIgnoreCase)
-            || path.EndsWith(".aac", StringComparison.OrdinalIgnoreCase)
+            || TV.Models.AudioMedia.IsAudio(url)
             || url.StartsWith("rtmp://", StringComparison.OrdinalIgnoreCase)
             || url.StartsWith("rtsp://", StringComparison.OrdinalIgnoreCase);
     }

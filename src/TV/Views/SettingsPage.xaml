@@ -274,9 +274,12 @@
                                             <TextBlock Text="为特定第三方片源提供专属站点适配规则，复用国内加速通道并强制 SHA-256 校验；导入对应仓库时会自动匹配下载。"
                                                        Style="{StaticResource MetaText}" TextWrapping="Wrap" />
                                         </StackPanel>
-                                        <Button Grid.Column="1" Content="刷新清单" Command="{Binding RefreshRepoPacksCommand}"
-                                                Style="{StaticResource SecondaryButtonStyle}" VerticalAlignment="Center"
-                                                AutomationProperties.Name="刷新资源包清单" />
+                                        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                                            <Button Content="导入 ZIP" Click="OnImportRepoPackClick" Style="{StaticResource SecondaryButtonStyle}"
+                                                    AutomationProperties.Name="导入本地资源包" />
+                                            <Button Content="刷新清单" Command="{Binding RefreshRepoPacksCommand}"
+                                                    Style="{StaticResource SecondaryButtonStyle}" AutomationProperties.Name="刷新资源包清单" />
+                                        </StackPanel>
                                     </Grid>
                                     <ProgressBar Value="{Binding RepoPackDownloadProgress}" Maximum="100" Height="3"
                                                  Foreground="{ThemeResource VermilionBrush}"

@@ -16,6 +16,8 @@
         <ResourceDictionary x:Key="Default">
             <!-- 建筑底层画布与微光大气底纹 -->
             <SolidColorBrush x:Key="AppBackgroundBrush" Color="#0B0B0D" />
+            <Color x:Key="MusicGlassLightColor">#A843375F</Color>
+            <Color x:Key="MusicGlassRimColor">#804A2728</Color>
             <LinearGradientBrush x:Key="AppCanvasGradientBrush" StartPoint="0,0" EndPoint="1,1">
                 <GradientStop Color="#0E0E11" Offset="0" />
                 <GradientStop Color="#0A0A0C" Offset="0.55" />
@@ -173,6 +175,8 @@
         <ResourceDictionary x:Key="Light">
             <!-- 素白画廊 · 温润护眼宣纸画布（明度 ~90%，消除高亮度纯白眩光，久看不累） -->
             <SolidColorBrush x:Key="AppBackgroundBrush" Color="#ECE9E1" />
+            <Color x:Key="MusicGlassLightColor">#AFBBA6DD</Color>
+            <Color x:Key="MusicGlassRimColor">#91F0C5B5</Color>
             <LinearGradientBrush x:Key="AppCanvasGradientBrush" StartPoint="0,0" EndPoint="1,1">
                 <GradientStop Color="#F0EDE6" Offset="0" />
                 <GradientStop Color="#EAE6DD" Offset="0.54" />
@@ -328,6 +332,8 @@
 
         <ResourceDictionary x:Key="HighContrast">
             <SolidColorBrush x:Key="AppBackgroundBrush" Color="{ThemeResource SystemColorWindowColor}" />
+            <Color x:Key="MusicGlassLightColor">Transparent</Color>
+            <Color x:Key="MusicGlassRimColor">Transparent</Color>
             <SolidColorBrush x:Key="AppCanvasGradientBrush" Color="{ThemeResource SystemColorWindowColor}" />
             <SolidColorBrush x:Key="BackdropGlowPrimaryBrush" Color="Transparent" />
             <SolidColorBrush x:Key="BackdropGlowSecondaryBrush" Color="Transparent" />

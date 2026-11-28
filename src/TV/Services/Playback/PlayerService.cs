@@ -11,7 +11,10 @@ internal sealed record PlaybackTrackSelection(PlaybackTrack? Audio, PlaybackTrac
 public sealed record PlayerSnapshot(VLCState State, bool IsPlaying, long TimeMs, long LengthMs, bool CanSeek,
     float BufferingPercent, IReadOnlyList<PlaybackTrack> AudioTracks, IReadOnlyList<PlaybackTrack> SubtitleTracks,
     int AudioTrack, int SubtitleTrack, VideoFormat? VideoFormat, float Rate,
-    long CapturedAtTimestamp = 0, string MediaInfo = "", long SeekGeneration = 0);
+    long CapturedAtTimestamp = 0, string MediaInfo = "", long SeekGeneration = 0)
+{
+    internal bool AudioOnly { get; init; }
+}
 
 public sealed class PlayerService : IDisposable
 {
@@ -36,6 +39,7 @@ public sealed class PlayerService : IDisposable
     private Task? _stopTask;
     private int _stopping;
     private VideoFormat? _videoFormat;
+    private bool _audioOnly;
     private string _mediaInfo = string.Empty;
     private bool _videoOutputReady;
     private int _snapshotReads;
@@ -212,6 +216,7 @@ public sealed class PlayerService : IDisposable
         _trackAttempts = 0;
         _snapshotReads = 0;
         _videoFormat = null;
+        _audioOnly = request.IsMusic;
         _mediaInfo = string.Empty;
         _snapshot = new(VLCState.Opening, false, request.StartPositionMs, 0, false, 0, [], [], -1, -1, null, tracks?.Rate ?? 1, Stopwatch.GetTimestamp(), string.Empty);
         var media = new Media(libVLC, request.Url, FromType.FromLocation);
@@ -220,6 +225,7 @@ public sealed class PlayerService : IDisposable
         var isLoopbackProxy = parsed is { IsLoopback: true };
         try
         {
+            if (request.IsMusic) media.AddOption(":no-video");
             player.EnableHardwareDecoding = HardwareDecoding;
             media.AddOption(HardwareDecoding ? ":avcodec-hw=any" : ":avcodec-hw=none");
             var decodeThreads = HardwareDecoding ? 2 : DecoderThreads;
@@ -295,13 +301,14 @@ public sealed class PlayerService : IDisposable
         var subtitles = readTracks ? DescribeTracks(_mediaPlayer.SpuDescription) : _snapshot.SubtitleTracks;
         _snapshot = new PlayerSnapshot(state, _mediaPlayer.IsPlaying, Math.Max(0, _mediaPlayer.Time), Math.Max(0, _mediaPlayer.Length),
             _mediaPlayer.IsSeekable, BufferingPercent, audio, subtitles, _mediaPlayer.AudioTrack, _mediaPlayer.Spu, video, _mediaPlayer.Rate,
-            Stopwatch.GetTimestamp(), _mediaInfo, Volatile.Read(ref _appliedSeekGeneration));
+            Stopwatch.GetTimestamp(), _mediaInfo, Volatile.Read(ref _appliedSeekGeneration)) { AudioOnly = _audioOnly };
         return _snapshot;
     }, token);
 
     private VideoFormat? ReadVideoFormatCore(VLCState state)
     {
-        if (_videoFormat is not null || _currentMedia is null || _mediaPlayer is null || state is not (VLCState.Playing or VLCState.Paused)) return _videoFormat;
+        if (_audioOnly || _videoFormat is not null || _currentMedia is null || _mediaPlayer is null ||
+            state is not (VLCState.Playing or VLCState.Paused)) return _videoFormat;
         uint width = 0, height = 0;
         var allTracks = _currentMedia.Tracks;
         var videoTracks = allTracks.Where(track => track.TrackType == TrackType.Video && track.Data.Video.Height > 0).ToArray();
@@ -312,6 +319,9 @@ public sealed class PlayerService : IDisposable
                 _videoFormat = new VideoFormat((int)height, 0);
                 _mediaInfo = $"{width}×{height} · {(HardwareDecoding ? "D3D11 硬解" : "软解")}";
             }
+            else if (_mediaPlayer.Time > 1000 && allTracks.Any(track => track.TrackType == TrackType.Audio) &&
+                allTracks.All(track => track.TrackType != TrackType.Video))
+                _audioOnly = true;
             return _videoFormat;
         }
         var track = videoTracks.FirstOrDefault(track => track.Id == _mediaPlayer.VideoTrack);

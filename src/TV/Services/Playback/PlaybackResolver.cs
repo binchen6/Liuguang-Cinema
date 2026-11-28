@@ -18,9 +18,12 @@ public sealed class PlaybackResolver(AppServices services)
         Func<CancellationToken, Task<bool>>? getHdrOutput, CancellationToken token, bool forDownload = false)
     {
         var request = source.Copy();
+        request.IsMusic |= AudioMedia.IsAudio(request.Url) || AudioMedia.IsAudio(
+            request.Lines.ElementAtOrDefault(request.LineIndex)?.Episodes.ElementAtOrDefault(request.EpisodeIndex)?.Name ?? "");
+        request.MusicLyrics ??= request.Item?.Lyrics;
         if (Uri.TryCreate(request.Url, UriKind.Absolute, out var input) && input.IsFile)
         {
-            request.HasFixedVideoTrack = true;
+            request.HasFixedVideoTrack = !request.IsMusic;
             return request;
         }
         var config = services.Config.Current;
@@ -34,6 +37,7 @@ public sealed class PlaybackResolver(AppServices services)
         {
             var share = await services.Cloud.GetShareAsync(request.Url, token);
             var file = share.Files.FirstOrDefault() ?? throw new InvalidDataException("分享中没有可播放的媒体文件。");
+            request.IsMusic |= AudioMedia.IsAudio(file.Name);
             request.Url = CloudDriveService.GetPlaybackId(file);
             input = new Uri(request.Url);
         }
@@ -56,6 +60,7 @@ public sealed class PlaybackResolver(AppServices services)
                 cloud = await services.Cloud.ResolveAsync(request.Url, cloudQuality, token);
             }
             request.Url = cloud.Url;
+            request.IsMusic |= AudioMedia.IsAudio(cloud.Url) || cloud.ContentType?.StartsWith("audio/", StringComparison.OrdinalIgnoreCase) == true;
             request.CloudSubtitles = cloud.SubtitleTracks ?? [];
             request.AvailableQualities = cloud.AvailableQualities;
             request.ResolvedQuality = cloud.ResolvedQuality;
@@ -87,6 +92,8 @@ public sealed class PlaybackResolver(AppServices services)
             foreach (var header in result.Headers) request.Headers[header.Key] = header.Value;
             request.Url = result.Url;
             contentType = result.ContentType;
+            request.MusicLyrics = result.MusicLyrics ?? request.MusicLyrics;
+            request.MusicCover = result.MusicCover ?? request.MusicCover;
             useHttpProxy = result.UseHttpProxy;
             unwrapPngHlsSegments = result.UnwrapPngHlsSegments;
             request.SeekOnAudioTrackChange = result.SeekOnAudioTrackChange;
@@ -125,7 +132,7 @@ public sealed class PlaybackResolver(AppServices services)
                     if (result.BrowserFailureMessage is { } message) throw new NotSupportedException(message);
                     request.Url = await services.Resolver.ResolveAsync(result.Url, parses, request.Headers, token);
                     if (!PlayUrlResolver.IsDirectMediaUrl(request.Url) && !IsLoopback(request.Url))
-                        throw new InvalidDataException("没有解析到视频地址，请切换线路。");
+                        throw new InvalidDataException((result.Jx == 1 ? null : services.Sniffer.RuntimeIssue) ?? "没有解析到视频地址，请切换线路。");
                     request.Headers.TryAdd("Referer", result.Url);
                     contentType = null;
                 }
@@ -206,6 +213,7 @@ public sealed class PlaybackResolver(AppServices services)
                 throw new NotSupportedException($"该线路未提供 {quality.Name}。");
         }
 
+        request.IsMusic |= AudioMedia.IsAudio(request.Url) || contentType?.StartsWith("audio/", StringComparison.OrdinalIgnoreCase) == true;
         if (Uri.TryCreate(request.Url, UriKind.Absolute, out var mediaUri) && mediaUri.Scheme is "https" or "http")
         {
             request.HasFixedVideoTrack |= !request.UsesProviderVideoHeights && IsSingleVideoFile(mediaUri, contentType);

@@ -12,6 +12,7 @@ public sealed class PushVodProvider(CloudDriveService cloud) : INativePlaybackPr
 {
     public static bool Supports(SourceSite site) => site.Type == 3 &&
         (site.Api.Equals("csp_PushGuard", StringComparison.OrdinalIgnoreCase) ||
+         site.Api.Equals("csp_PushAgent", StringComparison.OrdinalIgnoreCase) ||
          site.Api.Equals("csp_Push", StringComparison.OrdinalIgnoreCase) ||
          (site.Api.Equals("csp_XPathGuard", StringComparison.OrdinalIgnoreCase) || site.Api.Equals("csp_XPath", StringComparison.OrdinalIgnoreCase)) &&
          (site.Ext.ValueKind == System.Text.Json.JsonValueKind.Undefined ||

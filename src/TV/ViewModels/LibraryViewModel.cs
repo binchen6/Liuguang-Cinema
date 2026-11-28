@@ -114,14 +114,21 @@ public sealed partial class LibraryViewModel : ObservableObject
 
     partial void OnSearchQueryChanged(string value) => ApplySearch();
 
+    [ObservableProperty] private int _localMediaFilter;
+    partial void OnLocalMediaFilterChanged(int value) => ApplySearch();
+
     private void ApplySearch()
     {
         var terms = SearchQuery.Split((char[]?)null, StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
         ReplaceItems(History, _history.Where(item => Matches(item.Title, item.Subtitle, terms)));
         ReplaceItems(Favorites, _favorites.Where(item => Matches(item.Title, item.Subtitle, terms)));
         ReplaceItems(Downloads, _downloads.Where(item => Matches(item.Title, item.Episode, terms)));
-        ReplaceItems(LocalFiles, _localFiles.Where(item => Matches(item.Title, item.Path, terms)));
-        EmptyLocal = EmptyLabel(LocalFiles.Count, terms.Length, "尚未导入本地视频");
+        ReplaceItems(LocalFiles, _localFiles.Where(item =>
+            (LocalMediaFilter is not (1 or 2) || item.IsMusic == (LocalMediaFilter == 2)) && Matches(item.Title, item.Path, terms)));
+        EmptyLocal = EmptyLabel(LocalFiles.Count, terms.Length, LocalMediaFilter switch
+        {
+            1 => "暂无本地视频", 2 => "暂无本地音乐", _ => "尚未导入本地媒体"
+        });
         EmptyHistory = EmptyLabel(History.Count, terms.Length, "暂无播放记录");
         EmptyFavorites = EmptyLabel(Favorites.Count, terms.Length, "暂无收藏");
         EmptyDownloads = EmptyLabel(Downloads.Count, terms.Length, "暂无下载");
@@ -227,9 +234,9 @@ public sealed partial class LibraryViewModel : ObservableObject
             _localFiles = await _services.LocalMedia.GetFilesAsync();
             SelectedTab = 3;
             ApplySearch();
-            _statusIsError = false; StatusMessage = $"已导入 {count} 个本地视频";
+            _statusIsError = false; StatusMessage = $"已导入 {count} 个本地媒体文件";
         }
-        catch (Exception ex) { _statusIsError = true; StatusMessage = "导入本地视频失败：" + ex.Message; }
+        catch (Exception ex) { _statusIsError = true; StatusMessage = "导入本地媒体失败：" + ex.Message; }
         finally { IsLocalBusy = false; }
     }
 
@@ -312,7 +319,7 @@ public sealed partial class LibraryViewModel : ObservableObject
             StatusMessage = "本地文件已移动或删除。";
             return;
         }
-        if (LocalMediaService.IsVideo(path))
+        if (LocalMediaService.IsSupportedMedia(path))
         {
             _play(LocalMediaService.CreateRequest(path));
             return;

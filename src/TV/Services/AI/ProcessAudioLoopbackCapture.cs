@@ -20,13 +20,15 @@ internal sealed class ProcessAudioLoopbackCapture : IDisposable
     private const uint WaveFormatExtensible = 0xFFFE;
 
     private readonly Action<byte[]> _onPcmChunk;
+    private readonly bool _processOnly;
     private CancellationTokenSource? _cts;
     private Task? _captureTask;
     private bool _disposed;
 
-    public ProcessAudioLoopbackCapture(Action<byte[]> onPcmChunk)
+    public ProcessAudioLoopbackCapture(Action<byte[]> onPcmChunk, bool processOnly = false)
     {
         _onPcmChunk = onPcmChunk;
+        _processOnly = processOnly;
     }
 
     public void Start()
@@ -56,6 +58,7 @@ internal sealed class ProcessAudioLoopbackCapture : IDisposable
                 Diagnostics.Log($"WASAPI process loopback unavailable, using default loopback: {ex.Message}");
             }
 
+            if (_processOnly && client is null) return;
             client ??= ActivateDefaultRenderLoopback();
             if (client is null)
                 throw new InvalidOperationException("无法初始化音频捕获设备。");
@@ -100,7 +103,7 @@ internal sealed class ProcessAudioLoopbackCapture : IDisposable
                 {
                     // 100ms buffer in 100-nanosecond units
                     var hr = client.Initialize(0 /* AUDCLNT_SHAREMODE_SHARED */, flags, 1_000_000, 0, formatPtr, 0);
-                    if (hr < 0 && isProcessLoopback)
+                    if (hr < 0 && isProcessLoopback && !_processOnly)
                     {
                         // Some drivers reject process-loopback PCM format; cleanly fall back to default render loopback.
                         Diagnostics.Log($"Process loopback Initialize failed (0x{hr:X8}), falling back to default render loopback");

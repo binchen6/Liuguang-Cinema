@@ -17,6 +17,8 @@ public sealed record SpiderPlayResult(string Url, IReadOnlyDictionary<string, st
     internal bool SeekOnAudioTrackChange { get; init; }
     internal string? BrowserFailureMessage { get; init; }
     internal Func<Uri, bool>? BrowserMediaFilter { get; init; }
+    public string? MusicLyrics { get; init; }
+    public string? MusicCover { get; init; }
 }
 
 public sealed class SpiderVodClient
@@ -96,7 +98,13 @@ public sealed class SpiderVodClient
         var danmaku = ReadMediaLinks(data, url, "danmaku", "danmu").FirstOrDefault();
         var contentType = StringValue(data, "contentType");
         if (contentType.Length == 0) contentType = StringValue(data, "content_type");
-        return new SpiderPlayResult(url, headers, parse, jx, subtitles, danmaku, contentType.Split(';', 2)[0].Trim().ToLowerInvariant(), audio);
+        var lyrics = StringValue(data, "lyrics");
+        if (lyrics.Length == 0) lyrics = StringValue(data, "lrc");
+        return new SpiderPlayResult(url, headers, parse, jx, subtitles, danmaku, contentType.Split(';', 2)[0].Trim().ToLowerInvariant(), audio)
+        {
+            MusicLyrics = lyrics.Length == 0 ? null : lyrics,
+            MusicCover = ReadMediaLinks(data, url, "cover", "artwork").FirstOrDefault()?.AbsoluteUri
+        };
     }
 
     private static IEnumerable<Uri> ReadMediaLinks(JsonElement data, string videoUrl, params string[] names)

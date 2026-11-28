@@ -124,9 +124,9 @@
     <Grid x:Name="RootGrid">
         <!-- 底层影片与弹幕画布（避免在高频刷新 SwapChainPanel 上叠加 DWM ThemeShadow） -->
         <Grid x:Name="VideoStageHost">
-            <vlc:VideoView x:Name="VideoView" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" Initialized="OnVideoViewInitialized" />
             <controls:DanmakuOverlay x:Name="DanmakuLayer" />
         </Grid>
+        <ContentPresenter x:Name="MusicStage" HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch" Visibility="Collapsed" />
 
         <!-- 五层光学磨砂玻璃快捷操作 OSD 气囊（连续按键平滑微弹不闪烁） -->
         <Grid x:Name="OsdBadge" HorizontalAlignment="Center" VerticalAlignment="Top" Margin="0,72,0,0"

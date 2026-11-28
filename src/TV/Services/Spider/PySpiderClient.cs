@@ -89,7 +89,7 @@ public sealed class PySpiderClient
     {
         token.ThrowIfCancellationRequested();
         var python = await _python.Value.WaitAsync(token).ConfigureAwait(false) ??
-            throw new NotSupportedException("该站点需要本机安装 Python 3，并通过 py 启动器或 PATH 访问。");
+            throw new NotSupportedException("该站点需要 Python 3。请使用带 Python 运行时的流光影院安装包，或指定本机 Python 解释器。");
         var runtimeDir = _runtimeDirectory.Value;
         var scriptPath = await EnsureScriptFileAsync(site, token).ConfigureAwait(false);
         var ext = site.Ext.ValueKind switch
@@ -122,6 +122,9 @@ public sealed class PySpiderClient
         };
         if (python.Prefix is { } prefix)
             start.ArgumentList.Add(prefix);
+        start.ArgumentList.Add("-X");
+        start.ArgumentList.Add("utf8");
+        start.ArgumentList.Add("-B");
         start.ArgumentList.Add(Path.Combine(runtimeDir, "py_runner.py"));
         start.Environment["PYTHONIOENCODING"] = "utf-8";
         start.Environment["PYTHONUTF8"] = "1";
@@ -209,7 +212,16 @@ public sealed class PySpiderClient
 
     private static (string Exe, string? Prefix)? FindPython()
     {
-        foreach (var (exe, prefixArg) in new[] { ("py", "-3"), ("python", (string?)null), ("python3", (string?)null) })
+        var candidates = new List<(string Exe, string? Prefix)>();
+        var configured = Environment.GetEnvironmentVariable("TV_PYTHON_EXECUTABLE");
+        if (!string.IsNullOrWhiteSpace(configured) && Path.IsPathFullyQualified(configured) && File.Exists(configured))
+            candidates.Add((configured, null));
+        // Preserve environments with extra Python packages. Packaged Python supplies a clean fallback.
+        candidates.AddRange([("py", "-3"), ("python", null), ("python3", null)]);
+        var bundled = Path.Combine(AppContext.BaseDirectory, "runtime", "python", "python.exe");
+        if (File.Exists(bundled)) candidates.Add((bundled, null));
+
+        foreach (var (exe, prefixArg) in candidates)
         {
             try
             {
@@ -222,6 +234,7 @@ public sealed class PySpiderClient
                     RedirectStandardOutput = true,
                     RedirectStandardError = true
                 };
+                psi.Environment["PYTHON_MANAGER_AUTOMATIC_INSTALL"] = "0";
                 using var p = Process.Start(psi);
                 if (p is null) continue;
                 if (!p.WaitForExit(2000))
@@ -360,6 +373,9 @@ public sealed class PySpiderClient
         import json
         import os
         import sys
+
+        # The Windows embeddable distribution uses a ._pth file and omits the script directory.
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
         real_out = sys.stdout
         sys.stdout = sys.stderr

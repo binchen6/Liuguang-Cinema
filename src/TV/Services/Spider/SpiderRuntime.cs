@@ -193,7 +193,7 @@ public sealed class SpiderRuntime : IDisposable
             RedirectStandardInput = true,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
-            StandardInputEncoding = Encoding.UTF8,
+            StandardInputEncoding = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false),
             StandardOutputEncoding = Encoding.UTF8,
             StandardErrorEncoding = Encoding.UTF8,
             WorkingDirectory = AppPaths.Root
@@ -239,7 +239,6 @@ public sealed class SpiderRuntime : IDisposable
         }
         candidates.Add("java");
 
-        string? fallback = null;
         foreach (var candidate in candidates.Distinct(StringComparer.OrdinalIgnoreCase))
         {
             var major = ProbeJavaMajor(candidate);
@@ -248,9 +247,8 @@ public sealed class SpiderRuntime : IDisposable
                 Diagnostics.Log($"Spider java: {candidate} (major {major})");
                 return _javaPath = candidate;
             }
-            if (major > 0 && fallback is null) fallback = candidate;
         }
-        return fallback ?? "java";
+        throw new NotSupportedException("该站点需要 Java 17 或更高版本。请使用带 Java 运行时的流光影院安装包。");
     }
 
     private static int ProbeJavaMajor(string javaExe)

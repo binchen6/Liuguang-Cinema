@@ -212,6 +212,17 @@ public sealed partial class BilibiliVodProvider(SourceHttpClient http, CloudDriv
                 cancellationToken, cookie);
 
         const string progressiveFormat = "fnval=1&platform=html5&high_quality=1";
+        if (site.Api is "csp_Buguyy" or "csp_ChuXin" or "csp_AiTingMusic" or "csp_Music24bit")
+        {
+            var audioResult = await ReadPlaybackAsync(HighestQuality, "fnval=4048&fourk=1", token).ConfigureAwait(false);
+            foreach (var track in Array(Value(audioResult, "dash"), "audio").OrderByDescending(track => Int(track, "bandwidth")))
+            {
+                if (ReadTrackAddress(track, "audio/mp4") is not { } audio) continue;
+                var localAudio = RegisterBiliStream(new CloudPlayResult(audio.AbsoluteUri, headers, "audio/mp4", ".m4a"), track);
+                return new SpiderPlayResult(localAudio, new Dictionary<string, string>(), 0, 0, ContentType: "audio/mp4", ReplaceHeaders: true);
+            }
+            throw new NotSupportedException("哔哩哔哩未提供此条目的独立音轨。");
+        }
         var directRequest = ReadPlaybackAsync(forDownload ? requested : HighestQuality, progressiveFormat, token);
         if (forDownload)
         {
@@ -260,13 +271,14 @@ public sealed partial class BilibiliVodProvider(SourceHttpClient http, CloudDriv
         if (video?.Address is { } address)
         {
             var audio = Array(dash, "audio").OrderByDescending(track => Int(track, "bandwidth"))
-                .Select(track => ReadTrackAddress(track, "audio/mp4")).OfType<Uri>().Distinct()
-                .Select(track => new Uri(cloud.ProxyMedia(new CloudPlayResult(track.AbsoluteUri, headers, "audio/mp4", ".m4a"))))
+                .Select(track => (Track: track, Address: ReadTrackAddress(track, "audio/mp4")))
+                .Where(track => track.Address is not null).DistinctBy(track => track.Address)
+                .Select(track => new Uri(RegisterBiliStream(new CloudPlayResult(track.Address!.AbsoluteUri, headers, "audio/mp4", ".m4a"), track.Track)))
                 .ToArray();
-            var local = cloud.ProxyMedia(new CloudPlayResult(address.AbsoluteUri, headers, "video/mp4", ".mp4")
+            var local = RegisterBiliStream(new CloudPlayResult(address.AbsoluteUri, headers, "video/mp4", ".mp4")
             {
                 UseBoundedRanges = video.Id >= 112
-            });
+            }, video.Metadata);
             return new SpiderPlayResult(local, new Dictionary<string, string>(), 0, 0, Danmaku: danmaku,
                 ContentType: "video/mp4", AudioTracks: audio, ReplaceHeaders: true)
             {
@@ -284,19 +296,32 @@ public sealed partial class BilibiliVodProvider(SourceHttpClient http, CloudDriv
         return CreateProgressive(direct, headers, danmaku, options, options.FirstOrDefault(option => option.ProviderId == actualDirect));
     }
 
-    private static SpiderPlayResult CreateProgressive(JsonElement data, IReadOnlyDictionary<string, string> headers, Uri danmaku,
+    private SpiderPlayResult CreateProgressive(JsonElement data, IReadOnlyDictionary<string, string> headers, Uri danmaku,
         IReadOnlyList<QualityOption> options, QualityOption? selected)
     {
         if (ProgressiveAddress(data) is not { } media)
             throw new NotSupportedException(Array(data, "durl").Length > 1
                 ? "该视频没有可用的单文件媒体。" : "哔哩哔哩没有返回此视频的可用播放地址。");
-        return new SpiderPlayResult(media.AbsoluteUri, headers, 0, 0, Danmaku: danmaku, ContentType: "video/mp4", ReplaceHeaders: true)
+        var local = RegisterBiliStream(new CloudPlayResult(media.AbsoluteUri, headers, "video/mp4", ".mp4"), Array(data, "durl")[0]);
+        return new SpiderPlayResult(local, new Dictionary<string, string>(), 0, 0, Danmaku: danmaku, ContentType: "video/mp4", ReplaceHeaders: true)
         {
             ProviderVideoHeights = AvailableHeights(options),
             ProviderQualities = options,
-            ResolvedQuality = selected,
-            UseHttpProxy = true
+            ResolvedQuality = selected
         };
+    }
+
+    private string RegisterBiliStream(CloudPlayResult media, JsonElement stream)
+    {
+        var backup = Array(stream, "backup_url").Concat(Array(stream, "backupUrl"))
+            .Where(url => url.ValueKind == JsonValueKind.String)
+            .Select(url => AsHttpUri(url.GetString() ?? ""))
+            .FirstOrDefault(url => url is { Scheme: "https" } && url.AbsoluteUri != media.Url);
+        return cloud!.ProxyMedia(media, null, backup is null ? null : token =>
+        {
+            token.ThrowIfCancellationRequested();
+            return Task.FromResult(media with { Url = backup.AbsoluteUri });
+        });
     }
 
     private static Uri? ProgressiveAddress(JsonElement data)

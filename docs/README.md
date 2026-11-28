@@ -19,6 +19,7 @@
 
 ## 发行说明
 
+- [2.0.1](releases/release-2.0.1.md) · 音乐播放器、逐句歌词、资源包 ZIP 导入及通用适配。
 - [2.0.0](releases/release-2.0.0.md) · 正则弹幕屏蔽、精简基础规则、仓库资源包和 Windows 兼容性。
 - [1.9.7](releases/release-1.9.7.md)：三层通用安卓 TVBox 站点适配（DEX 转译、Jint JS、AppYs/AList、Python）、多仓库切换隔离、零回弹精准拖拽与国内直连中继架构。
 - [1.9.6](releases/release-1.9.6.md)：UC 原画与转码智能切换、厂长浏览器渲染兼容、云盘分页、增量升级与凭据隔离强化。

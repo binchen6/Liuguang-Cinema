@@ -161,6 +161,19 @@ public sealed partial class SettingsPage : Page
         await ViewModel.InstallRepoPackAsync(item);
     }
 
+    private async void OnImportRepoPackClick(object sender, RoutedEventArgs e)
+    {
+        var picker = new Microsoft.Windows.Storage.Pickers.FileOpenPicker(App.Window.AppWindow.Id);
+        picker.FileTypeFilter.Add(".zip");
+        try
+        {
+            if (await picker.PickSingleFileAsync() is { } file &&
+                await ConfirmAsync("导入资源包", $"启用「{System.IO.Path.GetFileName(file.Path)}」中的规则。仅导入来源可信的文件。", "导入"))
+                await ViewModel.ImportRepoPackAsync(file.Path);
+        }
+        catch (Exception ex) { ViewModel.RepoPackStatus = "无法选择资源包。 " + ex.Message; }
+    }
+
     private async void OnRemoveRepoPackClick(object sender, RoutedEventArgs e)
     {
         if (sender is not Button { Tag: RepoPackItemViewModel item }) return;

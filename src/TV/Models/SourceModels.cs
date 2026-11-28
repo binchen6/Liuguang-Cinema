@@ -60,10 +60,10 @@ public sealed class SourceSite
     [JsonPropertyName("jar")] public string Jar { get; set; } = string.Empty;
     [JsonPropertyName("playUrl")] public string PlayUrl { get; set; } = string.Empty;
     [JsonPropertyName("click")] public string Click { get; set; } = string.Empty;
-    [JsonPropertyName("searchable")] public int Searchable { get; set; } = 1;
-    [JsonPropertyName("changeable")] public int Changeable { get; set; } = 1;
-    [JsonPropertyName("quickSearch")] public int QuickSearch { get; set; } = 1;
-    [JsonPropertyName("filterable")] public int Filterable { get; set; } = 1;
+    [JsonPropertyName("searchable"), JsonConverter(typeof(FlexibleIntConverter))] public int Searchable { get; set; } = 1;
+    [JsonPropertyName("changeable"), JsonConverter(typeof(FlexibleIntConverter))] public int Changeable { get; set; } = 1;
+    [JsonPropertyName("quickSearch"), JsonConverter(typeof(FlexibleIntConverter))] public int QuickSearch { get; set; } = 1;
+    [JsonPropertyName("filterable"), JsonConverter(typeof(FlexibleIntConverter))] public int Filterable { get; set; } = 1;
     [JsonPropertyName("timeout")] public int Timeout { get; set; } = 30;
     [JsonPropertyName("categories")] public List<string> Categories { get; set; } = [];
     [JsonPropertyName("header"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] public JsonElement Header { get; set; }
@@ -75,7 +75,7 @@ public sealed class SourceSite
 
     [JsonIgnore] public string EffectiveJar => !string.IsNullOrWhiteSpace(Jar) ? Jar.Trim() : RepositorySpider.Trim();
 
-    [JsonIgnore] public bool IsSupported => Type is 0 or 1 or 4
+    [JsonIgnore] public bool IsSupported => Type is 0 or 1 or 4 || Tool != SourceTool.None
         || Services.Vod.Native.HttpSpiderProvider.Supports(this)
         || Services.Vod.Native.HtmlVodProvider.Supports(this)
         || Services.Vod.Native.WoggNativeProvider.Supports(this)
@@ -89,10 +89,28 @@ public sealed class SourceSite
         || Services.Spider.PySpiderClient.Supports(this)
         || Type == 3 && Services.Spider.SpiderCatalog.IsAvailable(Api, Ext, EffectiveJar);
 
-    [JsonIgnore] public string DisplayName => IsSupported ? Name : $"{Name}（无公开实现）";
+    [JsonIgnore] internal SourceTool Tool => Type == 3 ? Api.ToUpperInvariant() switch
+    {
+        "CSP_FISHCONFIG" => SourceTool.Settings,
+        "CSP_LOCAL" => SourceTool.Files,
+        "CSP_MARKET" => SourceTool.Market,
+        "CSP_PUSH" or "CSP_PUSHGUARD" or "CSP_PUSHAGENT" => SourceTool.Push,
+        _ => SourceTool.None
+    } : SourceTool.None;
+
+    [JsonIgnore] public string DisplayName => Tool switch
+    {
+        SourceTool.Settings => "设置中心",
+        SourceTool.Files => "文件浏览",
+        SourceTool.Market => "网盘市场",
+        SourceTool.Push => "推送接收",
+        _ => IsSupported ? Name : $"{Name}（无公开实现）"
+    };
 
     public IReadOnlyDictionary<string, string> GetHeaders() => HeaderValueParser.Parse(Header);
 }
+
+internal enum SourceTool { None, Settings, Files, Market, Push }
 
 public sealed class LiveSource
 {

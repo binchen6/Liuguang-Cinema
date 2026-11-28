@@ -104,6 +104,12 @@
         "resolved": "10.0.1",
         "contentHash": "9SqHNq+lAjZeyPcm69FTQEjr+wsRYvkS3aW8yxoEndVYwDRkCrsP/44QPqpWHwzevoX26rkOoQ6kr7GZWngw2A=="
       },
+      "TagLibSharp": {
+        "type": "Direct",
+        "requested": "[2.3.0, )",
+        "resolved": "2.3.0",
+        "contentHash": "Qo4z6ZjnIfbR3Us1Za5M2vQ97OWZPmODvVmepxZ8XW0UIVLGdO2T63/N3b23kCcyiwuIe0TQvMEQG8wUCCD1mA=="
+      },
       "VideoLAN.LibVLC.Windows": {
         "type": "Direct",
         "requested": "[3.0.*, )",
