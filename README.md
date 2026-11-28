@@ -52,6 +52,7 @@
 
 从 [GitHub Releases](https://github.com/binchen6/Liuguang-Cinema/releases) 下载：
 - `TV-Setup-<version>-x64.exe` — Windows x64 标准安装器（免提权、支持静默覆盖升级）
+- `TV-<version>-win-x64-portable.zip` — 解压即用便携包（支持应用内纯净原地自动更新）
 
 > 社区开源发行版未附带商业 Authenticode 代码签名证书，在开启 Windows 11 **智能应用控制（SAC）** 或 SmartScreen 的设备上可能出现拦截，详见 [智能应用控制与签名说明](docs/smart-app-control.md)。下载后建议校验官方 SHA-256：
 

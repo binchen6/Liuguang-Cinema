@@ -74,13 +74,13 @@ $env:TV_DATA_ROOT = Join-Path $PWD 'artifacts/tmp/dev-profile'
 # 仅修改 Java 引擎后重新编译（需 JDK 17+，指定 JAVA_HOME）
 mvn -o -q -DskipTests -f engine/catvod/pom.xml package
 
-# 构建完整安装器（输出至 artifacts/installers/；已移除便携包打包）
+# 构建完整安装器与便携包（输出至 artifacts/installers/；-ForceFullUpdate 跳过增量补丁）
 $env:TMP = $env:TEMP = (Resolve-Path 'artifacts/tmp').Path
 & .\scripts\build-installer.ps1 -MavenOffline -NoRestore -ForceFullUpdate
 ```
 
 打包核心机制（版本取自 `Directory.Build.props`）：
-1. **清单驱动的跨版本全量与安全增量升级**：打包自动生成 `install-manifest.txt`（记录全部文件的路径、字节大小与 SHA-256）；完整安装包覆盖升级时自动清理旧版受管运行时与历史清单中已移除的残留文件，静默升级完成后自动重启应用；后续增量更新在下载前由 `AppUpdateService` 强制校验本地清单、核心文件哈希与历史失败标记，任何异常或跨版本跳跃均自动回退完整安装包自愈。传入 `-ForceFullUpdate` 可强制仅发布全量安装包，如需为后续版本生成增量补丁可传入 `-IncrementalBaseDir <旧版目录> -IncrementalBaseVersion <旧版本号>`。
+1. **清单驱动的跨版本全量、便携版与安全增量升级**：打包自动生成 `install-manifest.txt`（记录全部文件的路径、字节大小与 SHA-256），同时内置于标准安装包与便携 ZIP；完整安装包覆盖升级时自动清理旧版受管运行时与历史清单中已移除的残留文件，静默升级完成后自动重启应用，对便携目录升级时自动跳过卸载程序/快捷方式/注册表写入；后续增量更新在下载前由 `AppUpdateService` 强制校验本地清单、核心文件哈希与历史失败标记，任何异常或跨版本跳跃均自动回退完整安装包自愈。传入 `-ForceFullUpdate` 可强制仅发布全量安装包（附带便携 ZIP），不加该开关时自动对比上一版便携包或 `-IncrementalBaseDir` 生成双向增量补丁。
 2. **高签名覆盖与免提权**：`jlink` 后还原微软官方签名 OpenJDK PE 文件并附带 6 个微软签名本地 VC++ CRT DLL（免 UAC，98.4% 已签名）。
 3. **双层 Authenticode 签名与启动耗时守卫**：`installer/TV.iss` 必须保持 `InternalCompressLevel=none`、`SolidCompression=no` 且不嵌套外部 `.exe`，发版前执行：
 

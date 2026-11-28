@@ -4,7 +4,9 @@ param(
     [string]$Configuration = "Release",
     [switch]$MavenOffline,
     [switch]$NoRestore,
+    [switch]$SkipPortableZip,
     [switch]$ForceFullUpdate,
+    [string]$IncrementalBaseZip,
     [string]$IncrementalBaseDir,
     [string]$IncrementalBaseVersion,
     [string]$ReleaseDirectory,
@@ -63,6 +65,8 @@ $version = ([xml](Get-Content (Join-Path $root 'Directory.Build.props') -Raw)).P
 if ($version -notmatch '^\d+\.\d+\.\d+$') { throw "Invalid application version: $version" }
 $installerName = "TV-Setup-$version-x64"
 $installer = Join-Path $release "$installerName.exe"
+$portableName = "TV-$version-win-x64-portable"
+$portableZip = Join-Path $release "$portableName.zip"
 New-Item -ItemType Directory -Force -Path $publish | Out-Null
 if (-not $env:ProgramFiles) { $env:ProgramFiles = "C:\Program Files" }
 if (-not ${env:ProgramFiles(x86)}) { ${env:ProgramFiles(x86)} = "C:\Program Files (x86)" }
@@ -413,95 +417,123 @@ Write-Host "Installer created: $($file.FullName)" -ForegroundColor Green
 Write-Host ("Size: {0:N0} bytes ({1:N2} MB); SHA256: {2}" -f $file.Length, ($file.Length / 1MB), $hash.Hash) -ForegroundColor Green
 "$($hash.Hash.ToLowerInvariant()) *$installerName.exe" | Set-Content "$installer.sha256" -Encoding ascii
 
-# Remove any legacy portable archive for the current version (portable ZIP workflow is retired)
-Get-ChildItem -LiteralPath $release -Filter "TV-$version-win-x64-portable.zip*" -File -ErrorAction SilentlyContinue |
-    Remove-Item -Force -ErrorAction SilentlyContinue
+if (-not $SkipPortableZip) {
+    if (Test-Path -LiteralPath $portableZip) { Remove-Item -LiteralPath $portableZip -Force }
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    [System.IO.Compression.ZipFile]::CreateFromDirectory($publish, $portableZip, [System.IO.Compression.CompressionLevel]::Fastest, $false)
+    Assert-ReleaseIntegrity $portableZip
+    $zipFile = Get-Item $portableZip
+    $zipHash = Get-FileHash $zipFile.FullName -Algorithm SHA256
+    "$($zipHash.Hash.ToLowerInvariant()) *$portableName.zip" | Set-Content "$portableZip.sha256" -Encoding ascii
+    Write-Host ("Portable ZIP created: {0} ({1:N2} MB); SHA256: {2}" -f $zipFile.FullName, ($zipFile.Length / 1MB), $zipHash.Hash) -ForegroundColor Green
+}
 
 if ($ForceFullUpdate) {
     Get-ChildItem -LiteralPath $release -Filter "TV-Update-$version-from-*-x64.exe*" -File -ErrorAction SilentlyContinue |
         Remove-Item -Force -ErrorAction SilentlyContinue
-    Write-Host "ForceFullUpdate enabled: incremental patch skipped; clients will upgrade via $installerName.exe." -ForegroundColor Yellow
-} elseif ($IncrementalBaseDir -and (Test-Path -LiteralPath $IncrementalBaseDir -PathType Container)) {
-    if ($IncrementalBaseVersion -notmatch '^\d+\.\d+\.\d+$') {
-        throw "IncrementalBaseVersion must be a valid semver (e.g. 2.0.1) when IncrementalBaseDir is specified."
-    }
-    $baseExtract = (Resolve-Path -LiteralPath $IncrementalBaseDir).Path
-    $patchPublish = Join-Path $root "artifacts/update-patch-$publishId"
-    $deleteInclude = Join-Path $root "artifacts/update-delete-$publishId.inc"
-    try {
-        $changedFiles = 0
-        $changedBytes = 0L
-        $currentRelSet = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
-        Get-ChildItem -LiteralPath $publish -Recurse -File | ForEach-Object {
-            $relative = $_.FullName.Substring($publish.Length + 1)
-            [void]$currentRelSet.Add($relative)
-            $previous = Join-Path $baseExtract $relative
-            $changed = -not (Test-Path -LiteralPath $previous -PathType Leaf)
-            if (-not $changed) {
-                $old = Get-Item -LiteralPath $previous
-                $changed = $old.Length -ne $_.Length -or (Get-FileHash -LiteralPath $previous -Algorithm SHA256).Hash -ne (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash
-            }
-            if ($changed) {
-                $target = Join-Path $patchPublish $relative
-                New-Item -ItemType Directory -Force -Path (Split-Path $target -Parent) | Out-Null
-                Copy-Item -LiteralPath $_.FullName -Destination $target -Force
-                $changedFiles++
-                $changedBytes += $_.Length
-            }
+    Write-Host "ForceFullUpdate enabled: incremental patch skipped; clients (installed & portable) will upgrade via $installerName.exe." -ForegroundColor Yellow
+} else {
+    $tempBaseExtract = $null
+    if (-not $IncrementalBaseDir) {
+        if (-not $IncrementalBaseZip) {
+            $baseDirectories = @($release, (Join-Path $root 'artifacts/prerequisites/update-base'))
+            $IncrementalBaseZip = Get-ChildItem -LiteralPath $baseDirectories -Filter 'TV-*-win-x64-portable.zip' -File -ErrorAction SilentlyContinue |
+                Where-Object { $_.Name -ne "$portableName.zip" } |
+                Sort-Object { [regex]::Match($_.Name, '(?<=^TV-)\d+\.\d+\.\d+(?=-win-x64)').Value -as [version] } -Descending |
+                Select-Object -First 1 -ExpandProperty FullName
         }
-        $removedFiles = [Collections.Generic.List[string]]::new()
-        $removedDirs = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
-        Get-ChildItem -LiteralPath $baseExtract -Recurse -File | ForEach-Object {
-            $relative = $_.FullName.Substring($baseExtract.Length + 1)
-            if (-not $currentRelSet.Contains($relative) -and $relative -notmatch '(^|[\\/])\.\.([\\/]|$)' -and -not [IO.Path]::IsPathRooted($relative)) {
-                $removedFiles.Add($relative)
-                $parentDir = Split-Path -Path $relative -Parent
-                while (-not [string]::IsNullOrWhiteSpace($parentDir)) {
-                    [void]$removedDirs.Add($parentDir)
-                    $parentDir = Split-Path -Path $parentDir -Parent
+        if ($IncrementalBaseZip -and (Test-Path -LiteralPath $IncrementalBaseZip)) {
+            $IncrementalBaseVersion = [regex]::Match((Split-Path -Leaf $IncrementalBaseZip), '^TV-(\d+\.\d+\.\d+)-win-x64-portable\.zip$').Groups[1].Value
+            if (-not $IncrementalBaseVersion) { throw "Cannot infer incremental base version from $IncrementalBaseZip" }
+            $tempBaseExtract = Join-Path $root "artifacts/update-base-$publishId"
+            Add-Type -AssemblyName System.IO.Compression.FileSystem
+            [IO.Compression.ZipFile]::ExtractToDirectory((Resolve-Path -LiteralPath $IncrementalBaseZip).Path, $tempBaseExtract)
+            $IncrementalBaseDir = $tempBaseExtract
+        }
+    }
+
+    if ($IncrementalBaseDir -and (Test-Path -LiteralPath $IncrementalBaseDir -PathType Container)) {
+        if ($IncrementalBaseVersion -notmatch '^\d+\.\d+\.\d+$') {
+            throw "IncrementalBaseVersion must be a valid semver (e.g. 2.0.1) when IncrementalBaseDir is specified."
+        }
+        $baseExtract = (Resolve-Path -LiteralPath $IncrementalBaseDir).Path
+        $patchPublish = Join-Path $root "artifacts/update-patch-$publishId"
+        $deleteInclude = Join-Path $root "artifacts/update-delete-$publishId.inc"
+        try {
+            $changedFiles = 0
+            $changedBytes = 0L
+            $currentRelSet = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+            Get-ChildItem -LiteralPath $publish -Recurse -File | ForEach-Object {
+                $relative = $_.FullName.Substring($publish.Length + 1)
+                [void]$currentRelSet.Add($relative)
+                $previous = Join-Path $baseExtract $relative
+                $changed = -not (Test-Path -LiteralPath $previous -PathType Leaf)
+                if (-not $changed) {
+                    $old = Get-Item -LiteralPath $previous
+                    $changed = $old.Length -ne $_.Length -or (Get-FileHash -LiteralPath $previous -Algorithm SHA256).Hash -ne (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash
+                }
+                if ($changed) {
+                    $target = Join-Path $patchPublish $relative
+                    New-Item -ItemType Directory -Force -Path (Split-Path $target -Parent) | Out-Null
+                    Copy-Item -LiteralPath $_.FullName -Destination $target -Force
+                    $changedFiles++
+                    $changedBytes += $_.Length
+                }
+            }
+            $removedFiles = [Collections.Generic.List[string]]::new()
+            $removedDirs = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+            Get-ChildItem -LiteralPath $baseExtract -Recurse -File | ForEach-Object {
+                $relative = $_.FullName.Substring($baseExtract.Length + 1)
+                if (-not $currentRelSet.Contains($relative) -and $relative -notmatch '(^|[\\/])\.\.([\\/]|$)' -and -not [IO.Path]::IsPathRooted($relative)) {
+                    $removedFiles.Add($relative)
+                    $parentDir = Split-Path -Path $relative -Parent
+                    while (-not [string]::IsNullOrWhiteSpace($parentDir)) {
+                        [void]$removedDirs.Add($parentDir)
+                        $parentDir = Split-Path -Path $parentDir -Parent
+                    }
+                }
+            }
+            if ($changedFiles -eq 0 -and $removedFiles.Count -eq 0) { throw "Incremental update has no changed or removed files." }
+            $deleteArgs = @()
+            if ($removedFiles.Count -gt 0) {
+                $lines = [Collections.Generic.List[string]]::new()
+                $lines.Add('[InstallDelete]')
+                foreach ($rel in ($removedFiles | Sort-Object)) {
+                    $safe = $rel.Replace('"', '""')
+                    $lines.Add("Type: files; Name: `"{app}\$safe`"")
+                }
+                foreach ($dirRel in ($removedDirs | Sort-Object -Property Length -Descending)) {
+                    $safeDir = $dirRel.Replace('"', '""')
+                    $lines.Add("Type: dirifempty; Name: `"{app}\$safeDir`"")
+                }
+                $lines | Set-Content -LiteralPath $deleteInclude -Encoding utf8
+                $deleteArgs = @("/DDeleteInclude=$deleteInclude")
+            }
+            $previousVersion = $IncrementalBaseVersion
+            $patchName = "TV-Update-$version-from-$previousVersion-x64"
+            $patchInstaller = Join-Path $release "$patchName.exe"
+            $updateIss = Join-Path $root 'installer/TV-Update.iss'
+            $patchIsccArgs = @("/DMyAppVersion=$version", "/DMyBaseVersion=$previousVersion", "/DPublishRoot=$patchPublish", "/O$release", "/F$patchName") + $deleteArgs + $isccSignArgs + @($updateIss)
+            & $iscc @patchIsccArgs
+            if ($LASTEXITCODE -ne 0) { throw "Incremental Inno Setup failed with exit code $LASTEXITCODE" }
+            Assert-ReleaseIntegrity $patchInstaller
+            if ($shouldSign -and (Get-AuthenticodeSignature -LiteralPath $patchInstaller).Status -ne 'Valid') {
+                throw "Incremental installer Authenticode verification failed."
+            }
+            $patchHash = Get-FileHash -LiteralPath $patchInstaller -Algorithm SHA256
+            "$($patchHash.Hash.ToLowerInvariant()) *$patchName.exe" | Set-Content -LiteralPath "$patchInstaller.sha256" -Encoding ascii
+            $patchSize = (Get-Item -LiteralPath $patchInstaller).Length
+            Write-Host ("Incremental installer: {0}; {1} changed files, {2} removed files, {3:N2} MB payload, {4:N2} MB package" -f $patchInstaller, $changedFiles, $removedFiles.Count, ($changedBytes / 1MB), ($patchSize / 1MB)) -ForegroundColor Green
+        } finally {
+            foreach ($temporary in $tempBaseExtract, $patchPublish, $deleteInclude) {
+                if ($temporary -and (Test-Path -LiteralPath $temporary) -and (Get-Item -LiteralPath $temporary).FullName.StartsWith((Join-Path $root 'artifacts') + '\', [StringComparison]::OrdinalIgnoreCase)) {
+                    Remove-Item -LiteralPath $temporary -Recurse -Force
                 }
             }
         }
-        if ($changedFiles -eq 0 -and $removedFiles.Count -eq 0) { throw "Incremental update has no changed or removed files." }
-        $deleteArgs = @()
-        if ($removedFiles.Count -gt 0) {
-            $lines = [Collections.Generic.List[string]]::new()
-            $lines.Add('[InstallDelete]')
-            foreach ($rel in ($removedFiles | Sort-Object)) {
-                $safe = $rel.Replace('"', '""')
-                $lines.Add("Type: files; Name: `"{app}\$safe`"")
-            }
-            foreach ($dirRel in ($removedDirs | Sort-Object -Property Length -Descending)) {
-                $safeDir = $dirRel.Replace('"', '""')
-                $lines.Add("Type: dirifempty; Name: `"{app}\$safeDir`"")
-            }
-            $lines | Set-Content -LiteralPath $deleteInclude -Encoding utf8
-            $deleteArgs = @("/DDeleteInclude=$deleteInclude")
-        }
-        $previousVersion = $IncrementalBaseVersion
-        $patchName = "TV-Update-$version-from-$previousVersion-x64"
-        $patchInstaller = Join-Path $release "$patchName.exe"
-        $updateIss = Join-Path $root 'installer/TV-Update.iss'
-        $patchIsccArgs = @("/DMyAppVersion=$version", "/DMyBaseVersion=$previousVersion", "/DPublishRoot=$patchPublish", "/O$release", "/F$patchName") + $deleteArgs + $isccSignArgs + @($updateIss)
-        & $iscc @patchIsccArgs
-        if ($LASTEXITCODE -ne 0) { throw "Incremental Inno Setup failed with exit code $LASTEXITCODE" }
-        Assert-ReleaseIntegrity $patchInstaller
-        if ($shouldSign -and (Get-AuthenticodeSignature -LiteralPath $patchInstaller).Status -ne 'Valid') {
-            throw "Incremental installer Authenticode verification failed."
-        }
-        $patchHash = Get-FileHash -LiteralPath $patchInstaller -Algorithm SHA256
-        "$($patchHash.Hash.ToLowerInvariant()) *$patchName.exe" | Set-Content -LiteralPath "$patchInstaller.sha256" -Encoding ascii
-        $patchSize = (Get-Item -LiteralPath $patchInstaller).Length
-        Write-Host ("Incremental installer: {0}; {1} changed files, {2} removed files, {3:N2} MB payload, {4:N2} MB package" -f $patchInstaller, $changedFiles, $removedFiles.Count, ($changedBytes / 1MB), ($patchSize / 1MB)) -ForegroundColor Green
-    } finally {
-        foreach ($temporary in $patchPublish, $deleteInclude) {
-            if ((Test-Path -LiteralPath $temporary) -and (Get-Item -LiteralPath $temporary).FullName.StartsWith((Join-Path $root 'artifacts') + '\', [StringComparison]::OrdinalIgnoreCase)) {
-                Remove-Item -LiteralPath $temporary -Recurse -Force
-            }
-        }
+    } else {
+        Write-Host 'No previous portable package or base directory available; incremental update skipped.' -ForegroundColor Yellow
     }
-} else {
-    Write-Host 'No IncrementalBaseDir provided; full installer only.' -ForegroundColor Yellow
 }
 
 Write-Host "Publish directory: $publish"

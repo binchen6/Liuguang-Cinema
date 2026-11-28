@@ -43,7 +43,7 @@
 
 ## 四、纯净原生工程与本地隐私边界
 
-- **免依赖开箱即用**：无需管理员权限，无需预装 .NET、Java 或 VC++ 运行库；发布包内微软签名 PE 占比达 **98.4%**，安装器关闭固实压缩且不嵌套外部 `.exe`，实测冷热启约 **220–450 ms**。
+- **免依赖开箱即用**：无需管理员权限，无需预装 .NET、Java 或 VC++ 运行库；发布包内微软签名 PE 占比达 **98.4%**，安装器关闭固实压缩且不嵌套外部 `.exe`，实测冷热启约 **220–450 ms**，同步提供支持纯净原地更新的免安装便携 ZIP。
 - **国内加速双向增量更新**：复用共享 5 条国内 GitHub 镜像自动测速与多路 Range 分片下载，文件级双向差异补丁让日常升级通常控制在 10 MB 以内，全程强制核对官方 SHA-256。
 - **本地加密与零遥测**：不向作者上报观影记录或账号信息；网盘 Cookie/Token、百炼 API Key 等敏感凭据全部经 Windows **DPAPI** 本机加密落库，跨域重定向严格剥离敏感请求头，日志自动脱敏。
 
@@ -53,7 +53,7 @@
 
 ## 获取方式
 
-- **下载**：前往 [GitHub Releases](https://github.com/binchen6/Liuguang-Cinema/releases) 获取 `TV-Setup-<version>-x64.exe`，并核对同页 `.sha256`。
+- **下载**：前往 [GitHub Releases](https://github.com/binchen6/Liuguang-Cinema/releases) 获取 `TV-Setup-<version>-x64.exe` 或便携包 `TV-<version>-win-x64-portable.zip`，并核对同页 `.sha256`。
 - **源码与文档**：原创代码遵循 MIT 许可，开发构建、设计规范与验收文档见 [README](../README.md) 与 [文档中心](README.md)。
 
 > 应用本身不托管任何影视资源，站点配置、仓库资源包、直播列表、网盘文件、字幕与弹幕均来自用户配置或第三方公开服务，请遵守相应服务条款。

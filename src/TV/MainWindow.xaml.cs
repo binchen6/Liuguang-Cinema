@@ -265,19 +265,29 @@ public sealed partial class MainWindow : Window
             "search" => typeof(SearchPage),
             _ => typeof(VodPage)
         };
+        var navigated = false;
         try
         {
             // 进入全画面沉浸播放时隐藏底层环境底纹，把全部合成帧预算留给视频解码与磨砂玻璃控件
             AppBackdrop.Visibility = tag == "player" ? Visibility.Collapsed : Visibility.Visible;
             // 使用 SuppressNavigationTransitionInfo 将页面转场完全交给 MotionService 物理引擎，支持随时零卡顿打断。
-            ContentFrame.Navigate(pageType, null, new SuppressNavigationTransitionInfo());
+            navigated = ContentFrame.Navigate(pageType, null, new SuppressNavigationTransitionInfo());
             UpdatePaneLayout();
+            if (ContentFrame.BackStack.Count > 0) ContentFrame.BackStack.Clear();
         }
         catch (Exception ex)
         {
             Diagnostics.Log($"页面导航失败 ({tag}): {ex}");
+            navigated = false;
         }
-        ContentFrame.BackStack.Clear();
+        if (!navigated)
+        {
+            _currentTag = previous;
+            AppBackdrop.Visibility = previous == "player" ? Visibility.Collapsed : Visibility.Visible;
+            SyncNavSelection(previous);
+            UpdateBackButton();
+            return;
+        }
         SyncNavSelection(tag);
         UpdateBackButton();
     }
@@ -590,8 +600,11 @@ public sealed partial class MainWindow : Window
                 UseShellExecute = true,
                 WorkingDirectory = AppPaths.Root
             };
+            var baseDir = AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar);
+            var isPortable = !File.Exists(Path.Combine(baseDir, "unins000.exe"));
             foreach (var argument in new[] { "/SILENT", "/NORESTART", "/CLOSEAPPLICATIONS", "/RELAUNCH" }) start.ArgumentList.Add(argument);
-            start.ArgumentList.Add("/DIR=" + AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar));
+            if (isPortable) start.ArgumentList.Add("/PORTABLE");
+            start.ArgumentList.Add("/DIR=" + baseDir);
             start.ArgumentList.Add("/LOG=" + Path.Combine(AppPaths.Root, "update-install.log"));
             if (System.Diagnostics.Process.Start(start) is null) throw new InvalidOperationException("无法启动安装程序。");
             _ = ShutdownAsync();

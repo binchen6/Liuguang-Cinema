@@ -5,6 +5,9 @@
 #ifndef MyAppId
   #define MyAppId "{{C5F4C5D7-89F2-4D33-A0FC-34DC04A7A60D}"
 #endif
+#ifndef MyAppIdRaw
+  #define MyAppIdRaw "{C5F4C5D7-89F2-4D33-A0FC-34DC04A7A60D}"
+#endif
 #ifndef PublishRoot
   #define PublishRoot "..\artifacts\publish"
 #endif
@@ -28,6 +31,7 @@ DefaultDirName={localappdata}\Programs\流光影院
 DefaultGroupName={#MyAppName}
 AllowNoIcons=yes
 PrivilegesRequired=lowest
+Uninstallable=not IsPortableSilentUpdate
 CreateUninstallRegKey={#UninstallRegKey}
 OutputBaseFilename=TV-Setup-x64
 ; Instant-launch installer tuning (non-regression enforced by scripts/Test-InstallerLaunchSpeed.ps1):
@@ -81,35 +85,35 @@ Source: "{#PublishRoot}\runtime\java\lib\modules"; DestDir: "{app}\runtime\java\
 Source: "{#PublishRoot}\*"; DestDir: "{app}"; Excludes: "runtime\catvod-engine.jar,runtime\java\lib\modules"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Registry]
-Root: HKCU; Subkey: "Software\Classes\TV.Video"; ValueType: string; ValueData: "流光影院视频"; Flags: uninsdeletekey
-Root: HKCU; Subkey: "Software\Classes\TV.Video\DefaultIcon"; ValueType: string; ValueData: "{app}\{#MyAppExeName},0"; Flags: uninsdeletekey
-Root: HKCU; Subkey: "Software\Classes\TV.Video\shell\open\command"; ValueType: string; ValueData: """{app}\{#MyAppExeName}"" ""%1"""; Flags: uninsdeletekey
-Root: HKCU; Subkey: "Software\Classes\.mp4\OpenWithProgids"; ValueType: string; ValueName: "TV.Video"; ValueData: ""; Flags: uninsdeletevalue
-Root: HKCU; Subkey: "Software\Classes\.m4v\OpenWithProgids"; ValueType: string; ValueName: "TV.Video"; ValueData: ""; Flags: uninsdeletevalue
-Root: HKCU; Subkey: "Software\Classes\.mkv\OpenWithProgids"; ValueType: string; ValueName: "TV.Video"; ValueData: ""; Flags: uninsdeletevalue
-Root: HKCU; Subkey: "Software\Classes\.webm\OpenWithProgids"; ValueType: string; ValueName: "TV.Video"; ValueData: ""; Flags: uninsdeletevalue
-Root: HKCU; Subkey: "Software\Classes\.avi\OpenWithProgids"; ValueType: string; ValueName: "TV.Video"; ValueData: ""; Flags: uninsdeletevalue
-Root: HKCU; Subkey: "Software\Classes\.mov\OpenWithProgids"; ValueType: string; ValueName: "TV.Video"; ValueData: ""; Flags: uninsdeletevalue
-Root: HKCU; Subkey: "Software\Classes\.ts\OpenWithProgids"; ValueType: string; ValueName: "TV.Video"; ValueData: ""; Flags: uninsdeletevalue
-Root: HKCU; Subkey: "Software\Classes\.m2ts\OpenWithProgids"; ValueType: string; ValueName: "TV.Video"; ValueData: ""; Flags: uninsdeletevalue
-Root: HKCU; Subkey: "Software\Classes\.mts\OpenWithProgids"; ValueType: string; ValueName: "TV.Video"; ValueData: ""; Flags: uninsdeletevalue
-Root: HKCU; Subkey: "Software\Classes\.flv\OpenWithProgids"; ValueType: string; ValueName: "TV.Video"; ValueData: ""; Flags: uninsdeletevalue
-Root: HKCU; Subkey: "Software\Classes\.f4v\OpenWithProgids"; ValueType: string; ValueName: "TV.Video"; ValueData: ""; Flags: uninsdeletevalue
-Root: HKCU; Subkey: "Software\Classes\.wmv\OpenWithProgids"; ValueType: string; ValueName: "TV.Video"; ValueData: ""; Flags: uninsdeletevalue
-Root: HKCU; Subkey: "Software\Classes\.asf\OpenWithProgids"; ValueType: string; ValueName: "TV.Video"; ValueData: ""; Flags: uninsdeletevalue
-Root: HKCU; Subkey: "Software\Classes\.mpg\OpenWithProgids"; ValueType: string; ValueName: "TV.Video"; ValueData: ""; Flags: uninsdeletevalue
-Root: HKCU; Subkey: "Software\Classes\.mpeg\OpenWithProgids"; ValueType: string; ValueName: "TV.Video"; ValueData: ""; Flags: uninsdeletevalue
-Root: HKCU; Subkey: "Software\Classes\.vob\OpenWithProgids"; ValueType: string; ValueName: "TV.Video"; ValueData: ""; Flags: uninsdeletevalue
-Root: HKCU; Subkey: "Software\Classes\.3gp\OpenWithProgids"; ValueType: string; ValueName: "TV.Video"; ValueData: ""; Flags: uninsdeletevalue
-Root: HKCU; Subkey: "Software\Classes\.3g2\OpenWithProgids"; ValueType: string; ValueName: "TV.Video"; ValueData: ""; Flags: uninsdeletevalue
-Root: HKCU; Subkey: "Software\Classes\.rm\OpenWithProgids"; ValueType: string; ValueName: "TV.Video"; ValueData: ""; Flags: uninsdeletevalue
-Root: HKCU; Subkey: "Software\Classes\.rmvb\OpenWithProgids"; ValueType: string; ValueName: "TV.Video"; ValueData: ""; Flags: uninsdeletevalue
-Root: HKCU; Subkey: "Software\Classes\.ogv\OpenWithProgids"; ValueType: string; ValueName: "TV.Video"; ValueData: ""; Flags: uninsdeletevalue
+Root: HKCU; Subkey: "Software\Classes\TV.Video"; ValueType: string; ValueData: "流光影院视频"; Flags: uninsdeletekey; Check: not IsPortableSilentUpdate
+Root: HKCU; Subkey: "Software\Classes\TV.Video\DefaultIcon"; ValueType: string; ValueData: "{app}\{#MyAppExeName},0"; Flags: uninsdeletekey; Check: not IsPortableSilentUpdate
+Root: HKCU; Subkey: "Software\Classes\TV.Video\shell\open\command"; ValueType: string; ValueData: """{app}\{#MyAppExeName}"" ""%1"""; Flags: uninsdeletekey; Check: not IsPortableSilentUpdate
+Root: HKCU; Subkey: "Software\Classes\.mp4\OpenWithProgids"; ValueType: string; ValueName: "TV.Video"; ValueData: ""; Flags: uninsdeletevalue; Check: not IsPortableSilentUpdate
+Root: HKCU; Subkey: "Software\Classes\.m4v\OpenWithProgids"; ValueType: string; ValueName: "TV.Video"; ValueData: ""; Flags: uninsdeletevalue; Check: not IsPortableSilentUpdate
+Root: HKCU; Subkey: "Software\Classes\.mkv\OpenWithProgids"; ValueType: string; ValueName: "TV.Video"; ValueData: ""; Flags: uninsdeletevalue; Check: not IsPortableSilentUpdate
+Root: HKCU; Subkey: "Software\Classes\.webm\OpenWithProgids"; ValueType: string; ValueName: "TV.Video"; ValueData: ""; Flags: uninsdeletevalue; Check: not IsPortableSilentUpdate
+Root: HKCU; Subkey: "Software\Classes\.avi\OpenWithProgids"; ValueType: string; ValueName: "TV.Video"; ValueData: ""; Flags: uninsdeletevalue; Check: not IsPortableSilentUpdate
+Root: HKCU; Subkey: "Software\Classes\.mov\OpenWithProgids"; ValueType: string; ValueName: "TV.Video"; ValueData: ""; Flags: uninsdeletevalue; Check: not IsPortableSilentUpdate
+Root: HKCU; Subkey: "Software\Classes\.ts\OpenWithProgids"; ValueType: string; ValueName: "TV.Video"; ValueData: ""; Flags: uninsdeletevalue; Check: not IsPortableSilentUpdate
+Root: HKCU; Subkey: "Software\Classes\.m2ts\OpenWithProgids"; ValueType: string; ValueName: "TV.Video"; ValueData: ""; Flags: uninsdeletevalue; Check: not IsPortableSilentUpdate
+Root: HKCU; Subkey: "Software\Classes\.mts\OpenWithProgids"; ValueType: string; ValueName: "TV.Video"; ValueData: ""; Flags: uninsdeletevalue; Check: not IsPortableSilentUpdate
+Root: HKCU; Subkey: "Software\Classes\.flv\OpenWithProgids"; ValueType: string; ValueName: "TV.Video"; ValueData: ""; Flags: uninsdeletevalue; Check: not IsPortableSilentUpdate
+Root: HKCU; Subkey: "Software\Classes\.f4v\OpenWithProgids"; ValueType: string; ValueName: "TV.Video"; ValueData: ""; Flags: uninsdeletevalue; Check: not IsPortableSilentUpdate
+Root: HKCU; Subkey: "Software\Classes\.wmv\OpenWithProgids"; ValueType: string; ValueName: "TV.Video"; ValueData: ""; Flags: uninsdeletevalue; Check: not IsPortableSilentUpdate
+Root: HKCU; Subkey: "Software\Classes\.asf\OpenWithProgids"; ValueType: string; ValueName: "TV.Video"; ValueData: ""; Flags: uninsdeletevalue; Check: not IsPortableSilentUpdate
+Root: HKCU; Subkey: "Software\Classes\.mpg\OpenWithProgids"; ValueType: string; ValueName: "TV.Video"; ValueData: ""; Flags: uninsdeletevalue; Check: not IsPortableSilentUpdate
+Root: HKCU; Subkey: "Software\Classes\.mpeg\OpenWithProgids"; ValueType: string; ValueName: "TV.Video"; ValueData: ""; Flags: uninsdeletevalue; Check: not IsPortableSilentUpdate
+Root: HKCU; Subkey: "Software\Classes\.vob\OpenWithProgids"; ValueType: string; ValueName: "TV.Video"; ValueData: ""; Flags: uninsdeletevalue; Check: not IsPortableSilentUpdate
+Root: HKCU; Subkey: "Software\Classes\.3gp\OpenWithProgids"; ValueType: string; ValueName: "TV.Video"; ValueData: ""; Flags: uninsdeletevalue; Check: not IsPortableSilentUpdate
+Root: HKCU; Subkey: "Software\Classes\.3g2\OpenWithProgids"; ValueType: string; ValueName: "TV.Video"; ValueData: ""; Flags: uninsdeletevalue; Check: not IsPortableSilentUpdate
+Root: HKCU; Subkey: "Software\Classes\.rm\OpenWithProgids"; ValueType: string; ValueName: "TV.Video"; ValueData: ""; Flags: uninsdeletevalue; Check: not IsPortableSilentUpdate
+Root: HKCU; Subkey: "Software\Classes\.rmvb\OpenWithProgids"; ValueType: string; ValueName: "TV.Video"; ValueData: ""; Flags: uninsdeletevalue; Check: not IsPortableSilentUpdate
+Root: HKCU; Subkey: "Software\Classes\.ogv\OpenWithProgids"; ValueType: string; ValueName: "TV.Video"; ValueData: ""; Flags: uninsdeletevalue; Check: not IsPortableSilentUpdate
 
 [Icons]
-Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"; IconFilename: "{app}\{#MyAppExeName}"; IconIndex: 0
-Name: "{group}\卸载 {#MyAppName}"; Filename: "{uninstallexe}"
-Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"; IconFilename: "{app}\{#MyAppExeName}"; IconIndex: 0; Tasks: desktopicon
+Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"; IconFilename: "{app}\{#MyAppExeName}"; IconIndex: 0; Check: not IsPortableSilentUpdate
+Name: "{group}\卸载 {#MyAppName}"; Filename: "{uninstallexe}"; Check: not IsPortableSilentUpdate
+Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"; IconFilename: "{app}\{#MyAppExeName}"; IconIndex: 0; Tasks: desktopicon; Check: not IsPortableSilentUpdate
 
 [Run]
 Filename: "{app}\{#MyAppExeName}"; Description: "启动 {#MyAppName}"; Flags: nowait postinstall skipifsilent unchecked
@@ -169,6 +173,8 @@ end;
 
 var
   PreviousManifestFiles: TStringList;
+  PortableModeCached: Boolean;
+  PortableModeResolved: Boolean;
 
 function HasCommandLineSwitch(const SwitchName: String): Boolean;
 var
@@ -183,6 +189,38 @@ begin
       exit;
     end;
   end;
+end;
+
+function RegisteredInstallTarget: Boolean;
+var
+  InstalledPath: String;
+begin
+  Result := RegQueryStringValue(HKCU, 'Software\Microsoft\Windows\CurrentVersion\Uninstall\{#MyAppIdRaw}_is1',
+    'InstallLocation', InstalledPath) and
+    (CompareText(AddBackslash(InstalledPath), AddBackslash(ExpandConstant('{app}'))) = 0);
+end;
+
+function IsPortableSilentUpdate: Boolean;
+var
+  AppDir: String;
+begin
+  if not WizardSilent then
+  begin
+    Result := False;
+    exit;
+  end;
+  if PortableModeResolved then
+  begin
+    Result := PortableModeCached;
+    exit;
+  end;
+  AppDir := AddBackslash(ExpandConstant('{app}'));
+  if HasCommandLineSwitch('/PORTABLE') then
+    PortableModeCached := True
+  else
+    PortableModeCached := FileExists(AppDir + 'TV.dll') and (not FileExists(AppDir + 'unins000.exe')) and (not RegisteredInstallTarget);
+  PortableModeResolved := True;
+  Result := PortableModeCached;
 end;
 
 function ShouldRelaunchAfterSilentUpdate: Boolean;

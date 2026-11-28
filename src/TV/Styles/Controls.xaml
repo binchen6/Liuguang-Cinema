@@ -1108,11 +1108,21 @@
         <Setter Property="CornerRadius" Value="{StaticResource RadiusControl}" />
         <Setter Property="VerticalContentAlignment" Value="Center" />
     </Style>
-    <Style TargetType="NumberBox" BasedOn="{StaticResource DefaultNumberBoxStyle}">
-        <Setter Property="controls:GlassOpticsEngine.Mode" Value="Interactive" />
-        <Setter Property="controls:GlassOpticsEngine.Profile" Value="Control" />
+    <Style TargetType="NumberBox">
+        <Setter Property="IsTabStop" Value="False" />
+        <Setter Property="SelectionHighlightColor" Value="{ThemeResource TextControlSelectionHighlightColor}" />
+        <Setter Property="SelectionFlyout" Value="{StaticResource TextControlCommandBarSelectionFlyout}" />
+        <Setter Property="Background" Value="{ThemeResource TextControlBackground}" />
+        <Setter Property="BorderThickness" Value="{ThemeResource TextControlBorderThemeThickness}" />
+        <Setter Property="BorderBrush" Value="{ThemeResource TextControlBorderBrush}" />
+        <Setter Property="Foreground" Value="{ThemeResource TextControlForeground}" />
+        <Setter Property="FontSize" Value="{StaticResource FontSizeBody}" />
+        <Setter Property="Padding" Value="12,9,12,9" />
+        <Setter Property="Height" Value="{StaticResource MenuItemHeight}" />
         <Setter Property="MinHeight" Value="{StaticResource MenuItemHeight}" />
         <Setter Property="CornerRadius" Value="{StaticResource RadiusControl}" />
+        <Setter Property="controls:GlassOpticsEngine.Mode" Value="Interactive" />
+        <Setter Property="controls:GlassOpticsEngine.Profile" Value="Control" />
     </Style>
     <Style TargetType="ToggleButton" BasedOn="{StaticResource DefaultToggleButtonStyle}">
         <Setter Property="controls:GlassOpticsEngine.Mode" Value="Interactive" />

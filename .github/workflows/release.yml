@@ -50,7 +50,7 @@ jobs:
             "has_cert=false" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
           }
 
-      - name: Build installer
+      - name: Build installer and portable package
         shell: pwsh
         env:
           DANDANPLAY_RELAY_URL: ${{ vars.DANDANPLAY_RELAY_URL }}
@@ -80,17 +80,18 @@ jobs:
           $setup = "artifacts/installers/TV-Setup-$version-x64.exe"
           pwsh -NoProfile -File ./scripts/Test-InstallerLaunchSpeed.ps1 -InstallerPath $setup -AssertIssSettings -Runs 2 -MaxColdMs 3500 -MaxWarmMs 1200
 
-      - name: Verify clean installation on Windows
+      - name: Verify clean installation and portable in-place upgrade on Windows
         shell: pwsh
         run: |
           $version = ([xml](Get-Content 'Directory.Build.props' -Raw)).Project.PropertyGroup.Version
           $env:TV_DATA_ROOT = Join-Path $env:RUNNER_TEMP 'Liuguang release profile'
           $installed = Join-Path $env:RUNNER_TEMP 'Liuguang Cinema 中文'
           $setup = Get-Item -LiteralPath "artifacts/installers/TV-Setup-$version-x64.exe"
-          function Test-InstallPackage($exe, $destination) {
-            $log = Join-Path $env:RUNNER_TEMP ($exe.BaseName + '.log')
+          function Test-InstallPackage($exe, $destination, [switch]$Portable) {
+            $log = Join-Path $env:RUNNER_TEMP ($exe.BaseName + $(if ($Portable) { '-portable' } else { '' }) + '.log')
             $installerArgs = @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/NOICONS',
               ('/DIR="{0}"' -f $destination), ('/LOG="{0}"' -f $log))
+            if ($Portable) { $installerArgs += '/PORTABLE' }
             $process = Start-Process -FilePath $exe.FullName -ArgumentList $installerArgs -WindowStyle Hidden -PassThru
             if (-not $process.WaitForExit(180000)) {
               $process.Kill($true)
@@ -109,6 +110,15 @@ jobs:
           node --test server/dandanplay-relay/worker.test.mjs
           if ($LASTEXITCODE -ne 0) { throw 'DanDanPlay relay regression checks failed' }
 
+          # Verify portable ZIP silent in-place upgrade stays clean (no unins000.exe, obsolete files cleaned)
+          $portableDir = Join-Path $env:RUNNER_TEMP 'Liuguang portable upgrade'
+          Expand-Archive -LiteralPath "artifacts/installers/TV-$version-win-x64-portable.zip" -DestinationPath $portableDir
+          Set-Content -LiteralPath (Join-Path $portableDir 'legacy-obsolete.dll') -Value 'old'
+          Add-Content -LiteralPath (Join-Path $portableDir 'install-manifest.txt') -Value '0000000000000000000000000000000000000000000000000000000000000000|3|legacy-obsolete.dll'
+          Test-InstallPackage $setup $portableDir -Portable
+          if (Test-Path -LiteralPath (Join-Path $portableDir 'unins000.exe')) { throw 'Portable upgrade unexpectedly created unins000.exe' }
+          if (Test-Path -LiteralPath (Join-Path $portableDir 'legacy-obsolete.dll')) { throw 'Portable upgrade failed to clean obsolete manifest file' }
+
       - name: Clean temporary signing certificate
         if: always() && steps.cert.outputs.has_cert == 'true'
         shell: pwsh
@@ -122,6 +132,7 @@ jobs:
         with:
           subject-path: |
             artifacts/installers/TV-Setup-*-x64.exe
+            artifacts/installers/TV-*-win-x64-portable.zip
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -130,3 +141,5 @@ jobs:
           path: |
             artifacts/installers/TV-Setup-*-x64.exe
             artifacts/installers/TV-Setup-*-x64.exe.sha256
+            artifacts/installers/TV-*-win-x64-portable.zip
+            artifacts/installers/TV-*-win-x64-portable.zip.sha256
