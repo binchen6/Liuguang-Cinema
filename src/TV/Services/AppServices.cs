@@ -42,6 +42,7 @@ public sealed class AppServices : IDisposable
         _bilibiliAccount = new Lazy<BilibiliAccountService>(() => new BilibiliAccountService(Database, _dns.Value));
         _danmaku = new Lazy<DanmakuService>(() => new DanmakuService(_http.Value));
         _danDanPlay = new Lazy<DanDanPlayService>(() => new DanDanPlayService(_http.Value, Database));
+        AggregateDanmaku = new AggregateDanmakuService(_http.Value);
         _bailianSubtitle = new Lazy<BailianSubtitleService>(() => new BailianSubtitleService(Database, _dns.Value));
         _realtimeSubtitle = new Lazy<RealtimeSubtitleService>(() => new RealtimeSubtitleService(_bailianSubtitle.Value));
         _player = new Lazy<PlayerService>(() => new PlayerService());
@@ -71,7 +72,7 @@ public sealed class AppServices : IDisposable
         var pySpider = new PySpiderClient(http, Database);
         var autoHtml = new UniversalAutoHtmlVodProvider(http, Cloud);
         var repoPackVod = new RepoPackVodProvider(RepoPacks, NativeVod, bilibili, jsSpider, Cms);
-        Vod = new VodClientRouter(Cms, new SpiderVodClient(SpiderRuntime), NativeVod, jsSpider, pySpider, autoHtml, repoPackVod);
+        Vod = new VodClientRouter(Cms, new SpiderVodClient(SpiderRuntime, _http.Value), NativeVod, jsSpider, pySpider, autoHtml, repoPackVod);
         Live = new LiveService(http);
         Epg = new EpgService(http);
         Douban = new DoubanService(http, Database);
@@ -113,6 +114,7 @@ public sealed class AppServices : IDisposable
     public VideoDownloadService Downloads { get; } = null!;
     public DanmakuService Danmaku => _danmaku.Value;
     public DanDanPlayService DanDanPlay => _danDanPlay.Value;
+    public AggregateDanmakuService AggregateDanmaku { get; }
     public BailianSubtitleService BailianSubtitle => _bailianSubtitle.Value;
     public RealtimeSubtitleService RealtimeSubtitle => _realtimeSubtitle.Value;
     public BilibiliVodProvider Bilibili => _bilibili.Value;

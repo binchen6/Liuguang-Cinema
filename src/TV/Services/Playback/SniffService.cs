@@ -58,8 +58,8 @@ public sealed partial class SniffService
         return view;
     }
 
-    internal async Task<SniffedMedia?> SniffAsync(string pageUrl, string? userAgent = null, CancellationToken cancellationToken = default,
-        Func<Uri, bool>? allowMedia = null, bool audioOnly = false)
+    internal async Task<SniffedMedia?> SniffAsync(string pageUrl, string? userAgent = null,
+        Func<Uri, bool>? allowMedia = null, bool audioOnly = false, CancellationToken cancellationToken = default)
     {
         if (!Uri.TryCreate(pageUrl, UriKind.Absolute, out var page) || !MediaRequestHeaders.IsHttpAddress(page)) return null;
         await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);

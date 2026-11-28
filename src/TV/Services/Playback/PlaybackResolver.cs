@@ -139,8 +139,8 @@ public sealed class PlaybackResolver(AppServices services)
             if (variant is null && (result.Parse == 1 || result.Jx == 1) && !PlayUrlResolver.IsDirectMediaUrl(request.Url))
             {
                 var userAgent = result.BrowserFailureMessage is null ? request.Headers.GetValueOrDefault("User-Agent") : null;
-                var sniffed = result.Jx == 1 ? null : await services.Sniffer.SniffAsync(request.Url, userAgent, token,
-                    result.BrowserMediaFilter, result.BrowserAudioPlayback);
+                var sniffed = result.Jx == 1 ? null : await services.Sniffer.SniffAsync(request.Url, userAgent,
+                    result.BrowserMediaFilter, result.BrowserAudioPlayback, token);
                 if (sniffed is not null)
                 {
                     if (Uri.TryCreate(result.Url, UriKind.Absolute, out var page))

@@ -256,7 +256,7 @@ public sealed partial class MusicPlayerSurface : UserControl
 
     private void OnLyricViewportChanged(object sender, SizeChangedEventArgs e)
     {
-        var padding = _lines.FirstOrDefault()?.TimeMs is null ? 0 : Math.Max(0, e.NewSize.Height * 0.46 - 24);
+        var padding = _lines.Count == 0 || _lines[0].TimeMs is null ? 0 : Math.Max(0, e.NewSize.Height * 0.46 - 24);
         LyricLeadingSpace.Height = LyricTrailingSpace.Height = padding;
     }
 
@@ -652,7 +652,7 @@ public sealed partial class MusicPlayerSurface : UserControl
     {
         _line = -1;
         Lyrics.ItemsSource = _lines.Select(line => MusicMetadataService.PresentLyric(line, _bilingual, _translationPrimary)).ToArray();
-        var padding = _lines.FirstOrDefault()?.TimeMs is null ? 0 : Math.Max(0, Lyrics.ActualHeight * 0.46 - 24);
+        var padding = _lines.Count == 0 || _lines[0].TimeMs is null ? 0 : Math.Max(0, Lyrics.ActualHeight * 0.46 - 24);
         LyricLeadingSpace.Height = LyricTrailingSpace.Height = padding;
         LyricPlaceholder.Visibility = _lines.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
         SyncLine(_player.Service.LastSnapshot.TimeMs);

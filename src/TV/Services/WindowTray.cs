@@ -45,7 +45,7 @@ internal sealed class WindowTray : IDisposable
         _callback = OnMessage;
         _taskbarCreated = RegisterWindowMessage("TaskbarCreated");
         if (Environment.ProcessPath is { } executable)
-            ExtractIconEx(executable, 0, nint.Zero, out _icon, 1);
+            _ = ExtractIconEx(executable, 0, nint.Zero, out _icon, 1); // 返回值为提取数量，失败时 _icon 为空由托盘回退处理
         _data = new NotifyIconData
         {
             Size = (uint)Marshal.SizeOf<NotifyIconData>(), Window = window, Id = IconId,

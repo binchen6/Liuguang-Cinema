@@ -16,6 +16,9 @@ namespace TV.Services.AI;
 /// </summary>
 public sealed partial class BailianSubtitleService : IDisposable
 {
+    // Paraformer-v2 声道参数固定为单声道 0，静态复用避免每次调用分配常量数组
+    private static readonly int[] ParaformerChannelIds = [0];
+
     private readonly DatabaseService _database;
     private readonly AudioExtractionService _extractor;
     private readonly HttpClient _http;
@@ -425,7 +428,7 @@ public sealed partial class BailianSubtitleService : IDisposable
                 input = new { file_urls = new[] { audioUri } },
                 parameters = new
                 {
-                    channel_id = new[] { 0 },
+                    channel_id = ParaformerChannelIds,
                     language_hints = hints,
                     timestamp_alignment_enabled = true
                 }

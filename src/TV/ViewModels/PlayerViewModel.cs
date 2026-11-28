@@ -203,7 +203,7 @@ public sealed partial class PlayerViewModel : ObservableObject
         try
         {
             if (generation != _loadGeneration) return;
-            await LoadCoreAsync(request, cancellation.Token, generation);
+            await LoadCoreAsync(request, generation, cancellation.Token);
         }
         catch (OperationCanceledException) when (cancellation.IsCancellationRequested) { }
         finally { _loadGate.Release(); }
@@ -223,7 +223,7 @@ public sealed partial class PlayerViewModel : ObservableObject
     private bool IsCurrentLoad(long generation, CancellationToken token) =>
         generation == _loadGeneration && !token.IsCancellationRequested;
 
-    private async Task LoadCoreAsync(PlaybackRequest request, CancellationToken token, long generation)
+    private async Task LoadCoreAsync(PlaybackRequest request, long generation, CancellationToken token)
     {
         ResetCloudSubtitles();
         CancelAiSubtitle();
@@ -796,13 +796,20 @@ public sealed partial class PlayerViewModel : ObservableObject
     private void ReleaseMedia(PlaybackRequest? media, PlaybackRequest? retained = null)
     {
         if (media is null) return;
-        if (media.Magnet is { } magnet && !ReferenceEquals(magnet, retained?.Magnet)) _ = magnet.DisposeAsync();
+        if (media.Magnet is { } magnet && !ReferenceEquals(magnet, retained?.Magnet)) _ = DisposeMagnetInBackgroundAsync(magnet);
         if (_services.PlayerOnly) return;
         if (media.Url != retained?.Url) _services.Cloud.ReleaseMedia(media.Url);
         foreach (var track in media.AudioTracks)
             if (retained?.AudioTracks.Contains(track) != true) _services.Cloud.ReleaseMedia(track.AbsoluteUri);
         foreach (var subtitle in media.Subtitles)
             if (retained?.Subtitles.Contains(subtitle) != true) _services.Cloud.ReleaseMedia(subtitle.AbsoluteUri);
+    }
+
+    // ValueTask 必须被消费一次：磁力会话的异步释放在后台任务中等待，避免丢弃 ValueTask 造成状态机泄漏或重复释放
+    private static async Task DisposeMagnetInBackgroundAsync(MagnetPlayback magnet)
+    {
+        try { await magnet.DisposeAsync().ConfigureAwait(false); }
+        catch (Exception ex) { Diagnostics.Log("磁力会话释放: " + ex.GetType().Name); }
     }
 
     private void ReadFixedVideoQuality(VideoFormat? format)
@@ -834,7 +841,7 @@ public sealed partial class PlayerViewModel : ObservableObject
         var title = request.Item?.Name ?? request.Title;
         var episode = SelectedEpisode?.Name ?? request.Subtitle;
         var durationSec = (int)Math.Round(Math.Max(0, _services.Player.LastSnapshot.LengthMs) / 1000.0);
-        var match = await _services.DanDanPlay.MatchAsync(title, episode, request.EpisodeIndex, CurrentLocalFilePath, durationSec, token, request.Item?.Year, request.Item?.TypeName);
+        var match = await _services.DanDanPlay.MatchAsync(title, episode, request.EpisodeIndex, CurrentLocalFilePath, durationSec, request.Item?.Year, request.Item?.TypeName, token);
         QualityMessage = $"弹弹play 已匹配：{match.DisplayName}";
         return match;
     }
@@ -860,9 +867,19 @@ public sealed partial class PlayerViewModel : ObservableObject
         if (IsBilibiliPlayback && request.Url.Split('+', 2) is { Length: 2 } ids &&
             long.TryParse(ids[0], out var aid) && long.TryParse(ids[1], out var cid))
             return new OnlineMediaMatch(title, episode, aid, cid);
-        var match = await _services.OnlineMedia.MatchAsync(title, episode, request.EpisodeIndex, token, request.Item?.Year, request.Item?.TypeName);
+        var match = await _services.OnlineMedia.MatchAsync(title, episode, request.EpisodeIndex, request.Item?.Year, request.Item?.TypeName, token);
         QualityMessage = $"已匹配：{match.Title} · {match.EpisodeTitle}";
         return match;
+    }
+
+    internal async Task<AggregateDanmakuResult> MatchAggregateAsync(CancellationToken token)
+    {
+        if (_request is not { } request) throw new InvalidOperationException("当前没有可匹配的视频。");
+        var title = request.Item?.Name ?? request.Title;
+        var episode = SelectedEpisode?.Name ?? request.Subtitle;
+        var result = await _services.AggregateDanmaku.MatchAsync(title, episode, request.EpisodeIndex, request.Item?.Year, request.Item?.TypeName, token);
+        QualityMessage = $"聚合弹幕已匹配：{result.SourceName} · {result.Title} · {result.EpisodeTitle}";
+        return result;
     }
 
     internal async Task<IReadOnlyList<OnlineSubtitleTrack>> GetOnlineSubtitlesAsync(CancellationToken token)
@@ -1163,9 +1180,13 @@ public sealed partial class PlayerViewModel : ObservableObject
     private async Task LoadTimingAsync(CancellationToken token)
     {
         if (_request is not { } request) return;
-        var episode = request.Lines.ElementAtOrDefault(request.LineIndex)?.Episodes.ElementAtOrDefault(request.EpisodeIndex)?.Name ?? request.EpisodeIndex.ToString(System.Globalization.CultureInfo.InvariantCulture);
-        var identity = $"{request.SiteKey}|{request.VodId}|{request.LineIndex}|{request.EpisodeIndex}|{episode}";
-        _timingKey = "playback.timing." + Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(identity)))[..24];
+        // 片头片尾按节目维度记忆：同一节目跨集数、线路与站点共用一套设置；节目名缺失时回退到逐集标识
+        var showTitle = NormalizeShowTitle(request.Title);
+        var identity = string.IsNullOrEmpty(showTitle)
+            ? $"{request.SiteKey}|{request.VodId}|{request.LineIndex}|{request.EpisodeIndex}"
+            : showTitle;
+        var scope = string.IsNullOrEmpty(showTitle) ? "ep." : "show.";
+        _timingKey = "playback.timing." + scope + Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(identity)))[..24];
         try
         {
             var json = await _services.Database.GetSettingAsync(_timingKey, token);
@@ -1176,6 +1197,12 @@ public sealed partial class PlayerViewModel : ObservableObject
             Diagnostics.Log($"片头片尾设置读取失败: {ex.GetType().Name}");
             Timing = new();
         }
+    }
+
+    private static string NormalizeShowTitle(string title)
+    {
+        if (string.IsNullOrWhiteSpace(title)) return string.Empty;
+        return string.Concat(title.Where(static c => !char.IsWhiteSpace(c)).Select(c => char.ToLowerInvariant(c)));
     }
 
     internal async Task SaveTimingAsync(double introSeconds, double outroSeconds, bool enabled)
@@ -1193,7 +1220,7 @@ public sealed partial class PlayerViewModel : ObservableObject
         if (!string.IsNullOrEmpty(_timingKey))
             await _services.Database.SetSettingAsync(_timingKey, System.Text.Json.JsonSerializer.Serialize(Timing));
         await _services.Database.SetSettingAsync("playback.skipEnabled", enabled ? "true" : "false");
-        TimingMessage = "已保存当前线路、当前集的片头片尾设置。";
+        TimingMessage = "已保存当前节目的片头片尾设置，对本节目各集数与站点通用。";
     }
 
     internal Task SetTimingFromPositionAsync(bool intro)

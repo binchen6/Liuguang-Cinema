@@ -3,6 +3,7 @@ using System.Runtime.CompilerServices;
 using System.Text.Json;
 using TV.Models;
 using TV.Services.Cloud;
+using TV.Services.Http;
 using TV.Services.Playback;
 
 namespace TV.Services.Spider;
@@ -38,9 +39,16 @@ public sealed class SpiderVodClient
 {
     private sealed record CachedPlay(SpiderPlayResult Result, DateTimeOffset ExpiresAt);
     private readonly SpiderRuntime _runtime;
+    private readonly AndroidCompatCmsFallback? _androidFallback;
     private readonly ConditionalWeakTable<SourceSite, ConcurrentDictionary<(string Api, string Flag, string Id), CachedPlay>> _playCache = new();
 
-    public SpiderVodClient(SpiderRuntime runtime) => _runtime = runtime;
+    public SpiderVodClient(SpiderRuntime runtime) : this(runtime, null) { }
+
+    public SpiderVodClient(SpiderRuntime runtime, SourceHttpClient? http)
+    {
+        _runtime = runtime;
+        _androidFallback = http is null ? null : new AndroidCompatCmsFallback(http);
+    }
 
     public Task<CmsResponse> GetHomeAsync(SourceSite site, CancellationToken cancellationToken = default) =>
         SendAsync(site, "home", new(), cancellationToken);
@@ -218,16 +226,40 @@ public sealed class SpiderVodClient
 
     private async Task<CmsResponse> SendAsync(SourceSite site, string action, Dictionary<string, object?> parameters, CancellationToken cancellationToken)
     {
-        var data = await _runtime.SendAsync(site, action, parameters, cancellationToken).ConfigureAwait(false);
+        JsonElement data;
+        try
+        {
+            data = await _runtime.SendAsync(site, action, parameters, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (_androidFallback is not null && AndroidCompatCmsFallback.IsNativeLibraryRequirement(ex))
+        {
+            // 闭源 ARM .so 防护站点（FishGuard 系等）：桌面端无法加载原生库时，
+            // 按影视仓/OK影视的通用做法尝试站方标准 MacCMS JSON 接口
+            var fallback = await _androidFallback.TryFetchAsync(site, action, parameters, cancellationToken).ConfigureAwait(false);
+            if (fallback is not null)
+            {
+                Diagnostics.Log($"站点 {site.Key} 通过安卓兼容 CMS 兜底恢复 ({action})");
+                return PostProcess(site, fallback);
+            }
+            throw;
+        }
         data = ReadObject(data);
         if (!data.TryGetProperty("list", out _) && (action != "home" || !data.TryGetProperty("class", out _)))
             throw new InvalidDataException("站点响应格式无法识别。");
         var response = data.Deserialize<CmsResponse>(JsonUtil.Options)!;
-        // CatVod's Result.page uses Integer.MAX_VALUE when a pagination value is unknown.
-        response.Page = NormalizePaginationValue(response.Page);
-        response.PageCount = NormalizePaginationValue(response.PageCount);
-        response.Limit = NormalizePaginationValue(response.Limit);
-        response.Total = NormalizePaginationValue(response.Total);
+        return PostProcess(site, response, normalizePagination: true);
+    }
+
+    private CmsResponse PostProcess(SourceSite site, CmsResponse response, bool normalizePagination = false)
+    {
+        if (normalizePagination)
+        {
+            // CatVod's Result.page uses Integer.MAX_VALUE when a pagination value is unknown.
+            response.Page = NormalizePaginationValue(response.Page);
+            response.PageCount = NormalizePaginationValue(response.PageCount);
+            response.Limit = NormalizePaginationValue(response.Limit);
+            response.Total = NormalizePaginationValue(response.Total);
+        }
         response.Categories ??= [];
         response.List ??= [];
         response.List.RemoveAll(static item => item is null);

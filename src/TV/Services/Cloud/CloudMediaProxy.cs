@@ -151,19 +151,35 @@ public sealed partial class CloudMediaProxy : IDisposable
     {
         while (!_cts.IsCancellationRequested)
         {
+            TcpClient? client = null;
+            var slotTaken = false;
+            var owned = false;
             try
             {
-                var client = await _listener.AcceptTcpClientAsync(_cts.Token).ConfigureAwait(false);
-                if (!_connections.Wait(0))
-                {
-                    client.Dispose();
-                    continue;
-                }
+                client = await _listener.AcceptTcpClientAsync(_cts.Token).ConfigureAwait(false);
+                // 满载时等待空闲槽位而非立即 RST：客户端 pending connect 收到 RST 会报「由于目标计算机积极拒绝」，
+                // 背压等待只会让播放器短暂卡顿；线程池泵式处理使等待窗口很短
+                await _connections.WaitAsync(_cts.Token).ConfigureAwait(false);
+                slotTaken = true;
                 client.NoDelay = true;
+                owned = true;
                 _ = HandleAsync(client);
+                client = null;
             }
-            catch (OperationCanceledException) { break; }
-            catch (ObjectDisposedException) { break; }
+            catch (Exception ex) when (ex is not OperationCanceledException && ex is not ObjectDisposedException)
+            {
+                // 单个连接的任何异常（典型：对端在设置 NoDelay 前断开导致的 SocketException）都绝不能终止接受循环，
+                // 否则监听器无人接收，该端口后续所有连接都会表现为 127.0.0.1 主动拒绝
+                Diagnostics.Log("本地媒体代理接受连接失败: " + ex.GetType().Name);
+            }
+            finally
+            {
+                if (!owned)
+                {
+                    if (slotTaken) _connections.Release();
+                    client?.Dispose();
+                }
+            }
         }
     }
 
@@ -428,7 +444,7 @@ public sealed partial class CloudMediaProxy : IDisposable
             if (session.BlockCache is not null) return session.BlockCache;
             var gate = session.Provider is { } provider ? _gates.GetOrAdd(provider, _ => new SemaphoreSlim(6)) : _mediaRangeGate;
             session.BlockCache = new CloudBlockCache(_http, origin, resolved, headers, totalLength, contentType, entityTag,
-                blockSize, session.Threads, gate, _cts.Token, session.Refresh,
+                blockSize, session.Threads, gate, session.Refresh,
                 (nextUri, nextHeaders, refreshedResult) =>
                 {
                     lock (session.Sync)
@@ -437,7 +453,7 @@ public sealed partial class CloudMediaProxy : IDisposable
                         session.ResolvedUri = nextUri;
                         session.ResolvedHeaders = nextHeaders;
                     }
-                });
+                }, _cts.Token);
             return session.BlockCache;
         }
     }

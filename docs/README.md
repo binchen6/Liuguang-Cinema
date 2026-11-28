@@ -20,6 +20,8 @@
 
 ## 发行说明
 
+- [2.0.5](releases/release-2.0.5.md) · 三类弹幕源智能匹配（B站/聚合/弹弹play）、片头片尾按节目生效、仓库备用地址、.so 站点通用兼容。
+- [2.0.3](releases/release-2.0.3.md) · 磁力播放、桌面兼容接口、宽屏全屏修复与 Bouncy Castle 升级。
 - [2.0.1](releases/release-2.0.1.md) · 音乐播放器、逐句歌词、资源包 ZIP 导入及通用适配。
 - [2.0.0](releases/release-2.0.0.md) · 正则弹幕屏蔽、精简基础规则、仓库资源包和 Windows 兼容性。
 - [1.9.7](releases/release-1.9.7.md)：三层通用安卓 TVBox 站点适配（DEX 转译、Jint JS、AppYs/AList、Python）、多仓库切换隔离、零回弹精准拖拽与国内直连中继架构。

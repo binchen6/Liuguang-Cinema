@@ -165,9 +165,9 @@ internal sealed class CloudBlockCache : IDisposable
         int blockSize,
         int maxThreads,
         SemaphoreSlim providerGate,
-        CancellationToken parentToken,
         Func<CancellationToken, Task<CloudPlayResult>>? refresh,
-        Action<Uri, IReadOnlyDictionary<string, string>, CloudPlayResult?>? onUpstreamUpdated)
+        Action<Uri, IReadOnlyDictionary<string, string>, CloudPlayResult?>? onUpstreamUpdated,
+        CancellationToken parentToken)
     {
         _http = http;
         _originUri = originUri;

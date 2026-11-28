@@ -1108,6 +1108,7 @@
         <Setter Property="CornerRadius" Value="{StaticResource RadiusControl}" />
         <Setter Property="VerticalContentAlignment" Value="Center" />
     </Style>
+    <!-- NumberBox 使用 MinHeight 而非固定 Height：模板中 Header 行与输入行垂直堆叠，固定高会裁掉带 Header 输入框的输入行 -->
     <Style TargetType="NumberBox">
         <Setter Property="IsTabStop" Value="False" />
         <Setter Property="SelectionHighlightColor" Value="{ThemeResource TextControlSelectionHighlightColor}" />
@@ -1118,7 +1119,6 @@
         <Setter Property="Foreground" Value="{ThemeResource TextControlForeground}" />
         <Setter Property="FontSize" Value="{StaticResource FontSizeBody}" />
         <Setter Property="Padding" Value="12,9,12,9" />
-        <Setter Property="Height" Value="{StaticResource MenuItemHeight}" />
         <Setter Property="MinHeight" Value="{StaticResource MenuItemHeight}" />
         <Setter Property="CornerRadius" Value="{StaticResource RadiusControl}" />
         <Setter Property="controls:GlassOpticsEngine.Mode" Value="Interactive" />

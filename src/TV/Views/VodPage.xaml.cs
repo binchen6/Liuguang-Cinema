@@ -148,6 +148,9 @@ public sealed partial class VodPage : Page
         }
     }
 
+    private void OnRefreshRepositoryClick(object sender, RoutedEventArgs e) =>
+        ViewModel.RefreshRepositoryCommand.Execute(null);
+
     private void OnRepoMenuOpening(object? sender, object e)
     {
         RepoSwitcherFlyout.Items.Clear();

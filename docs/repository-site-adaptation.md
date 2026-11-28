@@ -152,6 +152,8 @@ example-archive-v1.0.0.zip           # 一次发布的包体
 
 Android 的 `arm64-v8a` 和 `armeabi-v7a` 使用 Android ELF、JNI 及系统运行时，Windows 版 Java 引擎可以转换 DEX 字节码。仅提供 Android 原生库时，由站点维护者提供授权的桌面接口，或在官方提供协议规格和可移植源代码时开发原生适配。[Android ABI](https://developer.android.com/ndk/guides/abis) · [JNI](https://developer.android.com/ndk/guides/jni-tips)
 
+对依赖闭源 ARM `.so`（如 FishGuard 系防护库）的 `type: 3` 站点，客户端按影视仓/OK影视的通用做法提供兜底：当 Java 引擎报告需要 Android 原生库时（`android-native-library`），若站点 `ext` 内含可用的 HTTP(S) 基础地址（字符串或 `siteUrl` / `siteUrls`），会按安卓客户端口径依次探测标准 MacCMS JSON 接口端点族（`/api.php/provide/vod/`、`/provide/vod/` 等），命中即恢复首页、分类、搜索与详情（`AndroidCompatCmsFallback`，见 `src/TV/Services/Spider/`）。仓库维护者可直接在 `ext` 中给出标准 CMS 后端地址以启用该通道；声明 `desktopApi` 时桌面接口优先于兜底。
+
 `type: 3` 的 `csp_` 站点可在 `sites[]` 中保留原有 Android `api`，同时声明 `desktopApi`。Windows 版会在专用原生适配可用时优先使用专用适配，否则通过 `desktopApi` 发起标准 T4 请求。
 
 ```json

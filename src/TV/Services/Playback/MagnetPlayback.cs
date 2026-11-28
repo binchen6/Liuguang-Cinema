@@ -57,7 +57,7 @@ internal sealed class MagnetPlayback : IAsyncDisposable
             {
                 deadline.CancelAfter(TimeSpan.FromSeconds(45));
                 var count = (int)Math.Min(buffer.Length, _file.Length - written);
-                var length = await _stream.ReadAsync(buffer, 0, count, deadline.Token).ConfigureAwait(false);
+                var length = await _stream.ReadAsync(buffer.AsMemory(0, count), deadline.Token).ConfigureAwait(false);
                 if (length == 0) throw new EndOfStreamException("磁力资源提前结束，文件未保存。");
                 await output.WriteAsync(buffer.AsMemory(0, length), deadline.Token).ConfigureAwait(false);
                 written += length;

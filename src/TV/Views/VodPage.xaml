@@ -145,7 +145,7 @@
                                             Height="34" MinHeight="34" CornerRadius="17"
                                             controls:GlassOpticsEngine.RadiusOverride="17"
                                             Padding="13,0,11,0" VerticalAlignment="Center"
-                                            ToolTipService.ToolTip="切换片源仓库"
+                                            ToolTipService.ToolTip="切换片源仓库（右键刷新当前仓库）"
                                             AutomationProperties.Name="切换仓库">
                                 <DropDownButton.Content>
                                     <TextBlock Text="{Binding ActiveRepositoryName}" Style="{StaticResource MetaText}"
@@ -155,6 +155,12 @@
                                 <DropDownButton.Flyout>
                                     <MenuFlyout x:Name="RepoSwitcherFlyout" Placement="BottomEdgeAlignedLeft" Opening="OnRepoMenuOpening" />
                                 </DropDownButton.Flyout>
+                                <DropDownButton.ContextFlyout>
+                                    <MenuFlyout Placement="BottomEdgeAlignedLeft">
+                                        <MenuFlyoutItem Text="刷新当前仓库" Click="OnRefreshRepositoryClick"
+                                                        AutomationProperties.Name="刷新当前仓库" />
+                                    </MenuFlyout>
+                                </DropDownButton.ContextFlyout>
                             </DropDownButton>
                         </StackPanel>
                     </StackPanel>
@@ -310,7 +316,7 @@
                                     AutomationProperties.Name="筛选">
                                 <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
                                     <controls:LineIcon PathData="{StaticResource IconFilter}" IconSize="16" />
-                                    <TextBlock Text="筛选" VerticalAlignment="Center" />
+                                    <TextBlock Text="{Binding FilterBadge}" VerticalAlignment="Center" />
                                 </StackPanel>
                                 <Button.Flyout>
                                     <Flyout Placement="BottomEdgeAlignedRight">
@@ -319,9 +325,10 @@
                                                         Visibility="{Binding HasCategoryFilters, Converter={StaticResource BoolToVisibility}, ConverterParameter=Inverse}">
                                                 <controls:AnchoredChoice Header="类型" ItemsSource="{Binding TypeFilters}"
                                                                          SelectedItem="{Binding TypeFilter, Mode=TwoWay}" HorizontalAlignment="Stretch" />
-                                                <TextBox Header="年份" Text="{Binding YearFilter, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                                                <controls:AnchoredChoice Header="年份" ItemsSource="{Binding YearFilters}"
+                                                                         SelectedItem="{Binding YearFilter, Mode=TwoWay}" HorizontalAlignment="Stretch" />
                                                 <controls:AnchoredChoice Header="排序" SelectedIndex="{Binding SortIndex, Mode=TwoWay}"
-                                                                         Options="默认|年份" HorizontalAlignment="Stretch" />
+                                                                         Options="默认|年份|评分" HorizontalAlignment="Stretch" />
                                             </StackPanel>
                                             <ItemsControl ItemsSource="{Binding CategoryFilters}"
                                                           Visibility="{Binding HasCategoryFilters, Converter={StaticResource BoolToVisibility}}">
@@ -332,6 +339,10 @@
                                                     </DataTemplate>
                                                 </ItemsControl.ItemTemplate>
                                             </ItemsControl>
+                                            <Button Content="重置筛选" Command="{Binding ResetFiltersCommand}"
+                                                    Style="{StaticResource GhostButtonStyle}" HorizontalAlignment="Left"
+                                                    AutomationProperties.Name="重置筛选"
+                                                    Visibility="{Binding HasActiveFilters, Converter={StaticResource BoolToVisibility}}" />
                                         </StackPanel>
                                     </Flyout>
                                 </Button.Flyout>

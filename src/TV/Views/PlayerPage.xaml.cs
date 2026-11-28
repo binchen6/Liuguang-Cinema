@@ -1314,13 +1314,22 @@ public sealed partial class PlayerPage : Page
                 SpinButtonPlacementMode = NumberBoxSpinButtonPlacementMode.Inline
             };
 
-            // Source & matching
+            // Source & matching：三类弹幕来源（弹弹Play / B站 / 其他聚合）+ 智能匹配与来源自带
             var source = new AnchoredChoice
             {
-                Header = "弹幕来源", Options = "来源自带 / 本地文件|弹弹play 开放弹幕库|哔哩哔哩在线匹配",
-                SelectedIndex = _danmaku.Source switch { "dandanplay" => 1, "bilibili" => 2, _ => 0 },
+                Header = "弹幕来源",
+                Options = "智能匹配（推荐）|弹弹play 开放弹幕库|哔哩哔哩|其他聚合（爱壹帆 · 人人）|来源自带 / 本地文件",
+                SelectedIndex = _danmaku.Source switch { "dandanplay" => 1, "bilibili" => 2, "aggregate" => 3, "origin" => 4, _ => 0 },
                 HorizontalAlignment = HorizontalAlignment.Stretch
             };
+            var sourceHint = new TextBlock
+            {
+                Text = "智能匹配顺序：读取中…",
+                Style = (Style)Application.Current.Resources["MetaText"],
+                TextWrapping = TextWrapping.Wrap,
+                Opacity = 0.8
+            };
+            _ = FillDanmakuOrderHintAsync(sourceHint);
             var autoMatch = new ToggleSwitch { Header = "换集后自动匹配对应集数", IsOn = _danmaku.AutoMatch };
             var filter = new ToggleSwitch { Header = "基础广告屏蔽规则", IsOn = _danmaku.BasicFilter };
             var words = new TextBox { Header = "自定义屏蔽词", Text = _danmaku.BlockedWords, PlaceholderText = "空格或逗号分隔", MaxLength = 400 };
@@ -1359,7 +1368,7 @@ public sealed partial class PlayerPage : Page
                     ShowBottom = showBottom.IsChecked == true,
                     ShowColor = showColor.IsChecked == true,
                     TimeOffsetSeconds = double.IsFinite(timeOffset.Value) ? Math.Clamp(timeOffset.Value, -15, 15) : 0,
-                    Source = source.SelectedIndex switch { 1 => "dandanplay", 2 => "bilibili", _ => "origin" },
+                    Source = source.SelectedIndex switch { 1 => "dandanplay", 2 => "bilibili", 3 => "aggregate", 4 => "origin", _ => "auto" },
                     AutoMatch = autoMatch.IsOn
                 };
                 opacityHeader.Text = $"不透明度：{(int)Math.Round(_danmaku.Opacity * 100)}%";
@@ -1372,7 +1381,7 @@ public sealed partial class PlayerPage : Page
             var advanced = new StackPanel
             {
                 Spacing = 10,
-                Children = { opacityHeader, opacitySlider, sizeHeader, sizeSlider, speed, area, density, color, styleRow, typeLabel, typeRow, timeOffset, source, autoMatch },
+                Children = { opacityHeader, opacitySlider, sizeHeader, sizeSlider, speed, area, density, color, styleRow, typeLabel, typeRow, timeOffset, source, sourceHint, autoMatch },
                 Visibility = enabled.IsOn ? Visibility.Visible : Visibility.Collapsed
             };
 
@@ -1769,6 +1778,7 @@ public sealed partial class PlayerPage : Page
     private async Task<IReadOnlyList<DanmakuEntry>?> FetchDanmakuAsync(string source, Uri? origin, bool forceMatch, CancellationToken token)
     {
         if (_localDanmakuOverride is { } local) return await App.Services.Danmaku.LoadAsync(local, token);
+        if (source == "auto") return await FetchDanmakuAutoAsync(origin, forceMatch, token);
         if (source == "dandanplay")
         {
             if (_manualDanDanPlayEpisodeId is { } selected)
@@ -1780,6 +1790,16 @@ public sealed partial class PlayerPage : Page
             }
             var match = await ViewModel.MatchDanDanPlayAsync(token);
             return await App.Services.DanDanPlay.GetCommentsAsync(match.EpisodeId, token: token);
+        }
+        if (source == "aggregate")
+        {
+            if (!forceMatch && !_danmaku.AutoMatch)
+            {
+                ViewModel.QualityMessage = "在线弹幕自动匹配已关闭，可在弹幕设置中手动匹配。";
+                return null;
+            }
+            var aggregate = await ViewModel.MatchAggregateAsync(token);
+            return aggregate.Comments;
         }
         if (source == "bilibili" && (forceMatch || !ViewModel.IsBilibiliPlayback || origin is null))
         {
@@ -1796,6 +1816,78 @@ public sealed partial class PlayerPage : Page
             return null;
         }
         return await App.Services.Danmaku.LoadAsync(origin, token);
+    }
+
+    private sealed record DanmakuSourceOutcome(IReadOnlyList<DanmakuEntry>? Comments, string? NotMatchedReason, string? MatchSummary);
+
+    /// <summary>智能匹配链：按设置页配置的顺序（默认 B站 → 其他聚合 → 弹弹play）逐类尝试，首个命中即返回。</summary>
+    private async Task<IReadOnlyList<DanmakuEntry>?> FetchDanmakuAutoAsync(Uri? origin, bool forceMatch, CancellationToken token)
+    {
+        string? rawOrder = null;
+        try { rawOrder = await App.Services.Database.GetSettingAsync(DanmakuSourceOrder.SettingKey, token); }
+        catch (OperationCanceledException) when (token.IsCancellationRequested) { throw; }
+        catch (Exception ex) { Diagnostics.Log("弹幕顺序读取失败: " + ex.GetType().Name); }
+        var order = DanmakuSourceOrder.Parse(rawOrder);
+        var failures = new List<string>();
+        foreach (var category in order)
+        {
+            DanmakuSourceOutcome outcome;
+            try
+            {
+                outcome = category switch
+                {
+                    "bilibili" => await FetchBilibiliOutcomeAsync(origin, forceMatch, token),
+                    "aggregate" => await FetchAggregateOutcomeAsync(forceMatch, token),
+                    _ => await FetchDanDanPlayOutcomeAsync(forceMatch, token)
+                };
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested) { throw; }
+            catch (Exception ex)
+            {
+                failures.Add($"{DanmakuSourceOrder.LabelOf(category)}：{ex.Message}");
+                continue;
+            }
+            if (outcome.Comments is { Count: > 0 })
+            {
+                var label = DanmakuSourceOrder.LabelOf(category);
+                ViewModel.QualityMessage = outcome.MatchSummary is { Length: > 0 } summary
+                    ? $"已智能匹配（{label}）：{summary}"
+                    : $"已智能匹配（{label}）";
+                return outcome.Comments;
+            }
+            failures.Add($"{DanmakuSourceOrder.LabelOf(category)}：{outcome.NotMatchedReason ?? "未匹配到弹幕"}");
+            if (token.IsCancellationRequested) return null;
+        }
+        ViewModel.QualityMessage = "智能匹配未找到可用弹幕。" + (failures.Count > 0 ? " " + string.Join("；", failures) : "");
+        return null;
+    }
+
+    private async Task<DanmakuSourceOutcome> FetchDanDanPlayOutcomeAsync(bool forceMatch, CancellationToken token)
+    {
+        if (_manualDanDanPlayEpisodeId is { } selected)
+            return new(await App.Services.DanDanPlay.GetCommentsAsync(selected, token: token), null, "手动选择的剧集");
+        if (!forceMatch && !_danmaku.AutoMatch)
+            return new(null, "在线自动匹配已关闭", null);
+        var match = await ViewModel.MatchDanDanPlayAsync(token);
+        return new(await App.Services.DanDanPlay.GetCommentsAsync(match.EpisodeId, token: token), null, match.DisplayName);
+    }
+
+    private async Task<DanmakuSourceOutcome> FetchAggregateOutcomeAsync(bool forceMatch, CancellationToken token)
+    {
+        if (!forceMatch && !_danmaku.AutoMatch)
+            return new(null, "在线自动匹配已关闭", null);
+        var result = await ViewModel.MatchAggregateAsync(token);
+        return new(result.Comments, null, $"{result.SourceName} · {result.Title} · {result.EpisodeTitle}");
+    }
+
+    private async Task<DanmakuSourceOutcome> FetchBilibiliOutcomeAsync(Uri? origin, bool forceMatch, CancellationToken token)
+    {
+        if (origin is not null && !forceMatch && ViewModel.IsBilibiliPlayback)
+            return new(await App.Services.Danmaku.LoadAsync(origin, token), null, "B 站播放页弹幕");
+        if (!forceMatch && !_danmaku.AutoMatch)
+            return new(null, "在线自动匹配已关闭", null);
+        var match = await ViewModel.MatchOnlineMediaAsync(token);
+        return new(await App.Services.Danmaku.LoadAsync(match.Danmaku, token), null, $"{match.Title} · {match.EpisodeTitle}");
     }
 
     private async Task ApplyFilteredCommentsAsync()
@@ -1832,6 +1924,20 @@ public sealed partial class PlayerPage : Page
         finally
         {
             if (ReferenceEquals(_danmakuFiltering, work)) _danmakuFiltering = null;
+        }
+    }
+
+    private async Task FillDanmakuOrderHintAsync(TextBlock hint)
+    {
+        try
+        {
+            var raw = await App.Services.Database.GetSettingAsync(DanmakuSourceOrder.SettingKey);
+            if (!IsLoaded) return;
+            hint.Text = $"智能匹配顺序：{DanmakuSourceOrder.Describe(raw)}（可在 设置 → 弹幕与 AI 中调整）";
+        }
+        catch (Exception)
+        {
+            if (IsLoaded) hint.Text = $"智能匹配顺序：{DanmakuSourceOrder.DefaultLabel}";
         }
     }
 
@@ -2251,12 +2357,12 @@ public sealed partial class PlayerPage : Page
             Header = "片尾开始时间（秒），0 为不跳过", Minimum = 0, Maximum = 21600,
             Value = ViewModel.Timing.OutroStartMs / 1000d, SpinButtonPlacementMode = NumberBoxSpinButtonPlacementMode.Inline
         };
-        var enabled = new ToggleSwitch { Header = "自动跳过本集片头片尾", IsOn = ViewModel.SkipEnabled };
-        var message = new TextBlock { Text = "仅保存到当前站点、线路和集数，不影响其他剧集。", TextWrapping = TextWrapping.Wrap };
-        var markIntro = new Button { Content = "当前位置设为片头结束" };
-        var markOutro = new Button { Content = "当前位置设为片尾开始" };
-        var save = new Button { Content = "保存", Style = Application.Current.Resources["PrimaryButtonStyle"] as Style, HorizontalAlignment = HorizontalAlignment.Right };
-        var clear = new Button { Content = "清除本集设置" };
+        var enabled = new ToggleSwitch { Header = "自动跳过片头片尾", IsOn = ViewModel.SkipEnabled };
+        var message = new TextBlock { Text = "对当前节目生效：同一节目跨集数与站点共用一套片头片尾设置。", TextWrapping = TextWrapping.Wrap };
+        var markIntro = new Button { Content = "当前位置设为片头结束", HorizontalAlignment = HorizontalAlignment.Stretch };
+        var markOutro = new Button { Content = "当前位置设为片尾开始", HorizontalAlignment = HorizontalAlignment.Stretch };
+        var save = new Button { Content = "保存", Style = Application.Current.Resources["PrimaryButtonStyle"] as Style, HorizontalAlignment = HorizontalAlignment.Stretch };
+        var clear = new Button { Content = "清除本节目设置", HorizontalAlignment = HorizontalAlignment.Stretch };
         async Task MarkAsync(bool isIntro)
         {
             try
@@ -2273,7 +2379,7 @@ public sealed partial class PlayerPage : Page
         markOutro.Click += async (_, _) => await MarkAsync(false);
         clear.Click += async (_, _) =>
         {
-            try { await ViewModel.SaveTimingAsync(0, 0, enabled.IsOn); intro.Value = outro.Value = 0; message.Text = "已清除当前集设置。"; }
+            try { await ViewModel.SaveTimingAsync(0, 0, enabled.IsOn); intro.Value = outro.Value = 0; message.Text = "已清除当前节目的片头片尾设置。"; }
             catch (Exception ex) { message.Text = ex.Message; }
         };
         save.Click += async (_, _) =>
@@ -2281,7 +2387,14 @@ public sealed partial class PlayerPage : Page
             try { await ViewModel.SaveTimingAsync(intro.Value, outro.Value, enabled.IsOn); message.Text = ViewModel.TimingMessage; }
             catch (Exception ex) { message.Text = ex.Message; }
         };
-        var content = new StackPanel { Width = 332, Padding = new Thickness(0, 0, 12, 0), Spacing = 12, Children = { intro, markIntro, outro, markOutro, enabled, message, clear, save } };
+        var actionRow = new Grid { ColumnSpacing = 8 };
+        actionRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        actionRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        Grid.SetColumn(clear, 0);
+        Grid.SetColumn(save, 1);
+        actionRow.Children.Add(clear);
+        actionRow.Children.Add(save);
+        var content = new StackPanel { Width = 332, Padding = new Thickness(0, 0, 12, 0), Spacing = 12, Children = { intro, markIntro, outro, markOutro, enabled, message, actionRow } };
         var flyout = new Flyout
         {
             FlyoutPresenterStyle = CreatePlayerScrollableFlyoutStyle(Math.Max(240, ActualHeight - 120)),

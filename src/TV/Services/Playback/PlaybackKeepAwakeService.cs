@@ -158,7 +158,8 @@ public sealed class PlaybackKeepAwakeService : IDisposable
             }
             else
             {
-                SetThreadExecutionState(EsContinuous);
+                // 返回值为调用前的执行状态，恢复语义固定，无需检查
+                _ = SetThreadExecutionState(EsContinuous);
             }
             Diagnostics.Log("KeepAwake released");
         }

@@ -22,7 +22,7 @@ public sealed record DanmakuPreferences(
     int Color = 0,
     bool BasicFilter = true,
     string BlockedWords = "",
-    string Source = "dandanplay",
+    string Source = "auto",
     bool AutoMatch = true,
     double Opacity = 0.85,
     double Speed = 1.0,
@@ -55,8 +55,59 @@ public sealed record DanmakuPreferences(
     {
         if (string.Equals(source, "dandanplay", StringComparison.OrdinalIgnoreCase)) return "dandanplay";
         if (string.Equals(source, "bilibili", StringComparison.OrdinalIgnoreCase)) return "bilibili";
-        return "origin";
+        if (string.Equals(source, "aggregate", StringComparison.OrdinalIgnoreCase)) return "aggregate";
+        if (string.Equals(source, "auto", StringComparison.OrdinalIgnoreCase)) return "auto";
+        // 旧版本默认为 dandanplay；新默认改为智能匹配，未知值按智能匹配处理
+        return "auto";
     }
+}
+
+/// <summary>智能弹幕匹配顺序（B站 / 其他聚合 / 弹弹Play 三类来源的尝试先后），持久化于 playback.danmakuOrder。</summary>
+public static class DanmakuSourceOrder
+{
+    public const string SettingKey = "playback.danmakuOrder";
+    public const string DefaultOrder = "bilibili,aggregate,dandanplay";
+    public static readonly string DefaultLabel = Describe(DefaultOrder);
+
+    public static readonly string[] Categories = ["bilibili", "aggregate", "dandanplay"];
+    public static readonly string[] CategoryLabels = ["哔哩哔哩", "其他聚合", "弹弹play"];
+
+    /// <summary>六种全排列预设，供设置页下拉选择。</summary>
+    public static readonly (string Order, string Label)[] Presets =
+    [
+        ("bilibili,aggregate,dandanplay", "哔哩哔哩 → 其他聚合 → 弹弹play（推荐）"),
+        ("bilibili,dandanplay,aggregate", "哔哩哔哩 → 弹弹play → 其他聚合"),
+        ("aggregate,bilibili,dandanplay", "其他聚合 → 哔哩哔哩 → 弹弹play"),
+        ("aggregate,dandanplay,bilibili", "其他聚合 → 弹弹play → 哔哩哔哩"),
+        ("dandanplay,bilibili,aggregate", "弹弹play → 哔哩哔哩 → 其他聚合"),
+        ("dandanplay,aggregate,bilibili", "弹弹play → 其他聚合 → 哔哩哔哩")
+    ];
+
+    public static string LabelOf(string category) => Array.FindIndex(Categories, c => c == category) is var i && i >= 0
+        ? CategoryLabels[i] : category;
+
+    public static string Describe(string order) => string.Join(" → ",
+        Parse(order).Select(LabelOf));
+
+    /// <summary>解析持久化顺序，补齐缺失类别并去重；无法识别时返回默认顺序。</summary>
+    public static IReadOnlyList<string> Parse(string? value)
+    {
+        var result = new List<string>();
+        if (!string.IsNullOrWhiteSpace(value))
+        {
+            foreach (var part in value.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            {
+                var normalized = part.Trim().ToLowerInvariant();
+                if (Categories.Contains(normalized) && !result.Contains(normalized)) result.Add(normalized);
+            }
+        }
+        foreach (var category in Categories)
+            if (!result.Contains(category)) result.Add(category);
+        return result;
+    }
+
+    public static int IndexOfPreset(string? value) => Array.FindIndex(Presets, preset =>
+        string.Equals(preset.Order, value, StringComparison.OrdinalIgnoreCase));
 }
 
 public sealed class DanmakuService(SourceHttpClient http)

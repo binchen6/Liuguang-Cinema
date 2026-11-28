@@ -2,6 +2,10 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Text;
 
+// CA1068 定向豁免：本类四个核心方法的 CancellationToken 参数位置已作为公共契约被全仓 60+ 站点适配器调用，
+// 全量重排收益（纯 API 卫生）远小于回归风险，保持既有签名稳定。
+#pragma warning disable CA1068
+
 namespace TV.Services.Http;
 
 public sealed record HttpPayload(byte[] Content, string ContentType, Uri FinalUri);
@@ -63,9 +67,16 @@ public sealed class SourceHttpClient : IDisposable
 
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeout.CancelAfter(requestTimeout ?? TimeSpan.FromSeconds(20));
-        using var response = await SendFollowingAsync(HttpMethod.Get, uri, headers, null, scopeRedirectHeaders, timeout.Token).ConfigureAwait(false);
-        response.EnsureSuccessStatusCode();
-        return await ReadPayloadAsync(response, uri, maxBytes, timeout.Token).ConfigureAwait(false);
+        try
+        {
+            using var response = await SendFollowingAsync(HttpMethod.Get, uri, headers, null, scopeRedirectHeaders, timeout.Token).ConfigureAwait(false);
+            response.EnsureSuccessStatusCode();
+            return await ReadPayloadAsync(response, uri, maxBytes, timeout.Token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException ex) when (!cancellationToken.IsCancellationRequested)
+        {
+            throw new TimeoutException("连接超时，请稍后重试或调整网络环境。", ex);
+        }
     }
 
     /// <summary>
@@ -87,15 +98,22 @@ public sealed class SourceHttpClient : IDisposable
 
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeout.CancelAfter(requestTimeout ?? TimeSpan.FromSeconds(20));
-        using var response = await SendFollowingAsync(HttpMethod.Get, uri, headers, null, scopeRedirectHeaders, timeout.Token).ConfigureAwait(false);
-        var setCookies = ReadSetCookies(response);
-        var hasCf = response.Headers.TryGetValues("cf-mitigated", out var cfValues) &&
-            cfValues.Any(v => v.Contains("challenge", StringComparison.OrdinalIgnoreCase));
-        var contentType = response.Content.Headers.ContentType?.MediaType ?? string.Empty;
-        var payload = response.IsSuccessStatusCode && !hasCf && skipBodyForContentType?.Invoke(contentType) == true
-            ? new HttpPayload([], contentType, response.RequestMessage?.RequestUri ?? uri)
-            : await ReadPayloadAsync(response, uri, maxBytes, timeout.Token).ConfigureAwait(false);
-        return new HttpExchangeResult(payload, response.StatusCode, setCookies, hasCf);
+        try
+        {
+            using var response = await SendFollowingAsync(HttpMethod.Get, uri, headers, null, scopeRedirectHeaders, timeout.Token).ConfigureAwait(false);
+            var setCookies = ReadSetCookies(response);
+            var hasCf = response.Headers.TryGetValues("cf-mitigated", out var cfValues) &&
+                cfValues.Any(v => v.Contains("challenge", StringComparison.OrdinalIgnoreCase));
+            var contentType = response.Content.Headers.ContentType?.MediaType ?? string.Empty;
+            var payload = response.IsSuccessStatusCode && !hasCf && skipBodyForContentType?.Invoke(contentType) == true
+                ? new HttpPayload([], contentType, response.RequestMessage?.RequestUri ?? uri)
+                : await ReadPayloadAsync(response, uri, maxBytes, timeout.Token).ConfigureAwait(false);
+            return new HttpExchangeResult(payload, response.StatusCode, setCookies, hasCf);
+        }
+        catch (OperationCanceledException ex) when (!cancellationToken.IsCancellationRequested)
+        {
+            throw new TimeoutException("请求超时，请稍后重试。", ex);
+        }
     }
 
     /// <summary>
@@ -115,14 +133,21 @@ public sealed class SourceHttpClient : IDisposable
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeout.CancelAfter(TimeSpan.FromSeconds(20));
         using var content = new FormUrlEncodedContent(formFields);
-        using var response = followRedirects
-            ? await SendFollowingAsync(HttpMethod.Post, uri, headers, content, false, timeout.Token).ConfigureAwait(false)
-            : await SendWithSessionAsync(_client, HttpMethod.Post, uri, headers, content, timeout.Token).ConfigureAwait(false);
-        var setCookies = ReadSetCookies(response);
-        var hasCf = response.Headers.TryGetValues("cf-mitigated", out var cfValues) &&
-            cfValues.Any(v => v.Contains("challenge", StringComparison.OrdinalIgnoreCase));
-        var payload = await ReadPayloadAsync(response, uri, maxBytes, timeout.Token).ConfigureAwait(false);
-        return new HttpExchangeResult(payload, response.StatusCode, setCookies, hasCf);
+        try
+        {
+            using var response = followRedirects
+                ? await SendFollowingAsync(HttpMethod.Post, uri, headers, content, false, timeout.Token).ConfigureAwait(false)
+                : await SendWithSessionAsync(_client, HttpMethod.Post, uri, headers, content, timeout.Token).ConfigureAwait(false);
+            var setCookies = ReadSetCookies(response);
+            var hasCf = response.Headers.TryGetValues("cf-mitigated", out var cfValues) &&
+                cfValues.Any(v => v.Contains("challenge", StringComparison.OrdinalIgnoreCase));
+            var payload = await ReadPayloadAsync(response, uri, maxBytes, timeout.Token).ConfigureAwait(false);
+            return new HttpExchangeResult(payload, response.StatusCode, setCookies, hasCf);
+        }
+        catch (OperationCanceledException ex) when (!cancellationToken.IsCancellationRequested)
+        {
+            throw new TimeoutException("提交超时，请稍后重试。", ex);
+        }
     }
 
     /// <summary>
@@ -142,12 +167,19 @@ public sealed class SourceHttpClient : IDisposable
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeout.CancelAfter(requestTimeout ?? TimeSpan.FromSeconds(20));
         using var content = new StringContent(jsonBody, Encoding.UTF8, "application/json");
-        using var response = await SendFollowingAsync(HttpMethod.Post, uri, headers, content, false, timeout.Token).ConfigureAwait(false);
-        var setCookies = ReadSetCookies(response);
-        var hasCf = response.Headers.TryGetValues("cf-mitigated", out var cfValues) &&
-            cfValues.Any(v => v.Contains("challenge", StringComparison.OrdinalIgnoreCase));
-        var payload = await ReadPayloadAsync(response, uri, maxBytes, timeout.Token).ConfigureAwait(false);
-        return new HttpExchangeResult(payload, response.StatusCode, setCookies, hasCf);
+        try
+        {
+            using var response = await SendFollowingAsync(HttpMethod.Post, uri, headers, content, false, timeout.Token).ConfigureAwait(false);
+            var setCookies = ReadSetCookies(response);
+            var hasCf = response.Headers.TryGetValues("cf-mitigated", out var cfValues) &&
+                cfValues.Any(v => v.Contains("challenge", StringComparison.OrdinalIgnoreCase));
+            var payload = await ReadPayloadAsync(response, uri, maxBytes, timeout.Token).ConfigureAwait(false);
+            return new HttpExchangeResult(payload, response.StatusCode, setCookies, hasCf);
+        }
+        catch (OperationCanceledException ex) when (!cancellationToken.IsCancellationRequested)
+        {
+            throw new TimeoutException("提交超时，请稍后重试。", ex);
+        }
     }
 
     private static IReadOnlyList<string> ReadSetCookies(HttpResponseMessage response) =>

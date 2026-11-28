@@ -199,7 +199,10 @@
                                     <Border Height="1" Background="{ThemeResource DividerBrush}" />
                                     <StackPanel Spacing="6">
                                         <TextBlock Text="已导入仓库" Style="{StaticResource LabelText}" />
-                                        <ItemsControl ItemsSource="{Binding ImportedRepositories}">
+                                        <TextBlock Text="{Binding SourceNotice}" Style="{StaticResource MetaText}" TextWrapping="Wrap"
+                                                   Foreground="{ThemeResource VermilionBrush}"
+                                                   Visibility="{Binding SourceNotice, Converter={StaticResource StringToVisibility}}" />
+                                        <ItemsControl ItemsSource="{Binding VisibleImportedRepositories}">
                                             <ItemsControl.ItemTemplate>
                                                 <DataTemplate>
                                                     <Border BorderBrush="{ThemeResource DividerBrush}" BorderThickness="0,0,0,1"
@@ -215,6 +218,10 @@
                                                                 <TextBlock Text="{Binding Url}" Style="{StaticResource MetaText}"
                                                                            TextTrimming="CharacterEllipsis"
                                                                            ToolTipService.ToolTip="{Binding Url}" />
+                                                                <TextBlock Text="{Binding BackupDisplay}" Style="{StaticResource MetaText}"
+                                                                           TextTrimming="CharacterEllipsis" TextWrapping="Wrap"
+                                                                           ToolTipService.ToolTip="{Binding BackupUrl}"
+                                                                           Visibility="{Binding BackupDisplay, Converter={StaticResource StringToVisibility}}" />
                                                                 <TextBlock Text="{Binding Summary}" Style="{StaticResource MetaText}"
                                                                            TextTrimming="CharacterEllipsis" />
                                                             </StackPanel>
@@ -223,6 +230,10 @@
                                                                         Tag="{Binding}" Click="OnSelectImportedRepoClick"
                                                                         ToolTipService.ToolTip="切换到此仓库"
                                                                         AutomationProperties.Name="切换仓库" />
+                                                                <Button Content="备用地址" Style="{StaticResource GhostButtonStyle}"
+                                                                        Tag="{Binding}" Click="OnBackupSourceClick"
+                                                                        ToolTipService.ToolTip="设置备用地址，主地址失效时自动切换"
+                                                                        AutomationProperties.Name="仓库备用地址" />
                                                                 <Button Content="重命名" Style="{StaticResource GhostButtonStyle}"
                                                                         Tag="{Binding}" Click="OnRenameSourceClick"
                                                                         ToolTipService.ToolTip="自定义仓库名称"
@@ -239,6 +250,10 @@
                                                 </DataTemplate>
                                             </ItemsControl.ItemTemplate>
                                         </ItemsControl>
+                                        <Button Content="{Binding SourcesToggleLabel}" Command="{Binding ToggleSourcesExpandedCommand}"
+                                                Style="{StaticResource GhostButtonStyle}" HorizontalAlignment="Left" Margin="0,2,0,0"
+                                                AutomationProperties.Name="展开或收起已导入仓库列表"
+                                                Visibility="{Binding HasMoreSources, Converter={StaticResource BoolToVisibility}}" />
                                     </StackPanel>
                                 </StackPanel>
                             </Border>
@@ -266,7 +281,7 @@
                                                  Visibility="{Binding IsDownloadingRepoPack, Converter={StaticResource BoolToVisibility}}" />
                                     <TextBlock Text="{Binding RepoPackStatus}" Style="{StaticResource MetaText}" TextWrapping="Wrap" />
                                     <Border Height="1" Background="{ThemeResource DividerBrush}" />
-                                    <ItemsControl ItemsSource="{Binding RepoPacks}">
+                                    <ItemsControl ItemsSource="{Binding VisibleRepoPacks}">
                                         <ItemsControl.ItemTemplate>
                                             <DataTemplate>
                                                 <Border BorderBrush="{ThemeResource DividerBrush}" BorderThickness="0,0,0,1" Padding="0,10">
@@ -301,6 +316,10 @@
                                             </DataTemplate>
                                         </ItemsControl.ItemTemplate>
                                     </ItemsControl>
+                                    <Button Content="{Binding RepoPacksToggleLabel}" Command="{Binding ToggleRepoPacksExpandedCommand}"
+                                            Style="{StaticResource GhostButtonStyle}" HorizontalAlignment="Left"
+                                            AutomationProperties.Name="展开或收起仓库资源包列表"
+                                            Visibility="{Binding HasMoreRepoPacks, Converter={StaticResource BoolToVisibility}}" />
                                 </StackPanel>
                             </Border>
                             <Border Style="{StaticResource SettingsCardStyle}">
@@ -554,6 +573,28 @@
                                             <TextBlock Text="在播放器中开启实时字幕时，自动使用选定翻译模型实时翻译语音内容" Style="{StaticResource MetaText}" />
                                         </StackPanel>
                                         <ToggleSwitch Grid.Column="1" IsOn="{Binding AiRealtimeTranslate, Mode=TwoWay}" OnContent="" OffContent="" MinWidth="0" HorizontalAlignment="Right" VerticalAlignment="Center" />
+                                    </Grid>
+                                </StackPanel>
+                            </Border>
+
+                            <!-- 智能弹幕匹配：三类来源的先后顺序 -->
+                            <Border Style="{StaticResource SettingsCardStyle}">
+                                <StackPanel Spacing="12">
+                                    <StackPanel Spacing="2">
+                                        <TextBlock Text="智能弹幕匹配" Style="{StaticResource LabelText}" />
+                                        <TextBlock Text="开启弹幕后按下列顺序自动匹配：哔哩哔哩、其他聚合（爱壹帆 · 人人）与弹弹play 开放弹幕库；当前类别无匹配时自动尝试下一类。"
+                                                   Style="{StaticResource MetaText}" TextWrapping="Wrap" />
+                                    </StackPanel>
+                                    <Grid MinHeight="{StaticResource SettingsRowMinHeight}" ColumnSpacing="{StaticResource SpaceLarge}">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="*" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Text="匹配顺序" Style="{StaticResource LabelText}" Width="{StaticResource SettingsFormLabelWidth}" VerticalAlignment="Center" />
+                                        <ComboBox Grid.Column="1" MinWidth="260" MaxWidth="460" HorizontalAlignment="Left"
+                                                  AutomationProperties.Name="弹幕智能匹配顺序"
+                                                  SelectedIndex="{Binding DanmakuOrderIndex, Mode=TwoWay}"
+                                                  ItemsSource="{x:Bind DanmakuOrderPresetLabels, Mode=OneTime}" />
                                     </Grid>
                                 </StackPanel>
                             </Border>

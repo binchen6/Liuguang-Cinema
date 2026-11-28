@@ -46,9 +46,12 @@ public sealed partial class SettingsViewModel : ObservableObject
             if (!_hasLoaded) return;
             SyncRepositories();
             ActiveSource = _services.Config.ActiveUrl;
+            SyncSourceNotice();
             await UpdateSourceSummaryAsync();
         });
     }
+
+    private void SyncSourceNotice() => SourceNotice = _services.Config.LastRefreshNotice ?? string.Empty;
 
     [ObservableProperty] private string _activeSource = "尚未加载";
     [ObservableProperty] private string _newSourceUrl = string.Empty;
@@ -59,7 +62,50 @@ public sealed partial class SettingsViewModel : ObservableObject
     [ObservableProperty] private bool _isBusy;
     public ObservableCollection<SourceRepository> Repositories { get; } = [];
     public ObservableCollection<ImportedRepository> ImportedRepositories { get; } = [];
+    public ObservableCollection<ImportedRepository> VisibleImportedRepositories { get; } = [];
     public ObservableCollection<RepoPackItemViewModel> RepoPacks { get; } = [];
+    public ObservableCollection<RepoPackItemViewModel> VisibleRepoPacks { get; } = [];
+    private const int CollapsedListCount = 3;
+    [ObservableProperty, NotifyPropertyChangedFor(nameof(SourcesToggleLabel))]
+    private bool _showAllSources;
+    [ObservableProperty, NotifyPropertyChangedFor(nameof(RepoPacksToggleLabel))]
+    private bool _showAllRepoPacks;
+    public bool HasMoreSources => ImportedRepositories.Count > CollapsedListCount;
+    public bool HasMoreRepoPacks => RepoPacks.Count > CollapsedListCount;
+    public string SourcesToggleLabel => ShowAllSources ? "收起" : $"查看更多（{ImportedRepositories.Count - CollapsedListCount}）";
+    public string RepoPacksToggleLabel => ShowAllRepoPacks ? "收起" : $"查看更多（{RepoPacks.Count - CollapsedListCount}）";
+
+    [RelayCommand]
+    private void ToggleSourcesExpanded()
+    {
+        ShowAllSources = !ShowAllSources;
+        ApplySourcePaging();
+    }
+
+    [RelayCommand]
+    private void ToggleRepoPacksExpanded()
+    {
+        ShowAllRepoPacks = !ShowAllRepoPacks;
+        ApplyRepoPackPaging();
+    }
+
+    private void ApplySourcePaging()
+    {
+        VisibleImportedRepositories.Clear();
+        foreach (var repository in ShowAllSources ? ImportedRepositories : ImportedRepositories.Take(CollapsedListCount))
+            VisibleImportedRepositories.Add(repository);
+        OnPropertyChanged(nameof(HasMoreSources));
+        OnPropertyChanged(nameof(SourcesToggleLabel));
+    }
+
+    private void ApplyRepoPackPaging()
+    {
+        VisibleRepoPacks.Clear();
+        foreach (var item in ShowAllRepoPacks ? RepoPacks : RepoPacks.Take(CollapsedListCount))
+            VisibleRepoPacks.Add(item);
+        OnPropertyChanged(nameof(HasMoreRepoPacks));
+        OnPropertyChanged(nameof(RepoPacksToggleLabel));
+    }
     [ObservableProperty] private string _repoPackStatus = "点击刷新或导入仓库时自动匹配专属资源包";
     [ObservableProperty] private bool _isLoadingRepoPacks;
     [ObservableProperty] private bool _isDownloadingRepoPack;
@@ -80,7 +126,10 @@ public sealed partial class SettingsViewModel : ObservableObject
     private bool _settingCloseBehavior;
     [ObservableProperty] private bool _autoRefreshSources = true;
     [ObservableProperty] private bool _allowExternalExecutables;
+    [ObservableProperty] private int _danmakuOrderIndex;
+    private bool _settingDanmakuOrder;
     [ObservableProperty] private string _sourceSummary = string.Empty;
+    [ObservableProperty] private string _sourceNotice = string.Empty;
     [ObservableProperty] private string _lastSourceRefresh = string.Empty;
     [ObservableProperty] private string _storageSummary = string.Empty;
     [ObservableProperty] private string _downloadFolder = string.Empty;
@@ -192,6 +241,10 @@ public sealed partial class SettingsViewModel : ObservableObject
         CloseBehaviorIndex = Enum.IsDefined((WindowCloseBehavior)behavior) ? behavior : 0;
         AutoRefreshSources = await Bool("source.autoRefresh", true);
         AllowExternalExecutables = await Bool(ExternalSpiderPolicy.SettingKey, false);
+        var order = await _services.Database.GetSettingAsync(DanmakuSourceOrder.SettingKey);
+        _settingDanmakuOrder = true;
+        DanmakuOrderIndex = DanmakuSourceOrder.IndexOfPreset(order) is var presetIndex && presetIndex >= 0 ? presetIndex : 0;
+        _settingDanmakuOrder = false;
         NetworkCache = await Int("playback.networkCache", 2000);
         LiveCache = await Int("playback.liveCache", 1500);
         AdaptiveQuality = await Bool("playback.adaptiveQuality", true);
@@ -213,6 +266,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         BaiduCookie = string.Empty;
         await LoadAiAndDanmakuSettingsAsync();
         _ = RefreshRepoPacksSafeAsync(forceRefresh: false);
+        SyncSourceNotice();
         _loaded = true;
         _hasLoaded = true;
     }
@@ -433,8 +487,9 @@ public sealed partial class SettingsViewModel : ObservableObject
             }
             await _services.Config.LoadAsync(true);
             ActiveSource = _services.Config.ActiveUrl;
+            SyncSourceNotice();
             await UpdateSourceSummaryAsync();
-            StatusMessage = "已更新";
+            StatusMessage = _services.Config.LastRefreshNotice ?? "已更新";
         }
         catch (Exception ex) { StatusMessage = ex.Message; }
         finally { IsBusy = false; }
@@ -541,6 +596,23 @@ public sealed partial class SettingsViewModel : ObservableObject
             StatusMessage = $"仓库已重命名为「{newName.Trim()}」";
         }
         catch (Exception ex) { StatusMessage = "重命名失败：" + ex.Message; }
+    }
+
+    /// <summary>设置或清除仓库备用地址；主地址失效时刷新流程会自动回退到备用地址。</summary>
+    public async Task SetBackupUrlAsync(ImportedRepository repository, string? backupUrl)
+    {
+        if (repository is null) return;
+        try
+        {
+            await _services.Config.SetBackupUrlAsync(repository.Url, backupUrl);
+            await LoadImportsAsync();
+            SyncRepositories();
+            await UpdateSourceSummaryAsync();
+            StatusMessage = string.IsNullOrWhiteSpace(backupUrl)
+                ? $"已清除「{repository.Name}」的备用地址"
+                : $"已保存「{repository.Name}」的备用地址，主地址失效时将自动切换";
+        }
+        catch (Exception ex) { StatusMessage = "备用地址保存失败：" + ex.Message; }
     }
 
     [RelayCommand]
@@ -651,6 +723,7 @@ public sealed partial class SettingsViewModel : ObservableObject
             if (seen.Add(local.Definition.Id))
                 RepoPacks.Add(RepoPackItemViewModel.FromInstalledOnly(local));
         }
+        ApplyRepoPackPaging();
     }
 
     private void SyncInstalledPacksOnly()
@@ -658,6 +731,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         RepoPacks.Clear();
         foreach (var local in _services.RepoPacks.InstalledPacks)
             RepoPacks.Add(RepoPackItemViewModel.FromInstalledOnly(local));
+        ApplyRepoPackPaging();
     }
 
     [RelayCommand]
@@ -682,6 +756,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         var repositories = await _services.Config.GetImportsAsync();
         ImportedRepositories.Clear();
         foreach (var repository in repositories) ImportedRepositories.Add(repository);
+        ApplySourcePaging();
         SyncRepositories();
     }
 
@@ -918,6 +993,13 @@ public sealed partial class SettingsViewModel : ObservableObject
     partial void OnAutoNextChanged(bool value) => Save("playback.autoNext", value);
     partial void OnResumePlaybackChanged(bool value) => Save("playback.resume", value);
     partial void OnAutoRefreshSourcesChanged(bool value) => Save("source.autoRefresh", value);
+
+    partial void OnDanmakuOrderIndexChanged(int value)
+    {
+        if (_settingDanmakuOrder) return;
+        if (value >= 0 && value < DanmakuSourceOrder.Presets.Length)
+            Save(DanmakuSourceOrder.SettingKey, DanmakuSourceOrder.Presets[value].Order);
+    }
     partial void OnAllowExternalExecutablesChanged(bool value) => Save(ExternalSpiderPolicy.SettingKey, value);
     partial void OnAutoCheckUpdatesChanged(bool value) => Save("updates.autoCheck", value);
     partial void OnNetworkCacheChanged(int value) => Save("playback.networkCache", Math.Clamp(value, 1200, 12000));

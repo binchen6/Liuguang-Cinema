@@ -77,14 +77,14 @@ public sealed class HttpSpiderProvider(SourceHttpClient http) : INativePlaybackP
                 ? MediaRequestHeaders.ForTarget(site.GetHeaders(), origin, target) : null);
             return new SpiderPlayResult(target.AbsoluteUri, headers, 0, 0) { ReplaceHeaders = true };
         }
-        var raw = await RequestAsync(site, token, [("play", id), ("flag", flag)]).ConfigureAwait(false);
+        var raw = await RequestAsync(site, [("play", id), ("flag", flag)], token).ConfigureAwait(false);
         using var document = JsonDocument.Parse(raw);
         return SpiderVodClient.ReadPlayResult(document.RootElement);
     }
 
     private async Task<CmsResponse> GetAsync(SourceSite site, CancellationToken token, params (string Key, string Value)[] parameters)
     {
-        var raw = await RequestAsync(site, token, parameters).ConfigureAwait(false);
+        var raw = await RequestAsync(site, parameters, token).ConfigureAwait(false);
         var response = JsonSerializer.Deserialize<CmsResponse>(raw, JsonUtil.Options)
             ?? throw new InvalidDataException("站点返回空响应。");
         foreach (var item in response.List)
@@ -97,7 +97,7 @@ public sealed class HttpSpiderProvider(SourceHttpClient http) : INativePlaybackP
         return response;
     }
 
-    private Task<string> RequestAsync(SourceSite site, CancellationToken token, (string Key, string Value)[] parameters)
+    private Task<string> RequestAsync(SourceSite site, (string Key, string Value)[] parameters, CancellationToken token)
     {
         var baseUrl = ResolveBaseUrl(site) ?? throw new InvalidDataException("站点 T4 接口地址无效。");
         var uri = new UriBuilder(baseUrl);

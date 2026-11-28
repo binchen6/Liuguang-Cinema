@@ -63,7 +63,7 @@ public sealed partial class VideoDownloadService : IDisposable
                     Directory.CreateDirectory(assets);
                     var files = new Dictionary<Uri, string>();
                     var lines = await ReadPlaylistAsync(response, token).ConfigureAwait(false);
-                    var updated = await MaterializeAsync(lines, response.RequestMessage.RequestUri, uri, assets, files, request.Headers, progress, token, 0, true).ConfigureAwait(false);
+                    var updated = await MaterializeAsync(lines, response.RequestMessage.RequestUri, uri, assets, files, request.Headers, progress, 0, true, token).ConfigureAwait(false);
                     await File.WriteAllLinesAsync(temporary, updated, new UTF8Encoding(false), token).ConfigureAwait(false);
                 }
                 else await CopyAsync(response, temporary, progress, token).ConfigureAwait(false);
@@ -83,7 +83,7 @@ public sealed partial class VideoDownloadService : IDisposable
     }
 
     private async Task<string[]> MaterializeAsync(string[] lines, Uri baseUri, Uri origin, string assets, Dictionary<Uri, string> files,
-        IReadOnlyDictionary<string, string> headers, IProgress<double> progress, CancellationToken token, int depth, bool root)
+        IReadOnlyDictionary<string, string> headers, IProgress<double> progress, int depth, bool root, CancellationToken token)
     {
         if (depth > 4 || lines.Length > 40_000) throw new InvalidDataException("播放列表超出离线下载范围。");
         var master = lines.Any(line => line.StartsWith("#EXT-X-STREAM-INF:", StringComparison.Ordinal));
@@ -111,7 +111,7 @@ public sealed partial class VideoDownloadService : IDisposable
             if (!line.StartsWith('#'))
             {
                 lines[index] = prefix + await SaveResourceAsync(line, master ? ".m3u8" : segmentExtension,
-                    baseUri, origin, assets, files, headers, progress, token, depth).ConfigureAwait(false);
+                    baseUri, origin, assets, files, headers, progress, depth, token).ConfigureAwait(false);
                 ReportProgress();
                 continue;
             }
@@ -121,7 +121,7 @@ public sealed partial class VideoDownloadService : IDisposable
             if (uri.StartsWith("data:", StringComparison.OrdinalIgnoreCase)) continue;
             var extension = line.StartsWith("#EXT-X-MEDIA:", StringComparison.Ordinal) ? ".m3u8"
                 : line.StartsWith("#EXT-X-MAP:", StringComparison.Ordinal) ? ".mp4" : ".key";
-            var local = await SaveResourceAsync(uri, extension, baseUri, origin, assets, files, headers, progress, token, depth).ConfigureAwait(false);
+            var local = await SaveResourceAsync(uri, extension, baseUri, origin, assets, files, headers, progress, depth, token).ConfigureAwait(false);
             lines[index] = line.Remove(uriAttribute.Groups[1].Index, uri.Length).Insert(uriAttribute.Groups[1].Index, prefix + local);
             ReportProgress();
         }
@@ -129,7 +129,7 @@ public sealed partial class VideoDownloadService : IDisposable
     }
 
     private async Task<string> SaveResourceAsync(string value, string defaultExtension, Uri baseUri, Uri origin, string assets, Dictionary<Uri, string> files,
-        IReadOnlyDictionary<string, string> headers, IProgress<double> progress, CancellationToken token, int depth)
+        IReadOnlyDictionary<string, string> headers, IProgress<double> progress, int depth, CancellationToken token)
     {
         var uri = new Uri(baseUri, value);
         if (files.TryGetValue(uri, out var cached)) return cached;
@@ -145,7 +145,7 @@ public sealed partial class VideoDownloadService : IDisposable
         if (playlist)
         {
             var lines = await ReadPlaylistAsync(response, token).ConfigureAwait(false);
-            var updated = await MaterializeAsync(lines, effective, origin, assets, files, headers, progress, token, depth + 1, false).ConfigureAwait(false);
+            var updated = await MaterializeAsync(lines, effective, origin, assets, files, headers, progress, depth + 1, false, token).ConfigureAwait(false);
             await File.WriteAllLinesAsync(path, updated, new UTF8Encoding(false), token).ConfigureAwait(false);
         }
         else await CopyAsync(response, path, null, token).ConfigureAwait(false);

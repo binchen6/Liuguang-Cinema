@@ -204,9 +204,9 @@ public sealed partial class DanDanPlayService
         int episodeIndex,
         string? localFilePath = null,
         int durationSeconds = 0,
-        CancellationToken token = default,
         string? year = null,
-        string? typeName = null)
+        string? typeName = null,
+        CancellationToken token = default)
     {
         var identity = MediaMatching.Parse(title, episode, episodeIndex, year, typeName);
         var cacheKey = !string.IsNullOrWhiteSpace(localFilePath)

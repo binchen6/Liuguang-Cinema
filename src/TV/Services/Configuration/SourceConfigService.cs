@@ -50,6 +50,8 @@ public sealed partial class SourceConfigService : IDisposable
     public IReadOnlyList<SourceRepository> Repositories { get; private set; } = [];
     public string ActiveRepositoryId => _activeRepositoryId;
     public string ActiveUrl { get; private set; } = "尚未加载";
+    /// <summary>最近一次刷新的提示（主地址失效回退备用地址等）；设置页读取后展示给用户。</summary>
+    public string? LastRefreshNotice { get; private set; }
     public event EventHandler? Changed;
 
     public async Task<IReadOnlyList<ImportedRepository>> GetImportsAsync(CancellationToken cancellationToken = default)
@@ -109,7 +111,7 @@ public sealed partial class SourceConfigService : IDisposable
             {
                 for (var i = 0; i < fetched.Count; i++)
                 {
-                    var suffix = string.IsNullOrWhiteSpace(fetched[i].Name) ? (i + 1).ToString() : fetched[i].Name;
+                    var suffix = string.IsNullOrWhiteSpace(fetched[i].Name) ? (i + 1).ToString(System.Globalization.CultureInfo.InvariantCulture) : fetched[i].Name;
                     fetched[i] = fetched[i] with { Name = $"{trimmedCustomName} · {suffix}" };
                 }
             }
@@ -146,6 +148,31 @@ public sealed partial class SourceConfigService : IDisposable
     public Task RemoveImportAsync(string url, CancellationToken cancellationToken = default) =>
         UpdateImportsAsync(imports => imports.RemoveAll(item =>
             string.Equals(item.Url, url, StringComparison.OrdinalIgnoreCase)), null, cancellationToken);
+
+    /// <summary>为导入仓库设置或清除备用地址；主地址刷新失败时自动回退到备用地址并在 LastRefreshNotice 中提示。</summary>
+    public Task SetBackupUrlAsync(string url, string? backupUrl, CancellationToken cancellationToken = default)
+    {
+        string? normalized;
+        if (string.IsNullOrWhiteSpace(backupUrl))
+        {
+            normalized = null;
+        }
+        else
+        {
+            var trimmed = backupUrl.Trim();
+            if (!Uri.TryCreate(trimmed, UriKind.Absolute, out var backup) || backup.Scheme is not ("http" or "https") || backup.UserInfo.Length > 0)
+                throw new ArgumentException("备用地址必须是有效的 HTTP/HTTPS 配置地址。", nameof(backupUrl));
+            if (string.Equals(trimmed, url, StringComparison.OrdinalIgnoreCase))
+                throw new ArgumentException("备用地址不能与主地址相同。", nameof(backupUrl));
+            normalized = backup.AbsoluteUri;
+        }
+        return UpdateImportsAsync(imports =>
+        {
+            var idx = imports.FindIndex(item => string.Equals(item.Url, url, StringComparison.OrdinalIgnoreCase));
+            if (idx < 0) throw new InvalidOperationException("仓库不存在或已被移除。");
+            imports[idx] = imports[idx] with { BackupUrl = normalized };
+        }, null, cancellationToken);
+    }
 
     /// <summary>
     /// Looks up a site by key in the active repository first, then across all other repositories
@@ -365,8 +392,27 @@ public sealed partial class SourceConfigService : IDisposable
             var snapshot = _imports?.FirstOrDefault(entry => ComputeRepositoryId(entry.Url) == ActiveRepositoryId);
             if (snapshot is null || !TryGetRepositoryUri(snapshot.Url, out var address)) return;
             var (document, error, _) = await ReadRepositoryEntryAsync(address, snapshot.Name, token).ConfigureAwait(false);
+            string? usedUrl = snapshot.Url;
+            string? notice = null;
+            if (document is null && TryGetRepositoryUri(snapshot.BackupUrl, out var backupAddress))
+            {
+                // 主地址失效时回退备用地址拉取，并把可执行的提示交给设置页展示
+                var (backupDocument, backupError, _) = await ReadRepositoryEntryAsync(backupAddress, snapshot.Name, token).ConfigureAwait(false);
+                if (backupDocument is not null)
+                {
+                    document = backupDocument;
+                    usedUrl = snapshot.BackupUrl;
+                    notice = $"「{snapshot.Name}」主地址失效，已使用备用地址刷新。可在仓库列表中调整备用地址。";
+                    Diagnostics.Log($"仓库主地址失效，备用地址接管: {snapshot.Name}");
+                }
+                else
+                {
+                    Diagnostics.Log($"仓库主地址与备用地址均刷新失败: {snapshot.Name} {backupError ?? "未知"}");
+                }
+            }
             if (document is null) throw new InvalidOperationException("仓库刷新失败。" + (error ?? "未获取到可用片源。"));
-            HydrateDocument(document, snapshot.Url, snapshot.GroupUrl);
+            HydrateDocument(document, usedUrl, snapshot.GroupUrl);
+            LastRefreshNotice = notice;
             await _loadLock.WaitAsync(token).ConfigureAwait(false);
             try
             {

@@ -45,8 +45,21 @@ public sealed partial class VodViewModel : ObservableObject
     public ObservableCollection<PlaybackLine> Lines { get; } = [];
     public ObservableCollection<Episode> Episodes { get; } = [];
     public List<string> TypeFilters { get; } = ["全部", "电影", "电视剧", "动漫", "综艺"];
+    public List<string> YearFilters { get; } = BuildYearFilters();
     public ObservableCollection<VodCategoryFilterChoice> CategoryFilters { get; } = [];
     public bool HasCategoryFilters => CategoryFilters.Count > 0;
+    [ObservableProperty, NotifyPropertyChangedFor(nameof(FilterBadge), nameof(HasActiveFilters))]
+    private int _activeFilterCount;
+    public string FilterBadge => ActiveFilterCount > 0 ? $"筛选 · {ActiveFilterCount}" : "筛选";
+    public bool HasActiveFilters => ActiveFilterCount > 0;
+
+    private static List<string> BuildYearFilters()
+    {
+        var years = new List<string> { "全部" };
+        for (var year = DateTime.Now.Year; year >= 1990; year--)
+            years.Add(year.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        return years;
+    }
 
     [ObservableProperty] private SourceRepository? _activeRepository;
     [ObservableProperty] private string _activeRepositoryName = Services.Configuration.SourceConfigService.EmptyRepositoryName;
@@ -90,7 +103,7 @@ public sealed partial class VodViewModel : ObservableObject
     [ObservableProperty] private string _detailStatus = string.Empty;
     [ObservableProperty] private bool _isFavorite;
     [ObservableProperty] private string _typeFilter = "全部";
-    [ObservableProperty] private string _yearFilter = string.Empty;
+    [ObservableProperty] private string _yearFilter = "全部";
     [ObservableProperty] private int _sortIndex;
     [ObservableProperty] private string _downloadStatus = string.Empty;
     [ObservableProperty] private bool _isDownloading;
@@ -142,6 +155,26 @@ public sealed partial class VodViewModel : ObservableObject
     [RelayCommand]
     private Task ReloadAsync() => ReloadCoreAsync(allowFallback: false);
 
+    /// <summary>右键仓库切换按钮：强制重新拉取当前仓库配置并刷新点播内容。</summary>
+    [RelayCommand]
+    private async Task RefreshRepositoryAsync()
+    {
+        if (IsLoading) return;
+        try
+        {
+            StatusMessage = "正在刷新当前仓库…";
+            await _services.Config.LoadAsync(true);
+        }
+        catch (OperationCanceledException) { return; }
+        catch (Exception ex)
+        {
+            StatusMessage = "刷新仓库失败：" + ex.Message;
+            return;
+        }
+        var reloaded = await ReloadCoreAsync(allowFallback: false);
+        if (reloaded) StatusMessage = "已刷新当前仓库内容";
+    }
+
     [RelayCommand]
     private async Task SelectRepositoryAsync(SourceRepository? repository)
     {
@@ -167,7 +200,7 @@ public sealed partial class VodViewModel : ObservableObject
 
     private static string HomeSiteSettingKey(string repoId) => $"source.homeSite.{repoId}";
 
-    private async Task ReloadCoreAsync(bool allowFallback)
+    private async Task<bool> ReloadCoreAsync(bool allowFallback)
     {
         var token = BeginRequest();
         IsLoading = true;
@@ -195,12 +228,20 @@ public sealed partial class VodViewModel : ObservableObject
                 Categories.Clear();
                 ReplaceItems([]);
                 StatusMessage = _services.Config.ActiveRepository is null ? "请在「设置 → 片源」导入仓库。" : "当前仓库没有点播站点。";
-                return;
+                return false;
             }
             await LoadHomeAsync(allowFallback);
+            return true;
         }
-        catch (OperationCanceledException) when (token.IsCancellationRequested) { }
-        catch (Exception ex) { StatusMessage = ex.Message; }
+        catch (OperationCanceledException) when (token.IsCancellationRequested) { return false; }
+        catch (OperationCanceledException ex)
+        {
+            // 链接令牌触发的超时取消不应把「The operation was canceled.」原文透出
+            Diagnostics.Log($"片源加载取消: {ex.GetType().Name}");
+            StatusMessage = "请求超时或已取消，请稍后重试。";
+            return false;
+        }
+        catch (Exception ex) { StatusMessage = ex.Message; return false; }
         finally { if (!token.IsCancellationRequested) IsLoading = false; }
     }
 
@@ -544,6 +585,10 @@ public sealed partial class VodViewModel : ObservableObject
                 StatusMessage = ex.Message;
             }
         }
+        catch (OperationCanceledException)
+        {
+            if (!token.IsCancellationRequested) StatusMessage = "请求超时或已取消，请稍后重试。";
+        }
         catch (Exception ex) { if (!token.IsCancellationRequested) StatusMessage = ex.Message; }
         finally { if (!token.IsCancellationRequested) IsLoading = false; }
     }
@@ -693,6 +738,42 @@ public sealed partial class VodViewModel : ObservableObject
     partial void OnYearFilterChanged(string value) => ApplyBrowseFilters();
     partial void OnSortIndexChanged(int value) => ApplyBrowseFilters();
 
+    /// <summary>「全部」与空串都视为不过滤年份。</summary>
+    private string NormalizedYearFilter()
+    {
+        var year = YearFilter.Trim();
+        return year is "" or "全部" ? string.Empty : year;
+    }
+
+    private void UpdateActiveFilterCount()
+    {
+        var count = 0;
+        if (TypeFilter is not "全部") count++;
+        if (NormalizedYearFilter().Length > 0) count++;
+        if (SortIndex > 0) count++;
+        count += CategoryFilters.Count(filter => !string.IsNullOrEmpty(filter.Selected.Value));
+        ActiveFilterCount = count;
+    }
+
+    /// <summary>一键清除全部客户端与服务端筛选条件。</summary>
+    [RelayCommand]
+    private void ResetFilters()
+    {
+        _suppressSelection = true;
+        try
+        {
+            TypeFilter = "全部";
+            YearFilter = "全部";
+            SortIndex = 0;
+            foreach (var filter in CategoryFilters)
+                if (!string.IsNullOrEmpty(filter.Selected.Value)) filter.Selected = filter.Values[0];
+        }
+        finally { _suppressSelection = false; }
+        if (HasCategoryFilters) _ = LoadCategoryAsync();
+        else ApplyBrowseFilters();
+        UpdateActiveFilterCount();
+    }
+
     private void AppendBrowseCards(IEnumerable<VodCardViewModel> newCards)
     {
         var added = new List<VodCardViewModel>();
@@ -702,7 +783,7 @@ public sealed partial class VodViewModel : ObservableObject
             _services.Images.Prefetch(added.Select(c => c.Item.BestPicture), maxCount: 16);
             return;
         }
-        var year = YearFilter.Trim();
+        var year = NormalizedYearFilter();
         foreach (var card in newCards)
         {
             if (Services.Vod.SearchScoring.MatchesType(card.Item, TypeFilter) &&
@@ -717,16 +798,22 @@ public sealed partial class VodViewModel : ObservableObject
 
     private void ApplyBrowseFilters()
     {
+        UpdateActiveFilterCount();
         if (HasCategoryFilters)
         {
             ReplaceCards(_browseCards);
             return;
         }
-        var year = YearFilter.Trim();
+        var year = NormalizedYearFilter();
         var filtered = _browseCards
             .Where(card => Services.Vod.SearchScoring.MatchesType(card.Item, TypeFilter))
             .Where(card => year.Length == 0 || card.Item.Year.Contains(year, StringComparison.Ordinal));
-        ReplaceCards(SortIndex == 1 ? filtered.OrderByDescending(card => card.Item.Year) : filtered);
+        ReplaceCards(SortIndex switch
+        {
+            1 => filtered.OrderByDescending(card => card.Item.Year),
+            2 => filtered.OrderByDescending(card => double.TryParse(card.Item.Rating, System.Globalization.CultureInfo.InvariantCulture, out var score) ? score : 0d),
+            _ => filtered
+        });
     }
 
     partial void OnSelectedSiteChanged(SourceSite? value)
@@ -787,6 +874,7 @@ public sealed partial class VodViewModel : ObservableObject
                     if (choices.Length == 0) continue;
                     CategoryFilters.Add(new VodCategoryFilterChoice(field.Key, field.Name, choices, () =>
                     {
+                        UpdateActiveFilterCount();
                         if (!_suppressSelection && ReferenceEquals(category, SelectedCategory) && ReferenceEquals(site, SelectedSite))
                             _ = LoadCategoryAsync();
                     }));
@@ -795,6 +883,7 @@ public sealed partial class VodViewModel : ObservableObject
             catch (JsonException) { Diagnostics.Log($"分类筛选格式无效 ({site.Key})"); }
         }
         OnPropertyChanged(nameof(HasCategoryFilters));
+        UpdateActiveFilterCount();
     }
 
     partial void OnSelectedCardChanged(VodCardViewModel? value) => _ = SelectDetailAsync(value);

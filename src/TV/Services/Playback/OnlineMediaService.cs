@@ -13,7 +13,7 @@ public sealed class OnlineMediaService(SourceHttpClient http, BilibiliVodProvide
 {
     private readonly ConcurrentDictionary<string, (OnlineMediaMatch Match, DateTimeOffset Expires)> _matches = new(StringComparer.OrdinalIgnoreCase);
 
-    public async Task<OnlineMediaMatch> MatchAsync(string title, string episode, int index, CancellationToken token, string? year = null, string? typeName = null)
+    public async Task<OnlineMediaMatch> MatchAsync(string title, string episode, int index, string? year = null, string? typeName = null, CancellationToken token = default)
     {
         var identity = MediaMatching.Parse(title, episode, index, year, typeName);
         var key = identity.CanonicalKey + (identity.EpisodeNumber.HasValue || identity.IsMovie ? string.Empty : $"|idx{index}");

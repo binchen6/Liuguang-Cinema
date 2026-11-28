@@ -71,7 +71,8 @@ public sealed class PanSouVodProvider(SourceHttpClient http, CloudDriveService c
             empty ??= outcome.Response;
             failure ??= outcome.Error;
         }
-        return empty ?? throw failure ?? new TimeoutException("盘搜请求超时。");
+        return empty ?? throw failure ?? new TimeoutException(
+            "盘搜端点暂无响应。请右键点播页仓库按钮刷新最新端点，或改用易搜、聚剧搜索。");
     }
 
     private async Task<(CmsResponse? Response, Exception? Error)> TryReadEndpointAsync(Uri endpoint, string keyword, SourceSite site,

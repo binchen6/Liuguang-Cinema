@@ -3,9 +3,11 @@ using System.Text.Json.Serialization;
 
 namespace TV.Models;
 
-public sealed record ImportedRepository(string Url, string Name, ConfigDocument Document, string? GroupUrl = null)
+public sealed record ImportedRepository(string Url, string Name, ConfigDocument Document, string? GroupUrl = null, string? BackupUrl = null)
 {
     public string Summary => $"{Document.Sites.Count} 个点播站点 · {Document.Lives.Count} 个直播源";
+    /// <summary>备用地址展示文案；未设置时为空，便于 XAML 用 StringToVisibility 控制显隐。</summary>
+    public string BackupDisplay => string.IsNullOrWhiteSpace(BackupUrl) ? string.Empty : "备用：" + BackupUrl;
 }
 
 /// <summary>

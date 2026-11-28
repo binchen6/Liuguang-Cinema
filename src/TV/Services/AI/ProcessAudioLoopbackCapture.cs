@@ -135,7 +135,8 @@ internal sealed class ProcessAudioLoopbackCapture : IDisposable
 
                             while (!token.IsCancellationRequested)
                             {
-                                WaitForSingleObject(readyEvent, 120);
+                                // WAIT_FAILED 表示事件句柄已失效，继续轮询只会空转，直接退出捕获循环
+                                if (WaitForSingleObject(readyEvent, 120) == 0xFFFFFFFFu) break;
                                 if (token.IsCancellationRequested) break;
 
                                 while (capture.GetNextPacketSize(out var packetFrames) == 0 && packetFrames > 0)
@@ -214,10 +215,18 @@ internal sealed class ProcessAudioLoopbackCapture : IDisposable
             Marshal.StructureToPtr(pv, pvPtr, false);
 
             var handler = new ActivateCompletionHandler();
-            var iid = typeof(IAudioClient).GUID;
-            var hr = ActivateAudioInterfaceAsync(VirtualAudioDeviceProcessLoopback, ref iid, pvPtr, handler, out _);
-            if (hr < 0) return null;
-            return handler.WaitResult(TimeSpan.FromSeconds(3));
+            try
+            {
+                var iid = typeof(IAudioClient).GUID;
+                var hr = ActivateAudioInterfaceAsync(VirtualAudioDeviceProcessLoopback, ref iid, pvPtr, handler, out _);
+                if (hr < 0) return null;
+                return handler.WaitResult(TimeSpan.FromSeconds(3));
+            }
+            finally
+            {
+                // COM 激活回调可能在等待超时后才从系统线程触发：仅在回调已运行时释放事件句柄，避免原生回调内抛 ObjectDisposedException
+                if (handler.Completed) handler.Dispose();
+            }
         }
         finally
         {
@@ -391,10 +400,13 @@ internal sealed class ProcessAudioLoopbackCapture : IDisposable
         int GetActivateResult(out int activateResult, [MarshalAs(UnmanagedType.IUnknown)] out object? activatedInterface);
     }
 
-    private sealed class ActivateCompletionHandler : IActivateAudioInterfaceCompletionHandler
+    private sealed class ActivateCompletionHandler : IActivateAudioInterfaceCompletionHandler, IDisposable
     {
         private readonly ManualResetEventSlim _done = new(false);
+        private int _completed;
         private IAudioClient? _result;
+
+        public bool Completed => Volatile.Read(ref _completed) == 1;
 
         public int ActivateCompleted(IActivateAudioInterfaceAsyncOperation activateOperation)
         {
@@ -404,7 +416,12 @@ internal sealed class ProcessAudioLoopbackCapture : IDisposable
                     _result = iface as IAudioClient;
             }
             catch { }
-            finally { _done.Set(); }
+            finally
+            {
+                Volatile.Write(ref _completed, 1);
+                try { _done.Set(); }
+                catch (ObjectDisposedException) { }
+            }
             return 0;
         }
 
@@ -413,6 +430,8 @@ internal sealed class ProcessAudioLoopbackCapture : IDisposable
             _done.Wait(timeout);
             return _result;
         }
+
+        public void Dispose() => _done.Dispose();
     }
 
     [ComImport, Guid("A95664D2-9614-4F35-A746-DE8DB63617E6"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]

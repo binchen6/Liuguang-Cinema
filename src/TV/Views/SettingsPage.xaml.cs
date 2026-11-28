@@ -3,6 +3,7 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
 using TV.ViewModels;
 using TV.Controls;
+using TV.Services.Playback;
 
 namespace TV.Views;
 
@@ -56,10 +57,46 @@ public sealed partial class SettingsPage : Page
         MotionService.EnterSection(activePane, offsetY: 12);
     }
 
+    public string[] DanmakuOrderPresetLabels { get; } = [.. DanmakuSourceOrder.Presets.Select(preset => preset.Label)];
+
     private async void OnSelectImportedRepoClick(object sender, RoutedEventArgs e)
     {
         if (sender is not Button { Tag: Models.ImportedRepository repository }) return;
         await ViewModel.SelectImportedRepositoryCommand.ExecuteAsync(repository);
+    }
+
+    private async void OnBackupSourceClick(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { Tag: Models.ImportedRepository repository } || XamlRoot is null) return;
+        var input = new TextBox
+        {
+            Header = "备用地址",
+            Text = repository.BackupUrl ?? string.Empty,
+            PlaceholderText = "https://（留空清除备用地址）",
+            InputScope = new Microsoft.UI.Xaml.Input.InputScope
+            {
+                Names = { new Microsoft.UI.Xaml.Input.InputScopeName { NameValue = Microsoft.UI.Xaml.Input.InputScopeNameValue.Url } }
+            }
+        };
+        input.SelectAll();
+        var hint = new TextBlock
+        {
+            Text = "同一仓库的镜像或加速地址。主地址刷新失败时自动改用备用地址拉取并提示。",
+            Style = (Style)Application.Current.Resources["MetaText"],
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 4, 0, 0)
+        };
+        var dialog = new ContentDialog
+        {
+            XamlRoot = XamlRoot,
+            Title = $"设置「{repository.Name}」备用地址",
+            Content = new StackPanel { Spacing = 8, Children = { input, hint } },
+            PrimaryButtonText = "保存",
+            CloseButtonText = "取消",
+            DefaultButton = ContentDialogButton.Primary
+        };
+        if (await dialog.ShowAsync() == ContentDialogResult.Primary)
+            await ViewModel.SetBackupUrlAsync(repository, string.IsNullOrWhiteSpace(input.Text) ? null : input.Text.Trim());
     }
 
     private async void OnRenameSourceClick(object sender, RoutedEventArgs e)
