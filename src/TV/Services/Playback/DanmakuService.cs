@@ -67,8 +67,9 @@ public static class DanmakuSourceOrder
 {
     public const string SettingKey = "playback.danmakuOrder";
     public const string DefaultOrder = "bilibili,aggregate,dandanplay";
-    public static readonly string DefaultLabel = Describe(DefaultOrder);
 
+    // 注意静态初始化顺序：DefaultLabel 依赖 Describe/Parse，必须声明在 Categories 等字段之后，
+    // 否则类型初始化器会在 Categories 尚未赋值时抛 NullReferenceException，导致设置页无法打开。
     public static readonly string[] Categories = ["bilibili", "aggregate", "dandanplay"];
     public static readonly string[] CategoryLabels = ["哔哩哔哩", "其他聚合", "弹弹play"];
 
@@ -82,6 +83,8 @@ public static class DanmakuSourceOrder
         ("dandanplay,bilibili,aggregate", "弹弹play → 哔哩哔哩 → 其他聚合"),
         ("dandanplay,aggregate,bilibili", "弹弹play → 其他聚合 → 哔哩哔哩")
     ];
+
+    public static readonly string DefaultLabel = Describe(DefaultOrder);
 
     public static string LabelOf(string category) => Array.FindIndex(Categories, c => c == category) is var i && i >= 0
         ? CategoryLabels[i] : category;

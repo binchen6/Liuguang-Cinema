@@ -163,7 +163,7 @@ jobs:
             artifacts/installers/TV-*-win-x64-portable.zip.sha256
 
   stage-release-assets:
-    if: github.ref == 'refs/tags/v2.0.5'
+    if: github.ref == 'refs/tags/v2.0.6'
     needs: build-windows
     runs-on: ubuntu-latest
     permissions:
