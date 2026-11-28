@@ -14,7 +14,7 @@
 | CatVodTVSpider | CatVod 架构与接口来源 | [CatVodTVOfficial/CatVodTVSpider](https://github.com/CatVodTVOfficial/CatVodTVSpider) |
 | Jint & Acornima | C# 托管 JavaScript 沙盒（`drpy2 js:` / `CatVod-JS` 规则执行） | [sebastienros/jint](https://github.com/sebastienros/jint) 4.18.1（BSD-2-Clause）、Acornima 1.9.1（BSD-3-Clause） |
 | dex2jar (`dex-translator`) | Java 引擎将外部安卓 DEX 字节码实时转换为 JVM 类文件 | [dex2jar](https://github.com/pxb1988/dex2jar) 2.4.37，Apache-2.0 |
-| BouncyCastle (`bcprov-jdk18on`) | 外部安卓爬虫加密与签名兼容 | [Bouncy Castle](https://www.bouncycastle.org/) 1.80，MIT 兼容许可 |
+| BouncyCastle (`bcprov-jdk18on`) | 外部安卓爬虫加密与签名兼容 | [Bouncy Castle](https://www.bouncycastle.org/) 1.87，MIT 兼容许可 |
 | VideoLAN / LibVLCSharp | 音视频硬件/软件解码、多音轨、字幕与 Windows 渲染 | LibVLC 3.0.24、LibVLCSharp.WinUI 3.10.0（[源码说明](third_party/VideoLAN/SOURCE.md)，LGPL-2.1-or-later） |
 | .NET / WinUI / NuGet 包 | 桌面 UI、SQLite、AngleSharp、SkiaSharp、QRCoder 等 | 版本锁定于 `src/TV/packages.lock.json`；各包许可随安装包 `licenses/` 目录分发 |
 | CPython 3.14.10 x64 嵌入版 | 无系统 Python 时运行兼容的 TVBox Python 脚本 | Python Software Foundation License。官方 ZIP 的许可随 `runtime/python/LICENSE.txt` 分发。[Python.org](https://www.python.org/downloads/release/python-31410/) |
