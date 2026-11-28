@@ -23,6 +23,8 @@ using TV.Services.AI;
 using TV.Services.Cloud;
 using TV.Services.Configuration;
 using TV.Services.Http;
+using TV.Services.Library;
+using TV.Services.Metadata;
 using TV.Services.Packs;
 using TV.Services.Persistence;
 using TV.Services.Playback;
@@ -204,6 +206,38 @@ Check(directComments.Length == 1 && relayFixture.DirectDeliveryHeaderSeen && rel
     "DanDanPlay downloads comment payloads directly from validated cas2.dandanplay.net CDN without relay headers");
 Check(!DanDanPlayService.TryExtractDirectCommentDeliveryUrl("""{"success":true,"deliveryUrl":"https://evil.example.invalid/api/comment/98765"}""", "/api/v2/comment/98765", out _),
     "DanDanPlay rejects forged non-cas2 deliveryUrl values");
+await failoverDanmaku.SaveCustomCredentialsAsync("broken", "fixture-secret");
+await failoverDanmaku.SaveCustomRelayUrlAsync("https://broken-relay.example.invalid/");
+await failoverDanmaku.RestoreDefaultServiceAsync();
+Check(!await failoverDanmaku.HasCustomCredentialsAsync() && !await failoverDanmaku.HasCustomRelayAsync() &&
+      (await failoverDanmaku.VerifyCredentialsAsync()).Ok, "Restoring default clears a broken credential and relay together, then verifies the healthy default route");
+var deniedRelay = new DanDanPlayService(mockSiteHttp, database,
+    [new Uri("https://denied-relay.example.invalid/"), new Uri("https://healthy-relay.example.invalid/dandanplay/")]);
+Check((await deniedRelay.VerifyCredentialsAsync()).Ok, "A default relay HTTP 403 does not stop verification from reaching the healthy relay");
+
+var cacheCloudCalls = 0;
+Task<IReadOnlyList<DanmakuEntry>?> LoadComments()
+{
+    cacheCloudCalls++;
+    return Task.FromResult<IReadOnlyList<DanmakuEntry>?>(directComments);
+}
+Task<IReadOnlyList<DanmakuEntry>?> NoComments()
+{
+    cacheCloudCalls++;
+    throw new DanmakuNotMatchedException("未找到剧集");
+}
+await DanmakuCache.GetOrLoadAsync("release-comments", false, LoadComments, default);
+await DanmakuCache.GetOrLoadAsync("release-missing", false, NoComments, default);
+var retainedComments = await DanmakuCache.GetOrLoadAsync("release-comments", false, LoadComments, default);
+var retainedMiss = await DanmakuCache.GetOrLoadAsync("release-missing", false, LoadComments, default);
+Check(cacheCloudCalls == 2 && retainedComments?.Comments?.Length == 1 && retainedMiss?.NotMatched == "未找到剧集",
+    "Playback reads saved danmaku and a definitive miss without contacting the service");
+await DanmakuCache.GetOrLoadAsync("release-missing", true, LoadComments, default);
+await CheckThrows<TimeoutException>(() => DanmakuCache.GetOrLoadAsync("offline-for-now", false,
+    () => throw new TimeoutException(), default), "An upstream timeout remains retryable");
+Check(cacheCloudCalls == 3 && await DanmakuCache.ReadAsync("offline-for-now", default) is null &&
+      (await DanmakuCache.ReadAsync("release-missing", default))?.Comments?.Length == 1,
+    "Manual refresh replaces a miss, while timeouts do not create a no-match record");
 
 // --- 1.9.7 Regression: TVBox config decoding (comments, ** Base64, AES-128-CBC) & relative path normalization ---
 var lenientJson = """
@@ -230,9 +264,29 @@ var decodedAes = SourceConfigService.DecodeConfig(Encoding.UTF8.GetBytes(aesHexP
 Check(decodedAes.Contains("\"aes1\"", StringComparison.Ordinal), "SourceConfigService decodes AES-128-CBC ($#key#$ / 2423...2324) hex TVBox configs");
 
 // --- 1.9.7 Regression: Repository switching & active-repo site scoping ---
-var configService = new SourceConfigService(mockSiteHttp, database);
+await database.SetSettingAsync("source.autoRefresh", "false");
+using (var firstRun = new SourceConfigService(mockSiteHttp, database))
+{
+    var empty = await firstRun.LoadAsync();
+    Check(empty.Sites.Count == 0 && empty.Lives.Count == 0 && firstRun.Repositories.Count == 0 && firstRun.ActiveRepository is null,
+        "A clean profile has no default VOD or live repository");
+}
+await database.SetSettingAsync("source.fantaitangMigration", "");
+await database.SetSettingAsync("source.activeRepo", "builtin");
+await database.SetSettingAsync("source.homeSite", "legacy-home");
+Directory.CreateDirectory(Path.GetDirectoryName(AppPaths.Config)!);
+await File.WriteAllTextAsync(AppPaths.Config, """{"sites":[{"key":"legacy-home","name":"旧版站点","type":1,"api":"https://fixture.example.invalid/vod"}]}""");
+var installAttempt = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+using var configService = new SourceConfigService(mockSiteHttp, database, (url, _) => { installAttempt.TrySetResult(url); return Task.FromResult(true); });
+var migrated = await configService.LoadAsync();
+var legacy = configService.ActiveRepository!;
+Check(migrated.Sites.Single().Key == "legacy-home" && legacy.Name == "饭太硬" && !legacy.IsBuiltIn &&
+      (await configService.GetImportsAsync()).Single().Url == legacy.Url &&
+      await database.GetSettingAsync("source.homeSite." + legacy.Id) == "legacy-home" &&
+      await installAttempt.Task.WaitAsync(TimeSpan.FromSeconds(5)) == legacy.Url,
+    "Upgrade migrates the saved repository and home site and requests installation of its optional pack");
 await configService.ImportAsync("https://repo-fixture.example.invalid/multi.json");
-Check(configService.Repositories.Count >= 3, "Multi-repo import registers Built-in plus each sub-repository cleanly");
+Check(configService.Repositories.Count == 3, "Multi-repo import retains the migrated repository and adds each independent child");
 var repoA = configService.Repositories.First(r => r.Name == "仓库甲");
 var repoB = configService.Repositories.First(r => r.Name == "仓库乙");
 await configService.SelectRepositoryAsync(repoA.Id);
@@ -246,8 +300,15 @@ Check(configService.FindSite("repo_a_site") is { Key: "repo_a_site" },
     "FindSite still resolves inactive-repository sites so favorites and history remain playable");
 var persistedRepo = await database.GetSettingAsync("source.activeRepo");
 Check(persistedRepo == repoB.Id, "Active repository selection persists to SQLite");
-await configService.SelectRepositoryAsync(SourceConfigService.BuiltInRepositoryId);
-await configService.RemoveImportAsync("https://repo-fixture.example.invalid/multi.json");
+await configService.SelectRepositoryAsync(legacy.Id);
+await configService.RemoveImportAsync(repoA.Url);
+await configService.RemoveImportAsync(repoB.Url);
+await configService.RemoveImportAsync(legacy.Url);
+using (var reopened = new SourceConfigService(mockSiteHttp, database))
+{
+    await reopened.LoadAsync();
+    Check(reopened.ActiveRepository is null && reopened.Repositories.Count == 0, "Removing the migrated import does not recreate the repository on restart");
+}
 
 // --- 1.9.7 Regression: Universal Android TVBox site adaptation (External JAR catalog, AppYsV2, drpy2 JS, CatVod-JS, NativeSiteToolkit) ---
 Check(SpiderCatalog.IsAvailable("csp_AnyThirdPartyAndroidGuard", default, "https://repo-fixture.example.invalid/jars/b.jar;md5;1234"),
@@ -875,6 +936,63 @@ Check(PlayUrlResolver.TryBuildParserRequest("https://parser.example.invalid/rout
     parserRequest.Query == "?type=hls&url=https%3A%2F%2Fvideo.example.invalid%2Fwatch%3Fv%3D1%26b%3D2" &&
     parserRequest.Fragment.Length == 0, "Link resolution fills a configured URL parameter once and retains parser options");
 
+var panFixture = new PanProtocolFixture(sampleMagnet);
+using (var panHttp = new SourceHttpClient(panFixture))
+using (var panDns = new DnsResolverService(database))
+using (var drives = new CloudDriveService(database, panDns))
+{
+    var adapter = new PanSouVodProvider(panHttp, drives);
+    var pan = new SourceSite { Key = "pan", Name = "测试盘搜", Type = 3, Api = "csp_S_zpsGuard", Ext = JsonSerializer.SerializeToElement(new
+    {
+        siteUrl = "https://unavailable-search.example.invalid/", siteUrls = new[] { "https://mirror-search.example.invalid/" }, includeMagnet = true
+    }) };
+    var found = await adapter.SearchAsync(pan, "示例影片", 1, CancellationToken.None);
+    var magnetDetail = await adapter.GetDetailAsync(pan, found.List.Single().Id);
+    var magnetPlay = await adapter.ResolvePlayAsync(pan, "磁力资源", PlaybackParsing.ParseLines(magnetDetail).Single().Episodes.Single().Url, default);
+    Check(found.List.Single().Name == "示例影片" && magnetPlay.Url == sampleMagnet && panFixture.DeniedRequests == 1 && panFixture.MirrorRequests == 1,
+        "PanSou uses a configured mirror after an ordinary 403 and passes its magnet result to the standard player");
+}
+
+var magnetPayload = JsonSerializer.SerializeToElement(new { magnet = sampleMagnet, parse = 1, jx = 1, header = new { Authorization = "discard" } });
+var directMagnet = SpiderVodClient.ReadPlayResult(magnetPayload);
+Check(directMagnet.Url == sampleMagnet && directMagnet.Parse == 0 && directMagnet.Headers.Count == 0 &&
+      PlayUrlResolver.IsDirectMediaUrl(sampleMagnet) && !PlayUrlResolver.IsDirectMediaUrl("magnet:?dn=invalid"),
+    "The generic playback contract accepts valid magnets and skips web parsing and private headers");
+var requested = new Uri("https://search-fixture.example.invalid/search?q=episode");
+var blocked = new HttpExchangeResult(new HttpPayload("permission denied"u8.ToArray(), "text/plain", requested), HttpStatusCode.Forbidden, [], false);
+var challenged = blocked with { StatusCode = HttpStatusCode.OK, HasCloudflareChallenge = true };
+var verified = blocked with { StatusCode = HttpStatusCode.OK, Payload = new HttpPayload("[]"u8.ToArray(), "application/json", requested) };
+Check(!NativeSiteToolkit.IsBrowserChallenge(blocked, "permission denied") && !NativeSiteToolkit.IsVerifiedResponse(requested, blocked) &&
+      !NativeSiteToolkit.IsVerifiedResponse(requested, challenged) && NativeSiteToolkit.IsVerifiedResponse(requested, verified) &&
+      !NativeSiteToolkit.IsVerifiedResponse(new Uri("https://not-the-search-origin.example.invalid/"), verified),
+    "Search treats ordinary 403 as a failure, and dialog accepts only a successful same-origin probe without a challenge");
+
+var localArtFolder = Directory.CreateDirectory(Path.Combine(args[0], "本地片库")).FullName;
+var localMovie = Path.Combine(localArtFolder, "航行 2020.mp4");
+await File.WriteAllBytesAsync(localMovie, [1, 2, 3]);
+await File.WriteAllTextAsync(Path.ChangeExtension(localMovie, ".nfo"), "<movie><title>航行</title><year>2020</year><plot>本地资料</plot></movie>");
+var onePixel = Convert.FromBase64String("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/2ZsAAAAASUVORK5CYII=");
+await File.WriteAllBytesAsync(Path.ChangeExtension(localMovie, ".png"), onePixel);
+var localDescription = LocalMediaArtwork.ReadLocal(localMovie, null, default);
+Check(localDescription.Title == "航行" && localDescription.Year == "2020" && localDescription.Summary == "本地资料" &&
+      new Uri(localDescription.Picture) is { Scheme: "tv-artwork", AbsolutePath.Length: 65 } &&
+      File.Exists(LocalMediaArtwork.ImagePath(new Uri(localDescription.Picture).AbsolutePath[1..])) &&
+      DoubanService.IsExactLocalTitle("星际·旅行", "2020", "星际旅行", 2020) &&
+      !DoubanService.IsExactLocalTitle("星际旅行", "2021", "星际旅行", 2020) &&
+      !DoubanService.IsExactLocalTitle("星际旅行2", "2020", "星际旅行", 2020),
+    "Local artwork and detail use the exact sidecars, and online matching rejects a wrong year or sequel");
+var historyA = new PlaybackRequest { SiteKey = "library", VodId = "alpha", Title = "Alpha" };
+var historyB = new PlaybackRequest { SiteKey = "library", VodId = "bravo", Title = "Bravo" };
+var historyC = new PlaybackRequest { SiteKey = "library", VodId = "charlie", Title = "Charlie" };
+await database.SaveHistoryAsync(historyA, 100, 400);
+await database.SaveHistoryAsync(historyB, 100, 400);
+await database.SaveHistoryAsync(historyC, 100, 400);
+await database.DeleteHistoryAsync([DatabaseService.GetRequestId(historyA), DatabaseService.GetRequestId(historyB)]);
+Check(await database.GetHistoryEntryAsync(DatabaseService.GetRequestId(historyA)) is null &&
+      await database.GetHistoryEntryAsync(DatabaseService.GetRequestId(historyB)) is null &&
+      (await database.GetHistoryEntryAsync(DatabaseService.GetRequestId(historyC)))?.ReadRequest()?.VodId == "charlie",
+    "Bulk history deletion preserves every unselected record and its playback identity");
+
 const string markedHls = """
     #EXTM3U
     #EXT-X-TARGETDURATION:6
@@ -995,6 +1113,20 @@ if (verifyBundled)
         Check(playing.TimeMs >= 7900, "Magnet playback can seek and resume from a later piece");
         await player.StopAsync();
     }
+    await using (var transfer = await MagnetPlayback.OpenFileAsync(torrent, cache, cacheSettings, Factories.Default,
+        magnetDeadline.Token, new Uri($"ipv4://127.0.0.1:{port}")))
+    using (var dns = new DnsResolverService(database))
+    using (var download = new VideoDownloadService(dns))
+    {
+        var destination = Path.Combine(magnetRoot, "下载音轨.wav");
+        var request = new PlaybackRequest { Url = sampleMagnet, Magnet = transfer };
+        Check(await download.GetExtensionAsync(request, magnetDeadline.Token) == ".wav", "A magnet download keeps the selected media extension");
+        await download.SaveAsync(request, destination, new Progress<double>(), magnetDeadline.Token);
+        var downloaded = await File.ReadAllBytesAsync(destination);
+        var seedBytes = await File.ReadAllBytesAsync(pcm);
+        Check(downloaded.AsSpan().SequenceEqual(seedBytes),
+            "The download service saves verified BitTorrent pieces as the exact selected media file");
+    }
     await manager.StopAsync();
     Check(!Directory.Exists(cache), "Stopping playback releases the peer session and removes its temporary data");
 }
@@ -1099,6 +1231,32 @@ sealed class BailianMusicFixture : HttpMessageHandler
     }
 
     private static HttpResponseMessage Response(string json) => new(HttpStatusCode.OK) { Content = new StringContent(json) };
+}
+
+sealed class PanProtocolFixture(string magnet) : HttpMessageHandler
+{
+    internal int DeniedRequests { get; private set; }
+    internal int MirrorRequests { get; private set; }
+
+    protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken token)
+    {
+        var uri = request.RequestUri!;
+        if (uri.IdnHost == "unavailable-search.example.invalid")
+        {
+            DeniedRequests++;
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.Forbidden) { Content = new StringContent("denied") });
+        }
+        if (uri.IdnHost != "mirror-search.example.invalid" || uri.AbsolutePath != "/api/search" || !uri.Query.EndsWith(",magnet", StringComparison.Ordinal))
+            throw new InvalidOperationException("Unexpected search route");
+        MirrorRequests++;
+        return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent(JsonSerializer.Serialize(new
+            {
+                code = 0, data = new { merged_by_type = new { magnet = new[] { new { url = magnet, note = "示例影片" } } } }
+            }), Encoding.UTF8, "application/json")
+        });
+    }
 }
 
 sealed class AndroidDesktopFixture : HttpMessageHandler
@@ -1207,7 +1365,7 @@ sealed class AutomaticDiscoveryFixture : HttpMessageHandler
                     : """{"data":{"pagecount":"1","list":[{"vod_id":"cms-backup","vod_name":"备用纸飞机"}]}}""");
             }
             if (path == "/blank/") return Response("<html><h1>没有公开目录</h1></html>", "text/html");
-            if (path == "/verification/") return Response("<html><h1>请人工验证</h1></html>", "text/html", HttpStatusCode.Forbidden);
+            if (path == "/verification/") return Response("<html><h1 id='cf-browser-verification'>请人工验证</h1></html>", "text/html", HttpStatusCode.Forbidden);
             return Response("", status: HttpStatusCode.NotFound);
         }
 
@@ -1238,6 +1396,8 @@ sealed class RelayAndUniversalFixture : HttpMessageHandler
             DeadRelayCalls++;
             return Reply(HttpStatusCode.BadGateway, """{"success":false,"errorMessage":"upstream timeout"}""");
         }
+        if (host == "denied-relay.example.invalid")
+            return Reply(HttpStatusCode.Forbidden, """{"success":false,"errorMessage":"edge route denied"}""");
         if (host == "healthy-relay.example.invalid")
         {
             if (path.EndsWith("/api/v2/search/episodes", StringComparison.Ordinal))

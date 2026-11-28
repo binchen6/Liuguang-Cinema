@@ -8,6 +8,7 @@ using TV.Services;
 using TV.Services.Http;
 using TV.Services.Playback;
 using TV.Services.Persistence;
+using TV.Services.Vod.Native;
 using Windows.Storage.Streams;
 using Windows.System;
 
@@ -294,10 +295,13 @@ public sealed class SiteVerificationDialog
         async Task<bool> CaptureCookiesAndSaveAsync()
         {
             if (_webView?.CoreWebView2 is not { } core) return false;
-            var origin = _challenge.TargetUri.GetLeftPart(UriPartial.Authority);
-            var cookies = await core.CookieManager.GetCookiesAsync(origin);
-            if (cookies.Count == 0)
-                cookies = await core.CookieManager.GetCookiesAsync(_challenge.TargetUri.AbsoluteUri);
+            if (!Uri.TryCreate(core.Source, UriKind.Absolute, out var displayed) ||
+                !MediaRequestHeaders.SameOrigin(displayed, _challenge.TargetUri))
+            {
+                status.Text = "请在原站完成验证。";
+                return false;
+            }
+            var cookies = await core.CookieManager.GetCookiesAsync(_challenge.TargetUri.AbsoluteUri);
             if (cookies.Count == 0)
             {
                 status.Text = "尚未检测到验证通过的会话 Cookie，请等待页面加载完成或继续验证。";
@@ -305,6 +309,19 @@ public sealed class SiteVerificationDialog
             }
             var header = string.Join("; ", cookies.Select(c => $"{c.Name}={c.Value}"));
             var ua = core.Settings.UserAgent;
+            var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["User-Agent"] = ua,
+                ["Cookie"] = header,
+                ["Accept"] = "text/html,application/json;q=0.9,*/*;q=0.8"
+            };
+            var exchange = await _services.Http.GetExchangeAsync(_challenge.TargetUri.AbsoluteUri, headers,
+                maxBytes: 3 * 1024 * 1024, scopeRedirectHeaders: true, requestTimeout: TimeSpan.FromSeconds(8));
+            if (!NativeSiteToolkit.IsVerifiedResponse(_challenge.TargetUri, exchange))
+            {
+                status.Text = "原请求仍未通过验证，请完成原站页面提示后重试。";
+                return false;
+            }
             await _services.SiteSessions.SaveAsync(_challenge.TargetUri, header, ua);
             Verified = true;
             return true;
@@ -335,7 +352,7 @@ public sealed class SiteVerificationDialog
                         if (!isChallengeTitle && Uri.TryCreate(sender.Source, UriKind.Absolute, out var current) &&
                             MediaRequestHeaders.SameOrigin(current, _challenge.TargetUri))
                         {
-                            var cookies = await sender.CookieManager.GetCookiesAsync(_challenge.TargetUri.GetLeftPart(UriPartial.Authority));
+                            var cookies = await sender.CookieManager.GetCookiesAsync(_challenge.TargetUri.AbsoluteUri);
                             if (cookies.Count > 0)
                             {
                                 _completing = true;
@@ -366,6 +383,8 @@ public sealed class SiteVerificationDialog
             var deferral = args.GetDeferral();
             try
             {
+                if (_completing) { args.Cancel = true; return; }
+                _completing = true;
                 if (!await CaptureCookiesAndSaveAsync()) args.Cancel = true;
             }
             catch (Exception ex)
@@ -373,7 +392,7 @@ public sealed class SiteVerificationDialog
                 status.Text = "读取验证会话失败：" + ex.Message;
                 args.Cancel = true;
             }
-            finally { deferral.Complete(); }
+            finally { _completing = false; deferral.Complete(); }
         };
 
         try
@@ -387,4 +406,5 @@ public sealed class SiteVerificationDialog
         }
         return Verified;
     }
+
 }

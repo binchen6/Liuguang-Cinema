@@ -1,6 +1,7 @@
 using System.Text.Json;
 using TV.Models;
 using TV.Services.Http;
+using TV.Services.Playback;
 
 namespace TV.Services.Vod;
 
@@ -23,8 +24,10 @@ public sealed class PlayUrlResolver
                 var response = await _http.GetBytesAsync(parser.AbsoluteUri, scoped, 512 * 1024,
                     cancellationToken, scopeRedirectHeaders: true, requestTimeout: TimeSpan.FromSeconds(6)).ConfigureAwait(false);
                 using var document = JsonDocument.Parse(response.Content);
-                if (TryFindUrl(document.RootElement, out var resolved) && Uri.TryCreate(resolved, UriKind.Absolute, out var address) &&
-                    address.Scheme is "http" or "https" && address.UserInfo.Length == 0) return address.AbsoluteUri;
+                if (!TryFindUrl(document.RootElement, out var resolved)) continue;
+                if (MagnetPlayback.TryParse(resolved, out _)) return resolved;
+                if (Uri.TryCreate(resolved, UriKind.Absolute, out var address) && MediaRequestHeaders.IsHttpAddress(address))
+                    return address.AbsoluteUri;
             }
             catch (Exception ex) when (!cancellationToken.IsCancellationRequested &&
                 ex is HttpRequestException or OperationCanceledException or JsonException or IOException or InvalidDataException)
@@ -53,6 +56,7 @@ public sealed class PlayUrlResolver
 
     public static bool IsDirectMediaUrl(string url)
     {
+        if (MagnetPlayback.IsMagnet(url)) return MagnetPlayback.TryParse(url, out _);
         var path = Uri.TryCreate(url, UriKind.Absolute, out var uri) ? uri.AbsolutePath : url;
         return path.EndsWith(".m3u8", StringComparison.OrdinalIgnoreCase)
             || path.EndsWith(".mp4", StringComparison.OrdinalIgnoreCase)
@@ -70,12 +74,12 @@ public sealed class PlayUrlResolver
     {
         if (element.ValueKind == JsonValueKind.Object)
         {
-            foreach (var name in new[] { "url", "playurl", "play_url" })
+            foreach (var name in new[] { "url", "playurl", "play_url", "magnet" })
             {
                 if (element.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String)
                 {
                     url = value.GetString() ?? string.Empty;
-                    if (url.StartsWith("http", StringComparison.OrdinalIgnoreCase)) return true;
+                    if (url.StartsWith("http", StringComparison.OrdinalIgnoreCase) || MagnetPlayback.TryParse(url, out _)) return true;
                 }
             }
             foreach (var property in element.EnumerateObject())

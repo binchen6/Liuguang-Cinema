@@ -113,20 +113,8 @@
                         <TextBlock Text="SOURCES · 直播源" Style="{StaticResource EyebrowText}" />
                         <controls:AnchoredChoice ItemsSource="{Binding AvailableSources}"
                                                  SelectedItem="{Binding SelectedRepository, Mode=TwoWay}"
-                                                 DisplayMemberPath="Name" PlaceholderText="内置直播源"
+                                                 DisplayMemberPath="Name" PlaceholderText="选择直播源"
                                                  HorizontalAlignment="Stretch" />
-                        <Grid ColumnSpacing="{StaticResource SpaceMini}">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="Auto" />
-                            </Grid.ColumnDefinitions>
-                            <TextBlock Text="无导入源时使用内置源" Style="{StaticResource MetaText}"
-                                       VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
-                            <Button x:Name="BuiltInChannelsButton" Grid.Column="1" Content="查看内置频道"
-                                    Command="{Binding SelectBuiltInCommand}"
-                                    Style="{StaticResource GhostButtonStyle}"
-                                    AutomationProperties.Name="查看内置频道" />
-                        </Grid>
                         <Border Height="1" Background="{ThemeResource DividerBrush}" Margin="0,4,0,0" />
                     </StackPanel>
 

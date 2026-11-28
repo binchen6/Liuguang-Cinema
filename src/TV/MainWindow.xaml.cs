@@ -456,13 +456,17 @@ public sealed partial class MainWindow : Window
         }
     }
 
-    internal async Task<bool> ConfirmMagnetPlaybackAsync(CancellationToken token)
+    internal async Task<bool> ConfirmMagnetPlaybackAsync(CancellationToken token, bool download = false)
     {
         if (token.IsCancellationRequested || _closing || ContentFrame.XamlRoot is not { } root) return false;
         var dialog = new ContentDialog
         {
-            XamlRoot = root, Title = "使用磁力线路", Content = new TextBlock { Text = PeerPlaybackNotice, TextWrapping = TextWrapping.Wrap },
-            PrimaryButtonText = "连接并播放", CloseButtonText = "取消"
+            XamlRoot = root, Title = "使用磁力线路", Content = new TextBlock
+            {
+                Text = download ? "下载期间会连接其他节点并交换文件分片。完成后仅保留保存的媒体文件。" : PeerPlaybackNotice,
+                TextWrapping = TextWrapping.Wrap
+            },
+            PrimaryButtonText = download ? "连接并下载" : "连接并播放", CloseButtonText = "取消"
         };
         using var cancel = token.Register(() => DispatcherQueue.TryEnqueue(() => dialog.Hide()));
         return await dialog.ShowAsync() == ContentDialogResult.Primary && !token.IsCancellationRequested;

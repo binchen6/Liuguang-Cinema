@@ -160,6 +160,7 @@
                                     </StackPanel>
                                 </Button>
                                 <Button x:Name="DownloadAction" Grid.Column="2" Style="{StaticResource DetailActionButtonStyle}"
+                                        Visibility="{Binding IsLocalDetail, Converter={StaticResource BoolToVisibility}, ConverterParameter=Inverse}"
                                         AutomationProperties.Name="下载"
                                         ToolTipService.ToolTip="选择集数并另存为本地文件">
                                     <StackPanel Orientation="Horizontal" Spacing="{StaticResource SpaceMini}" VerticalAlignment="Center">

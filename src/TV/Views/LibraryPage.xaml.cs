@@ -1,7 +1,5 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
-using Microsoft.UI.Xaml.Input;
-using Microsoft.UI.Xaml.Media;
 using TV.Controls;
 using TV.Models;
 using TV.ViewModels;
@@ -13,7 +11,6 @@ public sealed partial class LibraryPage : Page
     private async void OnOpenMagnetClick(object sender, RoutedEventArgs e) => await App.Window.OpenMagnetDialogAsync();
 
     private readonly NavigationRailController _segmentNav;
-    private readonly CardHoverTracker _watchCards = new("WatchArt");
 
     public LibraryPage()
     {
@@ -36,78 +33,155 @@ public sealed partial class LibraryPage : Page
         if (SegmentList.SelectedIndex != ViewModel.SelectedTab)
             SegmentList.SelectedIndex = Math.Clamp(ViewModel.SelectedTab, 0, 3);
         _segmentNav.Sync(animate: false);
-        UpdateHistoryGridLayout();
+        UpdateVisibleCoverLayout();
         await ViewModel.LoadCommand.ExecuteAsync(null);
-        UpdateHistoryGridLayout();
+        UpdateVisibleCoverLayout();
     }
 
-    private void OnHistoryGridLoaded(object sender, RoutedEventArgs e) => UpdateHistoryGridLayout();
-
-    private void OnHistoryViewportChanged(object sender, SizeChangedEventArgs e) => UpdateHistoryGridLayout(e.NewSize.Width);
-
-    private void UpdateHistoryGridLayout(double explicitWidth = 0)
+    private void OnCoverGridLoaded(object sender, RoutedEventArgs e)
     {
-        if (HistoryGrid?.ItemsPanelRoot is not ItemsWrapGrid wrap) return;
-        var viewportWidth = explicitWidth > 0 ? explicitWidth : HistoryGrid.ActualWidth;
-        if (viewportWidth <= 0) return;
+        if (sender is GridView grid) UpdateCoverLayout(grid);
+    }
 
-        // Subtract right scrollbar clearance + minor rounding margin so items never wrap early and leave zero right-edge gap
-        const double cellGap = 16;
-        const double minCardWidth = 264;
-        const double idealCardWidth = 318;
-        var usableWidth = Math.Max(0, viewportWidth - 14);
-        if (usableWidth < 200) return;
+    private void OnCoverGridSizeChanged(object sender, SizeChangedEventArgs e)
+    {
+        if (sender is GridView grid) UpdateCoverLayout(grid);
+    }
 
-        var columns = Math.Clamp((int)Math.Round(usableWidth / idealCardWidth), 1, 6);
-        while (columns > 1 && (usableWidth / columns) - cellGap < minCardWidth)
-            columns--;
+    private void UpdateVisibleCoverLayout()
+    {
+        var grid = ViewModel.SelectedTab switch
+        {
+            1 => FavoritesGrid,
+            2 => DownloadsGrid,
+            3 => LocalGrid,
+            _ => HistoryGrid
+        };
+        UpdateCoverLayout(grid);
+    }
 
-        var cellWidth = Math.Floor(usableWidth / columns);
-        var cardWidth = Math.Max(180, cellWidth - cellGap);
-        var aspect = columns == 1 ? 0.45 : (columns == 2 ? 0.545 : 0.568);
-        var cardHeight = Math.Clamp(Math.Round(cardWidth * aspect), 164, 246);
-        var cellHeight = cardHeight + cellGap;
-
-        if (Math.Abs(wrap.ItemWidth - cellWidth) > 0.5) wrap.ItemWidth = cellWidth;
-        if (Math.Abs(wrap.ItemHeight - cellHeight) > 0.5) wrap.ItemHeight = cellHeight;
+    private static void UpdateCoverLayout(GridView? grid)
+    {
+        if (grid?.ItemsPanelRoot is not ItemsWrapGrid panel || grid.ActualWidth <= 20) return;
+        var available = grid.ActualWidth - 12;
+        var columns = Math.Clamp((int)((available + 12) / 177), 1, 8);
+        var cellWidth = Math.Floor(available / columns);
+        var posterWidth = Math.Max(90, cellWidth - 12);
+        var cellHeight = Math.Round(posterWidth * 1.5) + 80;
+        if (Math.Abs(panel.ItemWidth - cellWidth) > 0.5) panel.ItemWidth = cellWidth;
+        if (Math.Abs(panel.ItemHeight - cellHeight) > 0.5) panel.ItemHeight = cellHeight;
     }
 
     private void OnSegmentSelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         var previous = ViewModel.SelectedTab;
-        if (SegmentList.SelectedIndex >= 0 && ViewModel.SelectedTab != SegmentList.SelectedIndex)
-        {
-            ViewModel.SelectedTab = SegmentList.SelectedIndex;
-            var dir = SegmentList.SelectedIndex > previous ? 18 : -18;
-            MotionService.EnterSection(ContentHost, offsetY: 0, offsetX: dir);
-            if (ViewModel.IsHistoryTab)
-                DispatcherQueue.TryEnqueue(() => UpdateHistoryGridLayout());
-        }
+        if (SegmentList.SelectedIndex < 0 || previous == SegmentList.SelectedIndex) return;
+        ViewModel.SelectedTab = SegmentList.SelectedIndex;
+        SetHistoryEditMode(false);
+        MotionService.EnterSection(ContentHost, offsetY: 0, offsetX: SegmentList.SelectedIndex > previous ? 18 : -18);
+        DispatcherQueue.TryEnqueue(UpdateVisibleCoverLayout);
     }
 
-    private void OnWatchContainerChanging(ListViewBase sender, ContainerContentChangingEventArgs e)
+    private void OnManageHistoryClick(object sender, RoutedEventArgs e) =>
+        SetHistoryEditMode(HistoryGrid.SelectionMode == ListViewSelectionMode.None);
+
+    private void SetHistoryEditMode(bool enabled)
     {
-        if (e.ItemContainer.ContentTemplateRoot is FrameworkElement card)
-            _watchCards.Reset(card);
+        if (HistoryGrid is null) return;
+        HistoryGrid.IsItemClickEnabled = !enabled;
+        HistoryGrid.SelectionMode = enabled ? ListViewSelectionMode.Multiple : ListViewSelectionMode.None;
+        ManageHistoryButton.Content = enabled ? "完成" : "管理观看记录";
+        SelectVisibleHistoryButton.Visibility = DeleteSelectedHistoryButton.Visibility = enabled ? Visibility.Visible : Visibility.Collapsed;
+        UpdateHistorySelection();
     }
 
-    private void OnWatchCardIn(object sender, PointerRoutedEventArgs e) => _watchCards.SetHovered(sender, true);
-    private void OnWatchCardOut(object sender, PointerRoutedEventArgs e) => _watchCards.SetHovered(sender, false);
-    private void OnWatchCardPressed(object sender, PointerRoutedEventArgs e) => CardHoverTracker.SetPressed(sender, true);
-    private void OnWatchCardReleased(object sender, PointerRoutedEventArgs e) => CardHoverTracker.SetPressed(sender, false);
+    private void OnSelectVisibleHistoryClick(object sender, RoutedEventArgs e) => HistoryGrid.SelectAll();
+    private void OnHistorySelectionChanged(object sender, SelectionChangedEventArgs e) => UpdateHistorySelection();
+
+    private void UpdateHistorySelection()
+    {
+        var count = HistoryGrid?.SelectedItems.Count ?? 0;
+        if (DeleteSelectedHistoryButton is null) return;
+        DeleteSelectedHistoryButton.IsEnabled = count > 0;
+        DeleteSelectedHistoryButton.Content = count == 0 ? "删除所选" : $"删除所选（{count}）";
+        var editing = HistoryGrid?.SelectionMode == ListViewSelectionMode.Multiple;
+        for (var index = 0; HistoryGrid is not null && index < HistoryGrid.Items.Count; index++)
+            if (HistoryGrid.ContainerFromIndex(index) is GridViewItem item) UpdateHistoryCard(item, editing, item.IsSelected);
+    }
+
+    private void OnHistoryCardChanging(ListViewBase sender, ContainerContentChangingEventArgs args)
+    {
+        if (args.ItemContainer is GridViewItem item)
+            UpdateHistoryCard(item, HistoryGrid.SelectionMode == ListViewSelectionMode.Multiple, HistoryGrid.SelectedItems.Contains(args.Item));
+    }
+
+    private static void UpdateHistoryCard(GridViewItem item, bool editing, bool selected)
+    {
+        if (item.ContentTemplateRoot is not FrameworkElement content) return;
+        if (content.FindName("HistoryCardMenu") is Button menu) menu.Visibility = editing ? Visibility.Collapsed : Visibility.Visible;
+        if (content.FindName("HistoryCardSelected") is Border badge) badge.Visibility = editing && selected ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    private async void OnDeleteSelectedHistoryClick(object sender, RoutedEventArgs e)
+    {
+        var selected = HistoryGrid.SelectedItems.OfType<HistoryEntry>().ToArray();
+        if (selected.Length == 0) return;
+        var dialog = new ContentDialog
+        {
+            XamlRoot = XamlRoot, RequestedTheme = ActualTheme, Title = $"删除 {selected.Length} 条观看记录？",
+            Content = "这些记录的播放进度将一并清除。",
+            PrimaryButtonText = "删除", CloseButtonText = "取消", DefaultButton = ContentDialogButton.Close
+        };
+        if (await dialog.ShowAsync() == ContentDialogResult.Primary && await ViewModel.DeleteHistoryEntriesAsync(selected))
+            SetHistoryEditMode(false);
+    }
 
     private void OnHistoryClick(object sender, ItemClickEventArgs e) => ViewModel.OpenHistoryCommand.Execute(e.ClickedItem as HistoryEntry);
     private void OnFavoriteClick(object sender, ItemClickEventArgs e) => ViewModel.OpenFavoriteCommand.Execute(e.ClickedItem as FavoriteEntry);
     private void OnDownloadClick(object sender, ItemClickEventArgs e) => ViewModel.OpenDownloadCommand.Execute(e.ClickedItem as DownloadEntry);
-    private void OnDeleteHistoryClick(object sender, RoutedEventArgs e) => ViewModel.DeleteHistoryCommand.Execute((sender as Button)?.Tag as HistoryEntry);
-    private void OnRemoveFavoriteClick(object sender, RoutedEventArgs e) => ViewModel.RemoveFavoriteCommand.Execute((sender as Button)?.Tag as FavoriteEntry);
-    private void OnRemoveDownloadClick(object sender, RoutedEventArgs e) => ViewModel.RemoveDownloadCommand.Execute((sender as Button)?.Tag as DownloadEntry);
+    private void OnLocalMediaClick(object sender, ItemClickEventArgs e) => ViewModel.OpenLocalMediaCommand.Execute(e.ClickedItem as LocalMediaEntry);
     private void OnBrowseVodClick(object sender, RoutedEventArgs e) => App.Window.Navigate("vod");
-    private void OnLocalMediaClick(object sender, RoutedEventArgs e)
+
+    private static void ShowMenu(Button button, params (string Label, Action Run)[] actions)
     {
-        if (sender is Button { DataContext: LocalMediaEntry entry }) ViewModel.OpenLocalMediaCommand.Execute(entry);
+        var menu = new MenuFlyout();
+        foreach (var (label, run) in actions)
+        {
+            var item = new MenuFlyoutItem { Text = label };
+            item.Click += (_, _) => run();
+            menu.Items.Add(item);
+        }
+        menu.ShowAt(button);
     }
-    private void OnRemoveLocalMediaClick(object sender, RoutedEventArgs e) => ViewModel.RemoveLocalMediaCommand.Execute((sender as Button)?.Tag as LocalMediaEntry);
+
+    private void OnHistoryMenuClick(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { Tag: HistoryEntry entry } button || HistoryGrid.SelectionMode != ListViewSelectionMode.None) return;
+        if (entry.Kind == "Vod")
+            ShowMenu(button, ("打开节目详情", () => ViewModel.OpenHistoryDetail(entry)), ("删除记录", () => ViewModel.DeleteHistoryCommand.Execute(entry)));
+        else ShowMenu(button, ("删除记录", () => ViewModel.DeleteHistoryCommand.Execute(entry)));
+    }
+
+    private void OnFavoriteMenuClick(object sender, RoutedEventArgs e)
+    {
+        if (sender is Button { Tag: FavoriteEntry entry } button)
+            ShowMenu(button, ("移除收藏", () => ViewModel.RemoveFavoriteCommand.Execute(entry)));
+    }
+
+    private void OnDownloadMenuClick(object sender, RoutedEventArgs e)
+    {
+        if (sender is Button { Tag: DownloadEntry entry } button)
+            ShowMenu(button, ("所在文件夹", () => _ = RevealDownloadAsync(entry)),
+                ("移除下载记录", () => ViewModel.RemoveDownloadCommand.Execute(entry)));
+    }
+
+    private void OnLocalMediaMenuClick(object sender, RoutedEventArgs e)
+    {
+        if (sender is Button { Tag: LocalMediaEntry entry } button)
+            ShowMenu(button, ("打开媒体详情", () => ViewModel.OpenLocalDetail(entry.Path, entry.Title)),
+                ("从本地库移除", () => ViewModel.RemoveLocalMediaCommand.Execute(entry)));
+    }
+
     private void OnRemoveLocalFolderClick(object sender, RoutedEventArgs e) => ViewModel.RemoveLocalFolderCommand.Execute((sender as Button)?.Tag as string);
 
     private void OnPageSizeChanged(object sender, SizeChangedEventArgs e)
@@ -121,7 +195,7 @@ public sealed partial class LibraryPage : Page
         Grid.SetRow(SearchBox, narrow ? 1 : 0);
         Grid.SetColumn(SearchBox, narrow ? 0 : 1);
         Grid.SetColumnSpan(SearchBox, narrow ? 4 : 1);
-        DispatcherQueue.TryEnqueue(() => UpdateHistoryGridLayout());
+        DispatcherQueue.TryEnqueue(() => UpdateVisibleCoverLayout());
     }
 
     private async void OnRefreshClick(object sender, RoutedEventArgs e)
@@ -130,9 +204,9 @@ public sealed partial class LibraryPage : Page
         else await ViewModel.LoadCommand.ExecuteAsync(null);
     }
 
-    private async void OnRevealDownloadClick(object sender, RoutedEventArgs e)
+    private async Task RevealDownloadAsync(DownloadEntry entry)
     {
-        if (sender is not Button { Tag: DownloadEntry entry } || Path.GetDirectoryName(entry.FilePath) is not { } path) return;
+        if (Path.GetDirectoryName(entry.FilePath) is not { } path) return;
         try
         {
             var folder = await Windows.Storage.StorageFolder.GetFolderFromPathAsync(path);

@@ -24,7 +24,7 @@ public sealed class HtmlVodProvider(SourceHttpClient http) : INativePlaybackProv
         ".threadlist a.pic, .threadlist a[title][href], a.carousel-link", "/so.php?searchword=",
         "h1.detail-title", ".detail-poster img", ".play-card", ".card-header b", "a[href*='/play-']", HtmlPageMedia.ReadBase64Player);
 
-    private static readonly Layout Bttwoo = new(new Uri("https://www.bttwoo.com/"),
+    private static readonly Layout Bttwoo = new(new Uri("https://www.bttwoo.org/"),
         [new("movie", "电影"), new("tv", "电视剧"), new("anime", "动漫")],
         "a[href^='/play/']:not(.episode-link)", "/search?q=",
         "h1", "", "", "", "a.episode-link[href]", ReadDanmaku: HtmlPageMedia.ReadEpisodeDanmaku);

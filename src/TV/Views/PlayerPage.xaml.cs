@@ -1735,79 +1735,18 @@ public sealed partial class PlayerPage : Page
             UpdateDanmakuToggle();
             if (!_danmaku.Enabled) return;
 
-            IReadOnlyList<DanmakuEntry> comments;
-            if (_localDanmakuOverride is { } localUri)
+            var source = _danmaku.Source;
+            var origin = _danmakuAddress;
+            var cacheKey = _localDanmakuOverride is null ? ViewModel.DanmakuCacheKey(source, origin) : null;
+            var result = await DanmakuCache.GetOrLoadAsync(cacheKey, forceMatch,
+                () => FetchDanmakuAsync(source, origin, forceMatch, token), token);
+            if (token.IsCancellationRequested || result is null) return;
+            if (result.NotMatched is { Length: > 0 } missing)
             {
-                comments = await App.Services.Danmaku.LoadAsync(localUri, token);
+                ViewModel.QualityMessage = missing;
+                return;
             }
-            else if (_danmaku.Source == "dandanplay")
-            {
-                if (!forceMatch && !_danmaku.AutoMatch && !_manualDanDanPlayEpisodeId.HasValue)
-                {
-                    ViewModel.QualityMessage = "在线弹幕自动匹配已关闭，可在弹幕设置中手动匹配。";
-                    return;
-                }
-                if (_manualDanDanPlayEpisodeId is { } manualId)
-                {
-                    comments = await App.Services.DanDanPlay.GetCommentsAsync(manualId, withRelated: true, chConvert: 1, token);
-                }
-                else
-                {
-                    try
-                    {
-                        var match = await ViewModel.MatchDanDanPlayAsync(token);
-                        comments = await App.Services.DanDanPlay.GetCommentsAsync(match.EpisodeId, withRelated: true, chConvert: 1, token);
-                    }
-                    catch (Exception ddpError) when (!token.IsCancellationRequested &&
-                        ddpError is InvalidDataException or HttpRequestException or TimeoutException or OperationCanceledException)
-                    {
-                        var isNetworkFailure = ddpError is not InvalidDataException;
-                        // DanDanPlay 主要覆盖番剧与动画，且弱网/高峰期可能超时；未收录或暂不可用时自动回退原站或 B 站弹幕库
-                        if (_danmakuAddress is { } originUri)
-                        {
-                            comments = await App.Services.Danmaku.LoadAsync(originUri, token);
-                            ViewModel.QualityMessage = isNetworkFailure ? "弹弹play 响应超时，已自动回退原站弹幕" : "已回退原站弹幕";
-                        }
-                        else
-                        {
-                            try
-                            {
-                                var bili = await ViewModel.MatchOnlineMediaAsync(token);
-                                comments = await App.Services.Danmaku.LoadAsync(bili.Danmaku, token);
-                                if (isNetworkFailure) ViewModel.QualityMessage = "弹弹play 暂不可用，已自动回退哔哩哔哩弹幕";
-                            }
-                            catch (Exception) when (!token.IsCancellationRequested)
-                            {
-                                throw ddpError;
-                            }
-                        }
-                    }
-                }
-            }
-            else
-            {
-                var uri = _danmakuAddress;
-                var onlineBili = _danmaku.Source == "bilibili";
-                if (onlineBili && (forceMatch || _danmaku.AutoMatch && (!ViewModel.IsBilibiliPlayback || uri is null)))
-                {
-                    var match = await ViewModel.MatchOnlineMediaAsync(token);
-                    uri = match.Danmaku;
-                }
-                else if (onlineBili && !_danmaku.AutoMatch && !forceMatch && !ViewModel.IsBilibiliPlayback)
-                {
-                    ViewModel.QualityMessage = "在线弹幕自动匹配已关闭，可在弹幕设置中手动匹配。";
-                    return;
-                }
-                if (uri is null)
-                {
-                    ViewModel.QualityMessage = "当前来源没有弹幕，可在弹幕设置中加载本地文件或切换弹弹play / 哔哩哔哩匹配。";
-                    return;
-                }
-                comments = await App.Services.Danmaku.LoadAsync(uri, token);
-            }
-
-            if (token.IsCancellationRequested) return;
-            _rawComments = comments as DanmakuEntry[] ?? comments.ToArray();
+            _rawComments = result.Comments ?? [];
             var snap = ViewModel.Service.LastSnapshot;
             DanmakuLayer.SyncPlayback(snap.TimeMs / 1000d,
                 snap.CapturedAtTimestamp != 0 ? snap.CapturedAtTimestamp : Stopwatch.GetTimestamp(),
@@ -1825,6 +1764,38 @@ public sealed partial class PlayerPage : Page
         {
             if (ReferenceEquals(_danmakuLoad, cts)) _danmakuLoad = null;
         }
+    }
+
+    private async Task<IReadOnlyList<DanmakuEntry>?> FetchDanmakuAsync(string source, Uri? origin, bool forceMatch, CancellationToken token)
+    {
+        if (_localDanmakuOverride is { } local) return await App.Services.Danmaku.LoadAsync(local, token);
+        if (source == "dandanplay")
+        {
+            if (_manualDanDanPlayEpisodeId is { } selected)
+                return await App.Services.DanDanPlay.GetCommentsAsync(selected, token: token);
+            if (!forceMatch && !_danmaku.AutoMatch)
+            {
+                ViewModel.QualityMessage = "在线弹幕自动匹配已关闭，可在弹幕设置中手动匹配。";
+                return null;
+            }
+            var match = await ViewModel.MatchDanDanPlayAsync(token);
+            return await App.Services.DanDanPlay.GetCommentsAsync(match.EpisodeId, token: token);
+        }
+        if (source == "bilibili" && (forceMatch || !ViewModel.IsBilibiliPlayback || origin is null))
+        {
+            if (!forceMatch && !_danmaku.AutoMatch)
+            {
+                ViewModel.QualityMessage = "在线弹幕自动匹配已关闭，可在弹幕设置中手动匹配。";
+                return null;
+            }
+            origin = (await ViewModel.MatchOnlineMediaAsync(token)).Danmaku;
+        }
+        if (origin is null)
+        {
+            ViewModel.QualityMessage = "当前来源没有弹幕，可在弹幕设置中加载本地文件或选择在线来源。";
+            return null;
+        }
+        return await App.Services.Danmaku.LoadAsync(origin, token);
     }
 
     private async Task ApplyFilteredCommentsAsync()

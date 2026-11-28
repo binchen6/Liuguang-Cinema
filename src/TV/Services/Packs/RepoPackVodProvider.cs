@@ -153,6 +153,7 @@ public sealed class RepoPackVodProvider : ICategoryFilterVodProvider, INativePla
         Name = original.Name,
         Type = 3,
         Api = rule.AliasApi,
+        RepositoryUrl = original.RepositoryUrl,
         Ext = rule.AliasExt.ValueKind != JsonValueKind.Undefined ? rule.AliasExt : original.Ext,
         Header = original.Header,
         Timeout = original.Timeout,

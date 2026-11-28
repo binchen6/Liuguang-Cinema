@@ -57,7 +57,8 @@ public sealed class AppServices : IDisposable
         var http = _http.Value;
         var bilibiliAccount = _bilibiliAccount.Value;
         _ = ExternalSpiderPolicy.RemoveLegacyCredentialFilesAsync(Database);
-        Config = new SourceConfigService(http, Database);
+        RepoPacks = new RepoPackService(http, dns, new SourceHttpClient(dns, null, useSystemDns: true));
+        Config = new SourceConfigService(http, Database, RepoPacks.InstallMigratedFantaitangPackAsync);
         Cms = new CmsClient(http);
         SpiderRuntime = new SpiderRuntime(Database);
         Cloud = new CloudDriveService(Database, dns);
@@ -66,7 +67,6 @@ public sealed class AppServices : IDisposable
         _bilibili = new Lazy<BilibiliVodProvider>(() => bilibili);
         Sniffer = new SniffService(Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread());
         NativeVod = NativeVodProviderRouter.CreateDefault(http, Cloud, bilibili, Sniffer);
-        RepoPacks = new RepoPackService(http, dns, new SourceHttpClient(dns, null, useSystemDns: true));
         var jsSpider = new JsSpiderClient(http);
         var pySpider = new PySpiderClient(http, Database);
         var autoHtml = new UniversalAutoHtmlVodProvider(http, Cloud);
@@ -75,6 +75,7 @@ public sealed class AppServices : IDisposable
         Live = new LiveService(http);
         Epg = new EpgService(http);
         Douban = new DoubanService(http, Database);
+        LocalArtwork = new LocalMediaArtwork(Douban);
         Images = new ImageCacheService(Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread(), dns);
         Updates = new AppUpdateService(http, dns, Database);
         Resolver = new PlayUrlResolver(http);
@@ -117,6 +118,7 @@ public sealed class AppServices : IDisposable
     public BilibiliVodProvider Bilibili => _bilibili.Value;
     public OnlineMediaService OnlineMedia => _onlineMedia.Value;
     public LocalMediaService LocalMedia { get; } = null!;
+    internal LocalMediaArtwork LocalArtwork { get; } = null!;
     public CleanupService Cleanup { get; } = null!;
     public PlayerService Player => _player.Value;
     public PlaybackKeepAwakeService KeepAwake { get; }

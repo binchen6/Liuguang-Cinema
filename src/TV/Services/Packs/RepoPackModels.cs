@@ -38,6 +38,7 @@ public sealed class RepoPackDefinition
     [JsonPropertyName("description")] public string Description { get; set; } = string.Empty;
     [JsonPropertyName("matchHosts")] public List<string> MatchHosts { get; set; } = [];
     [JsonPropertyName("matchSiteApis")] public List<string> MatchSiteApis { get; set; } = [];
+    [JsonPropertyName("restrictToRepository")] public bool RestrictToRepository { get; set; }
     [JsonPropertyName("sites")] public List<RepoPackSiteRule> Sites { get; set; } = [];
     [JsonPropertyName("lives")] public List<LiveSource> Lives { get; set; } = [];
 }

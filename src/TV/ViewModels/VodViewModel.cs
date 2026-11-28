@@ -8,6 +8,7 @@ using TV.Models;
 using TV.Services;
 using TV.Services.Http;
 using TV.Services.Persistence;
+using TV.Services.Playback;
 
 namespace TV.ViewModels;
 
@@ -48,7 +49,7 @@ public sealed partial class VodViewModel : ObservableObject
     public bool HasCategoryFilters => CategoryFilters.Count > 0;
 
     [ObservableProperty] private SourceRepository? _activeRepository;
-    [ObservableProperty] private string _activeRepositoryName = Services.Configuration.SourceConfigService.BuiltInRepositoryName;
+    [ObservableProperty] private string _activeRepositoryName = Services.Configuration.SourceConfigService.EmptyRepositoryName;
     [ObservableProperty] private SourceSite? _selectedSite;
     private SourceSite? _lastContentSite;
     private string _loadedRepositoryId = string.Empty;
@@ -59,8 +60,9 @@ public sealed partial class VodViewModel : ObservableObject
         ? sources : SelectedCard is { } selected ? [selected] : [];
     public bool HasAlternateSources => DetailSources.Count > 1;
     [ObservableProperty, NotifyPropertyChangedFor(nameof(HasCredits)), NotifyPropertyChangedFor(nameof(CanExpandIntro)),
-        NotifyPropertyChangedFor(nameof(DetailMetadata))]
+        NotifyPropertyChangedFor(nameof(DetailMetadata)), NotifyPropertyChangedFor(nameof(IsLocalDetail))]
     private VodItem? _detail;
+    public bool IsLocalDetail => Detail?.SiteKey == "local";
     public IReadOnlyList<string> DetailMetadata => Detail is null ? [] : new string?[] { Detail.Rating, Detail.Year, Detail.TypeName,
         Detail.Area, Detail.Remarks, Detail.SiteName }.Where(value => !string.IsNullOrWhiteSpace(value)).Select(value => value!).ToArray();
     public bool HasCredits => !string.IsNullOrWhiteSpace(Detail?.Director) || !string.IsNullOrWhiteSpace(Detail?.Actor);
@@ -160,13 +162,10 @@ public sealed partial class VodViewModel : ObservableObject
         Repositories.Clear();
         foreach (var repo in _services.Config.Repositories) Repositories.Add(repo);
         ActiveRepository = _services.Config.ActiveRepository;
-        ActiveRepositoryName = ActiveRepository?.Name ?? Services.Configuration.SourceConfigService.BuiltInRepositoryName;
+        ActiveRepositoryName = ActiveRepository?.Name ?? Services.Configuration.SourceConfigService.EmptyRepositoryName;
     }
 
-    private static string HomeSiteSettingKey(string? repoId) =>
-        string.IsNullOrWhiteSpace(repoId) || string.Equals(repoId, Services.Configuration.SourceConfigService.BuiltInRepositoryId, StringComparison.OrdinalIgnoreCase)
-            ? "source.homeSite"
-            : $"source.homeSite.{repoId}";
+    private static string HomeSiteSettingKey(string repoId) => $"source.homeSite.{repoId}";
 
     private async Task ReloadCoreAsync(bool allowFallback)
     {
@@ -195,7 +194,7 @@ public sealed partial class VodViewModel : ObservableObject
             {
                 Categories.Clear();
                 ReplaceItems([]);
-                StatusMessage = "当前仓库没有点播站点。";
+                StatusMessage = _services.Config.ActiveRepository is null ? "请在「设置 → 片源」导入仓库。" : "当前仓库没有点播站点。";
                 return;
             }
             await LoadHomeAsync(allowFallback);
@@ -466,7 +465,7 @@ public sealed partial class VodViewModel : ObservableObject
         {
             try
             {
-                var entry = await _services.Database.GetMetadataAsync("vod.home:" + candidate.Key, token);
+                var entry = await _services.Database.GetMetadataAsync(HomeCatalogKey(candidate), token);
                 if (entry is null ||
                     JsonSerializer.Deserialize<CmsResponse>(entry.Json, JsonUtil.Options) is not { List.Count: > 0 } cached) continue;
                 var fresh = entry.ExpiresAt > DateTimeOffset.UtcNow;
@@ -484,11 +483,14 @@ public sealed partial class VodViewModel : ObservableObject
         {
             var cached = new CmsResponse { Categories = response.Categories, List = response.List.Take(80).ToList(),
                 PageCount = response.PageCount, Filters = response.Filters, HomeCategoryName = response.HomeCategoryName };
-            await _services.Database.SaveMetadataAsync("vod.home:" + site.Key, JsonSerializer.Serialize(cached, JsonUtil.Options), DateTimeOffset.UtcNow.AddHours(12), token);
+            await _services.Database.SaveMetadataAsync(HomeCatalogKey(site), JsonSerializer.Serialize(cached, JsonUtil.Options), DateTimeOffset.UtcNow.AddHours(12), token);
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested) { }
         catch (Exception ex) { Diagnostics.Log($"首页缓存保存失败 ({site.Key}): {ex.Message}"); }
     }
+
+    private static string HomeCatalogKey(SourceSite site) =>
+        $"vod.home:{Services.Configuration.SourceConfigService.ComputeRepositoryId(site.RepositoryUrl)}:{site.Key}";
 
     private async Task LoadCategoryAsync()
     {
@@ -575,12 +577,15 @@ public sealed partial class VodViewModel : ObservableObject
         _ = card.LoadVisualAsync(true);
         try
         {
-            var detail = card.Item.Id.StartsWith("msearch:", StringComparison.OrdinalIgnoreCase)
+            var detail = card.Item.SiteKey == "local" && Path.IsPathFullyQualified(card.Item.Id)
+                ? await ReadLocalDetailAsync(card.Item, token)
+                : card.Item.Id.StartsWith("msearch:", StringComparison.OrdinalIgnoreCase)
                 ? await ResolveMetaDetailAsync(card.Item, token)
                 : site is null ? card.Item : await ReadDetailWithFallbackAsync(site, card, token);
-            detail = await _services.Cloud.ExpandAsync(detail, token);
+            if (detail.SiteKey != "local") detail = await _services.Cloud.ExpandAsync(detail, token);
             if (token.IsCancellationRequested || !ReferenceEquals(SelectedCard, card)) return;
             card.ReplaceItem(detail);
+            if (detail.SiteKey == "local") _ = card.LoadVisualAsync(true);
             Detail = detail;
             Lines.Clear();
             foreach (var line in PlaybackParsing.ParseLines(detail)) Lines.Add(line);
@@ -601,6 +606,22 @@ public sealed partial class VodViewModel : ObservableObject
     }
 
     public void OpenFavorite(VodItem item) => SelectedCard = new VodCardViewModel(item, _services);
+
+    private async Task<VodItem> ReadLocalDetailAsync(VodItem item, CancellationToken token)
+    {
+        var request = Services.Library.LocalMediaService.CreateRequest(item.Id);
+        var description = await _services.LocalArtwork.ReadAsync(item.Id, item.Name, token);
+        var detail = item.Copy();
+        detail.Name = description.Title;
+        detail.Picture = description.Picture.Length > 0 ? description.Picture : item.Picture;
+        detail.Year = description.Year;
+        detail.Content = description.Summary;
+        detail.DoubanId = description.SubjectId;
+        detail.TypeName = request.IsMusic ? "音乐" : "视频";
+        detail.PlayFrom = "本地文件";
+        detail.PlayUrl = "播放$" + request.Url.Replace("#", "%23", StringComparison.Ordinal).Replace("$", "%24", StringComparison.Ordinal);
+        return detail;
+    }
 
     private async Task RestoreHistoryAsync(VodItem detail, CancellationToken token)
     {
@@ -806,6 +827,15 @@ public sealed partial class VodViewModel : ObservableObject
     private PlaybackRequest? CreatePlaybackRequest(Episode? episode)
     {
         if (episode is null || Detail is null) return null;
+        if (Detail.SiteKey == "local")
+        {
+            if (!File.Exists(Detail.Id)) { DetailStatus = "本地文件已移动或删除。"; return null; }
+            var local = Services.Library.LocalMediaService.CreateRequest(Detail.Id);
+            local.Item = Detail;
+            local.Picture = Detail.BestPicture;
+            local.StartPositionMs = _resumePositionMs;
+            return local;
+        }
         var site = _services.Config.FindSite(Detail.SiteKey);
         var lineIndex = Math.Max(0, Lines.IndexOf(SelectedLine!));
         var episodeIndex = Math.Max(0, SelectedLine?.Episodes.IndexOf(episode) ?? 0);
@@ -831,6 +861,7 @@ public sealed partial class VodViewModel : ObservableObject
         try
         {
             media = await _services.Playback.ResolveForDownloadAsync(request, token);
+            if (!await OpenMagnetDownloadAsync(media, token)) { DownloadStatus = ""; return; }
             var extension = await _services.Downloads.GetExtensionAsync(media, token);
             var title = episode.Name;
             if (Path.GetExtension(title).Equals(extension, StringComparison.OrdinalIgnoreCase))
@@ -855,6 +886,7 @@ public sealed partial class VodViewModel : ObservableObject
         catch (Exception ex) { DownloadStatus = "下载失败：" + ex.Message; }
         finally
         {
+            if (media?.Magnet is { } magnet) await magnet.DisposeAsync();
             if (media is not null) _services.Cloud.ReleaseMedia(media.Url);
             IsDownloading = false;
         }
@@ -885,6 +917,7 @@ public sealed partial class VodViewModel : ObservableObject
                 try
                 {
                     media = await _services.Playback.ResolveForDownloadAsync(request, token);
+                    if (!await OpenMagnetDownloadAsync(media, token)) { failed.Add($"{episode.Name}：已跳过磁力线路"); continue; }
                     var extension = await _services.Downloads.GetExtensionAsync(media, token);
                     var filename = DownloadFileName(request, episode, extension);
                     var destination = AvailableDownloadPath(Path.Combine(directory, filename + extension));
@@ -898,6 +931,7 @@ public sealed partial class VodViewModel : ObservableObject
                 catch (Exception ex) { failed.Add($"{episode.Name}：{ex.Message}"); }
                 finally
                 {
+                    if (media?.Magnet is { } magnet) await magnet.DisposeAsync();
                     if (media is not null) _services.Cloud.ReleaseMedia(media.Url);
                 }
             }
@@ -911,6 +945,14 @@ public sealed partial class VodViewModel : ObservableObject
         }
         catch (Exception ex) { DownloadStatus = "下载目录不可用：" + ex.Message; }
         finally { IsDownloading = false; }
+    }
+
+    private static async Task<bool> OpenMagnetDownloadAsync(PlaybackRequest media, CancellationToken token)
+    {
+        if (!MagnetPlayback.IsMagnet(media.Url)) return true;
+        if (!await App.Window.ConfirmMagnetPlaybackAsync(token, download: true)) return false;
+        media.Magnet = await MagnetPlayback.OpenAsync(media.Url, token);
+        return true;
     }
 
     [RelayCommand]

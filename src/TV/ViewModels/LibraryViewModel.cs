@@ -44,6 +44,7 @@ public sealed partial class LibraryViewModel : ObservableObject
     }
 
     public ObservableCollection<HistoryEntry> History { get; } = [];
+    public bool HasHistory => History.Count > 0;
     public ObservableCollection<FavoriteEntry> Favorites { get; } = [];
     public ObservableCollection<DownloadEntry> Downloads { get; } = [];
     public ObservableCollection<LocalMediaEntry> LocalFiles { get; } = [];
@@ -121,6 +122,7 @@ public sealed partial class LibraryViewModel : ObservableObject
     {
         var terms = SearchQuery.Split((char[]?)null, StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
         ReplaceItems(History, _history.Where(item => Matches(item.Title, item.Subtitle, terms)));
+        OnPropertyChanged(nameof(HasHistory));
         ReplaceItems(Favorites, _favorites.Where(item => Matches(item.Title, item.Subtitle, terms)));
         ReplaceItems(Downloads, _downloads.Where(item => Matches(item.Title, item.Episode, terms)));
         ReplaceItems(LocalFiles, _localFiles.Where(item =>
@@ -153,7 +155,7 @@ public sealed partial class LibraryViewModel : ObservableObject
         if (entry is null) return;
         try
         {
-            var request = System.Text.Json.JsonSerializer.Deserialize<PlaybackRequest>(entry.RequestJson, JsonUtil.Options);
+            var request = entry.ReadRequest();
             if (request is not null)
             {
                 request.StartPositionMs = entry.IsCompleted ? 0 : entry.PositionMs;
@@ -167,14 +169,56 @@ public sealed partial class LibraryViewModel : ObservableObject
     [RelayCommand]
     private async Task DeleteHistoryAsync(HistoryEntry? entry)
     {
-        if (entry is null) return;
+        if (entry is not null) await DeleteHistoryEntriesAsync([entry]);
+    }
+
+    internal async Task<bool> DeleteHistoryEntriesAsync(IEnumerable<HistoryEntry> entries)
+    {
+        var ids = entries.Select(item => item.Id).ToHashSet(StringComparer.Ordinal);
+        if (ids.Count == 0) return false;
+        await _loadGate.WaitAsync();
         try
         {
-            await _services.Database.DeleteHistoryAsync(entry.Id);
-            _history.RemoveAll(item => item.Id == entry.Id);
+            await _services.Database.DeleteHistoryAsync(ids);
+            _history.RemoveAll(item => ids.Contains(item.Id));
             ApplySearch();
+            _statusIsError = false;
+            StatusMessage = $"已删除 {ids.Count} 条观看记录。";
+            return true;
         }
-        catch (Exception ex) { _statusIsError = true; StatusMessage = ex.Message; }
+        catch (Exception ex) { ReportError(ex.Message); return false; }
+        finally { _loadGate.Release(); }
+    }
+
+    internal void OpenHistoryDetail(HistoryEntry entry)
+    {
+        try
+        {
+            if (entry.ReadRequest() is not { Kind: PlaybackKind.Vod } request) return;
+            if (request.SiteKey == "local" && entry.LocalMediaPath is { } path)
+            {
+                OpenLocalDetail(path, entry.Title, entry.Picture);
+                return;
+            }
+            var item = request.Item?.Copy() ?? new VodItem
+            {
+                Id = request.VodId, SiteKey = request.SiteKey, Name = entry.Title, Picture = entry.Picture,
+                PlayFrom = string.Join("$$$", request.Lines.Select(line => line.Name)),
+                PlayUrl = string.Join("$$$", request.Lines.Select(line => string.Join('#', line.Episodes.Select(episode => $"{episode.Name}${episode.Url}"))))
+            };
+            if (!string.IsNullOrWhiteSpace(item.Id)) _openDetail(item);
+        }
+        catch (Exception ex) { ReportError("无法打开观看记录详情。" + ex.Message); }
+    }
+
+    internal void OpenLocalDetail(string path, string title, string? picture = null)
+    {
+        if (!File.Exists(path) || !LocalMediaService.IsSupportedMedia(path))
+        {
+            ReportError("本地文件已移动、删除或格式不受支持。");
+            return;
+        }
+        _openDetail(new VodItem { Id = path, SiteKey = "local", SiteName = "本地媒体", Name = title, Picture = picture ?? "" });
     }
 
     [RelayCommand]

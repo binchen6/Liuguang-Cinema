@@ -262,6 +262,15 @@ public sealed partial class UniversalAutoHtmlVodProvider(SourceHttpClient http, 
                 }
             }
 
+            var magnets = doc.QuerySelectorAll("a[href^='magnet:' i]")
+                .Select(element => (Url: element.GetAttribute("href")?.Trim(), Label: NativeSiteToolkit.SanitizeLabel(element.TextContent)))
+                .Where(candidate => MagnetPlayback.TryParse(candidate.Url, out _)).DistinctBy(candidate => candidate.Url).Take(50)
+                .Select((candidate, index) => $"{(candidate.Label.Length > 0 ? candidate.Label.Replace('$', '＄').Replace('#', '＃') : $"磁力资源 {index + 1}")}${candidate.Url}").ToArray();
+            if (magnets.Length > 0)
+            {
+                lineNames.Add("磁力资源");
+                lineUrls.Add(string.Join('#', magnets));
+            }
             if (cloud is not null)
                 await NativeSiteToolkit.AppendCloudShareLinesAsync(cloud, doc, lineNames, lineUrls, token).ConfigureAwait(false);
 
@@ -279,6 +288,7 @@ public sealed partial class UniversalAutoHtmlVodProvider(SourceHttpClient http, 
     public async Task<SpiderPlayResult> ResolvePlayAsync(SourceSite site, string flag, string id, CancellationToken token)
     {
         token.ThrowIfCancellationRequested();
+        if (MagnetPlayback.TryParse(id, out _)) return new SpiderPlayResult(id, new Dictionary<string, string>(), 0, 0);
         if (cloud is not null && await NativeSiteToolkit.TryResolveDirectCloudShareAsync(cloud, id, token).ConfigureAwait(false) is { } cloudDirect)
             return cloudDirect;
 
@@ -298,7 +308,9 @@ public sealed partial class UniversalAutoHtmlVodProvider(SourceHttpClient http, 
                 DashManifest.IsPlaylist(pageUri.AbsoluteUri, contentType))
                 return MediaResult(site, referer, pageUri, parse: 0, contentType);
 
-            if (NativeSiteToolkit.TryParsePlayerAaaa(body, out var player) &&
+            if (NativeSiteToolkit.TryParsePlayerAaaa(body, out var player) && MagnetPlayback.TryParse(player.DecodedUrl, out _))
+                return new SpiderPlayResult(player.DecodedUrl, new Dictionary<string, string>(), 0, 0);
+            if (player is not null &&
                 ResolveAddress(pageUri, player.DecodedUrl, sameOrigin: false) is { } playerUrl)
             {
                 if (cloud is not null && await NativeSiteToolkit.TryResolveDirectCloudShareAsync(cloud, playerUrl.AbsoluteUri, token).ConfigureAwait(false) is { } innerCloud)

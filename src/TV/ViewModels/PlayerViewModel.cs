@@ -839,6 +839,19 @@ public sealed partial class PlayerViewModel : ObservableObject
         return match;
     }
 
+    internal string? DanmakuCacheKey(string source, Uri? origin)
+    {
+        if (_request is not { } request) return null;
+        if (request.Kind == PlaybackKind.Live && origin is null) return null;
+        var episode = SelectedEpisode?.Name ?? request.Subtitle;
+        var mediaId = string.IsNullOrEmpty(request.VodId) ? request.Url : request.VodId;
+        var liveAddress = request.Kind == PlaybackKind.Live || source == "origin" ? origin?.AbsoluteUri : null;
+        return System.Text.Json.JsonSerializer.Serialize(new
+        {
+            source, request.Kind, request.SiteKey, mediaId, request.EpisodeIndex, episode, liveAddress
+        });
+    }
+
     internal async Task<OnlineMediaMatch> MatchOnlineMediaAsync(CancellationToken token)
     {
         if (_request is not { } request) throw new InvalidOperationException("当前没有可匹配的视频。");

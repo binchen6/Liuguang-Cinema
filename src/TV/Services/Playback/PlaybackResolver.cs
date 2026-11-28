@@ -22,7 +22,7 @@ public sealed class PlaybackResolver(AppServices services)
         request.IsMusic |= AudioMedia.IsAudio(request.Url) || AudioMedia.IsAudio(
             request.Lines.ElementAtOrDefault(request.LineIndex)?.Episodes.ElementAtOrDefault(request.EpisodeIndex)?.Name ?? "");
         request.MusicLyrics ??= request.Item?.Lyrics;
-        if (MagnetPlayback.IsMagnet(request.Url)) return ResolveMagnet(request, forDownload);
+        if (MagnetPlayback.IsMagnet(request.Url)) return ResolveMagnet(request);
         if (Uri.TryCreate(request.Url, UriKind.Absolute, out var input) && input.IsFile)
         {
             if (request.Kind != PlaybackKind.Vod || request.SiteKey != "local")
@@ -96,7 +96,7 @@ public sealed class PlaybackResolver(AppServices services)
             if (result.ReplaceHeaders) request.Headers.Clear();
             foreach (var header in result.Headers) request.Headers[header.Key] = header.Value;
             request.Url = result.Url;
-            if (MagnetPlayback.IsMagnet(request.Url)) return ResolveMagnet(request, forDownload);
+            if (MagnetPlayback.IsMagnet(request.Url)) return ResolveMagnet(request);
             contentType = result.ContentType;
             request.MusicLyrics = result.MusicLyrics ?? request.MusicLyrics;
             request.MusicCover = result.MusicCover ?? request.MusicCover;
@@ -177,7 +177,7 @@ public sealed class PlaybackResolver(AppServices services)
         {
             await ResolveParserAsync(request, parses, token);
         }
-        if (MagnetPlayback.IsMagnet(request.Url)) return ResolveMagnet(request, forDownload);
+        if (MagnetPlayback.IsMagnet(request.Url)) return ResolveMagnet(request);
         if (!IsRemoteMediaAddress(request.Url))
             throw new InvalidDataException("站点未提供支持的播放地址。");
 
@@ -286,9 +286,8 @@ public sealed class PlaybackResolver(AppServices services)
         return request;
     }
 
-    private static PlaybackRequest ResolveMagnet(PlaybackRequest request, bool forDownload)
+    private static PlaybackRequest ResolveMagnet(PlaybackRequest request)
     {
-        if (forDownload) throw new NotSupportedException("请在播放器中打开磁力资源。");
         if (!MagnetPlayback.TryParse(request.Url, out _)) throw new InvalidDataException("磁力链接格式无效。");
         request.Headers.Clear();
         request.HasFixedVideoTrack = true;

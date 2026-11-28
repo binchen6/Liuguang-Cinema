@@ -71,7 +71,7 @@ public sealed partial class MusicPlayerSurface
             if (!generate) panel.Children.Add(language);
             var dialog = new ContentDialog
             {
-                XamlRoot = root, Title = generate ? "生成滚动歌词" : "翻译歌词", Content = panel,
+                XamlRoot = root, RequestedTheme = ActualTheme, Title = generate ? "生成滚动歌词" : "翻译歌词", Content = panel,
                 PrimaryButtonText = generate ? "识别音轨" : "翻译", CloseButtonText = "取消",
                 DefaultButton = ContentDialogButton.Close
             };

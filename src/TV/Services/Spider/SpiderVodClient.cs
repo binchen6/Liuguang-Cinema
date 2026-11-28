@@ -98,8 +98,15 @@ public sealed class SpiderVodClient
     {
         data = ReadObject(data);
         var url = StringValue(data, "url");
+        if ((string.IsNullOrWhiteSpace(url) || url.Equals("null", StringComparison.OrdinalIgnoreCase)) &&
+            StringValue(data, "magnet").Trim() is { Length: > 0 } magnet && MagnetPlayback.TryParse(magnet, out _)) url = magnet;
         if (string.IsNullOrWhiteSpace(url) || url.Equals("null", StringComparison.OrdinalIgnoreCase))
             throw new InvalidDataException("爬虫没有返回可播放地址。");
+        if (MagnetPlayback.IsMagnet(url))
+        {
+            if (!MagnetPlayback.TryParse(url, out _)) throw new InvalidDataException("站点返回了无效的磁力链接。");
+            return new SpiderPlayResult(url, new Dictionary<string, string>(), 0, 0) { ReplaceHeaders = true };
+        }
         if (url.StartsWith("//", StringComparison.Ordinal)) url = "https:" + url;
         var parse = IntValue(data, "parse");
         var jx = IntValue(data, "jx");

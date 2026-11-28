@@ -12,13 +12,15 @@ public sealed partial class SourceConfigService : IDisposable
 {
     private static readonly HashSet<string> LinkExtensionFields = new(StringComparer.OrdinalIgnoreCase)
     {
-        "site", "sites", "siteUrl", "host", "hosts", "url", "urls", "baseUrl", "homeUrl", "endpoint"
+        "site", "sites", "siteUrl", "siteUrls", "host", "hosts", "url", "urls", "baseUrl", "homeUrl", "endpoint"
     };
-    public const string BuiltInRepositoryId = "builtin";
-    public const string BuiltInRepositoryName = "内置仓库";
+    private const string LegacyRepositoryId = "builtin";
+    public const string EmptyRepositoryName = "尚未导入仓库";
     private const string SettingActiveRepo = "source.activeRepo";
-
-    public static readonly string[] BuiltInEndpoints =
+    private const string SettingImports = "source.imports";
+    private const string SettingLegacyMigration = "source.fantaitangMigration";
+    private const string SettingPendingPackUrl = "source.fantaitangPackPending";
+    private static readonly string[] LegacyEndpoints =
     [
         "http://www.饭太硬.cc/tv",
         "http://www.饭太硬.net/tv",
@@ -27,17 +29,20 @@ public sealed partial class SourceConfigService : IDisposable
 
     private readonly SourceHttpClient _http;
     private readonly DatabaseService _database;
+    private readonly Func<string, CancellationToken, Task<bool>>? _installMigratedPack;
     private readonly SemaphoreSlim _loadLock = new(1, 1);
-    private ConfigDocument? _builtIn;
-    private string _builtInUrl = "尚未加载";
+    private readonly SemaphoreSlim _refreshLock = new(1, 1);
     private List<ImportedRepository>? _imports;
-    private string _activeRepositoryId = BuiltInRepositoryId;
-    private bool _activeRepoLoaded;
+    private string _activeRepositoryId = string.Empty;
 
-    public SourceConfigService(SourceHttpClient http, DatabaseService database)
+    public SourceConfigService(SourceHttpClient http, DatabaseService database) : this(http, database, null) { }
+
+    internal SourceConfigService(SourceHttpClient http, DatabaseService database,
+        Func<string, CancellationToken, Task<bool>>? installMigratedPack)
     {
         _http = http;
         _database = database;
+        _installMigratedPack = installMigratedPack;
     }
 
     public ConfigDocument? Current { get; private set; }
@@ -45,7 +50,6 @@ public sealed partial class SourceConfigService : IDisposable
     public IReadOnlyList<SourceRepository> Repositories { get; private set; } = [];
     public string ActiveRepositoryId => _activeRepositoryId;
     public string ActiveUrl { get; private set; } = "尚未加载";
-    public string LastError { get; private set; } = string.Empty;
     public event EventHandler? Changed;
 
     public async Task<IReadOnlyList<ImportedRepository>> GetImportsAsync(CancellationToken cancellationToken = default)
@@ -78,11 +82,9 @@ public sealed partial class SourceConfigService : IDisposable
             await ReadImportsAsync(cancellationToken).ConfigureAwait(false);
             var repos = BuildRepositoryList();
             var target = repos.FirstOrDefault(r => r.Id.Equals(repositoryId, StringComparison.OrdinalIgnoreCase))
-                ?? repos.FirstOrDefault()
                 ?? throw new InvalidOperationException("没有可切换的片源仓库。");
+            await _database.SetSettingAsync(SettingActiveRepo, target.Id, cancellationToken).ConfigureAwait(false);
             _activeRepositoryId = target.Id;
-            _activeRepoLoaded = true;
-            await _database.SetSettingAsync(SettingActiveRepo, _activeRepositoryId, cancellationToken).ConfigureAwait(false);
             PublishCurrent();
         }
         finally { _loadLock.Release(); }
@@ -166,6 +168,7 @@ public sealed partial class SourceConfigService : IDisposable
     {
         if (!string.IsNullOrWhiteSpace(siteKey))
         {
+            if (Current?.Sites.Any(site => site.Key == siteKey) == true) return Current.Parses;
             foreach (var repo in Repositories)
             {
                 if (repo.Document.Sites.Any(s => s.Key == siteKey))
@@ -183,14 +186,12 @@ public sealed partial class SourceConfigService : IDisposable
             await ReadImportsAsync(token).ConfigureAwait(false);
             var imports = _imports!.ToList();
             update(imports);
-            await _database.SetSettingAsync("source.imports", JsonSerializer.Serialize(imports, JsonUtil.Options), token).ConfigureAwait(false);
+            var nextId = switchToRepoId ?? (imports.Any(entry => ComputeRepositoryId(entry.Url) == _activeRepositoryId)
+                ? _activeRepositoryId : imports.Count > 0 ? ComputeRepositoryId(imports[0].Url) : string.Empty);
+            await _database.SetSettingsAsync([(SettingImports, JsonSerializer.Serialize(imports, JsonUtil.Options)),
+                (SettingActiveRepo, nextId)], token).ConfigureAwait(false);
             _imports = imports;
-            if (!string.IsNullOrWhiteSpace(switchToRepoId))
-            {
-                _activeRepositoryId = switchToRepoId;
-                _activeRepoLoaded = true;
-                await _database.SetSettingAsync(SettingActiveRepo, _activeRepositoryId, token).ConfigureAwait(false);
-            }
+            _activeRepositoryId = nextId;
             PublishCurrent();
         }
         finally { _loadLock.Release(); }
@@ -198,56 +199,103 @@ public sealed partial class SourceConfigService : IDisposable
 
     private async Task ReadImportsAsync(CancellationToken token)
     {
-        if (!_activeRepoLoaded)
-        {
-            var savedRepo = await _database.GetSettingAsync(SettingActiveRepo, token).ConfigureAwait(false);
-            if (!string.IsNullOrWhiteSpace(savedRepo)) _activeRepositoryId = savedRepo.Trim();
-            _activeRepoLoaded = true;
-        }
         if (_imports is not null) return;
-        var json = await _database.GetSettingAsync("source.imports", token).ConfigureAwait(false);
-        if (json is not null)
+        var activeId = (await _database.GetSettingAsync(SettingActiveRepo, token).ConfigureAwait(false))?.Trim() ?? "";
+        var raw = await _database.GetSettingAsync(SettingImports, token).ConfigureAwait(false);
+        List<ImportedRepository> imports;
+        try { imports = raw is null ? [] : JsonSerializer.Deserialize<List<ImportedRepository>>(raw, JsonUtil.Options) ?? []; }
+        catch (JsonException) { imports = []; }
+
+        if (await _database.GetSettingAsync(SettingLegacyMigration, token).ConfigureAwait(false) != "1")
         {
-            try { _imports = JsonSerializer.Deserialize<List<ImportedRepository>>(json, JsonUtil.Options) ?? []; }
-            catch (JsonException) { _imports = []; }
-            foreach (var entry in _imports) HydrateDocument(entry.Document, isBuiltIn: false);
-            return;
-        }
-        var previous = await _database.GetSettingAsync("source.endpoints", token).ConfigureAwait(false);
-        var migrated = new List<ImportedRepository>();
-        if (previous is not null)
-        {
-            List<string> urls;
-            try { urls = JsonSerializer.Deserialize<List<string>>(previous) ?? []; }
-            catch (JsonException) { urls = []; }
-            foreach (var url in urls.Except(BuiltInEndpoints, StringComparer.OrdinalIgnoreCase))
+            var previousUrl = await _database.GetSettingAsync("source.active", token).ConfigureAwait(false);
+            List<string> oldEndpoints;
+            try
             {
-                if (!Uri.TryCreate(url, UriKind.Absolute, out var uri) || uri.Scheme is not ("http" or "https")) continue;
-                migrated.Add(new ImportedRepository(uri.AbsoluteUri, uri.Host, new ConfigDocument()));
+                var previous = await _database.GetSettingAsync("source.endpoints", token).ConfigureAwait(false);
+                oldEndpoints = previous is null ? [] : JsonSerializer.Deserialize<List<string>>(previous) ?? [];
+            }
+            catch (JsonException) { oldEndpoints = []; }
+            foreach (var url in oldEndpoints)
+            {
+                if (IsLegacyEndpoint(url) || !TryGetRepositoryUri(url, out var entryUri) ||
+                    imports.Any(entry => entry.Url.Equals(entryUri.AbsoluteUri, StringComparison.OrdinalIgnoreCase))) continue;
+                imports.Add(new ImportedRepository(entryUri.AbsoluteUri, entryUri.Host, new ConfigDocument()));
+            }
+
+            var writes = new List<(string Key, string Value)> { (SettingLegacyMigration, "1") };
+            var legacy = await ReadLegacySnapshotAsync(token).ConfigureAwait(false);
+            if (legacy is not null || activeId == LegacyRepositoryId || IsLegacyEndpoint(previousUrl) || oldEndpoints.Any(IsLegacyEndpoint))
+            {
+                var url = IsLegacyEndpoint(previousUrl) ? new Uri(previousUrl!).AbsoluteUri : LegacyEndpoints[0];
+                var index = imports.FindIndex(entry => IsLegacyEndpoint(entry.Url) || IsLegacyEndpoint(entry.GroupUrl));
+                if (legacy is not null) NormalizeLinks(legacy, new Uri(url));
+                var imported = index < 0 ? new ImportedRepository(url, "饭太硬", legacy ?? new ConfigDocument()) : imports[index];
+                if (index < 0) imports.Insert(0, imported);
+                else if (imported.Document.Sites.Count == 0 && imported.Document.Lives.Count == 0 && legacy is not null)
+                    imports[index] = imported = imported with { Document = legacy };
+                var migratedId = ComputeRepositoryId(imported.Url);
+                if (activeId.Length == 0 || activeId == LegacyRepositoryId) activeId = migratedId;
+                var siteKey = await _database.GetSettingAsync("source.homeSite", token).ConfigureAwait(false);
+                var newHomeKey = $"source.homeSite.{migratedId}";
+                if (!string.IsNullOrWhiteSpace(siteKey) && await _database.GetSettingAsync(newHomeKey, token).ConfigureAwait(false) is null)
+                    writes.Add((newHomeKey, siteKey));
+                writes.Add((SettingPendingPackUrl, imported.Url));
+            }
+            writes.Add((SettingImports, JsonSerializer.Serialize(imports, JsonUtil.Options)));
+            writes.Add((SettingActiveRepo, activeId == LegacyRepositoryId ? "" : activeId));
+            await _database.SetSettingsAsync(writes, token).ConfigureAwait(false);
+        }
+        foreach (var entry in imports) HydrateDocument(entry.Document, entry.Url, entry.GroupUrl);
+        _activeRepositoryId = activeId == LegacyRepositoryId ? "" : activeId;
+        _imports = imports;
+    }
+
+    private static async Task<ConfigDocument?> ReadLegacySnapshotAsync(CancellationToken token)
+    {
+        foreach (var path in new[] { AppPaths.Config, AppPaths.Config + ".bak" })
+        {
+            if (!File.Exists(path)) continue;
+            try
+            {
+                var snapshot = Parse(await File.ReadAllTextAsync(path, token).ConfigureAwait(false));
+                if (snapshot.Sites.Count > 0 || snapshot.Lives.Count > 0) return snapshot;
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException or InvalidDataException)
+            {
+                Diagnostics.Log("迁移旧版仓库缓存: " + ex.GetType().Name);
             }
         }
-        _imports = migrated;
+        return null;
     }
+
+    private static bool TryGetRepositoryUri(string? value, out Uri uri)
+    {
+        uri = null!;
+        if (!Uri.TryCreate(value, UriKind.Absolute, out var parsed) || !MediaRequestHeaders.IsHttpAddress(parsed) || parsed.UserInfo.Length != 0)
+            return false;
+        uri = parsed;
+        return true;
+    }
+
+    private static bool IsLegacyEndpoint(string? value) => TryGetRepositoryUri(value, out var uri) &&
+        LegacyEndpoints.Any(endpoint =>
+        {
+            var old = new Uri(endpoint);
+            return old.IdnHost.Equals(uri.IdnHost, StringComparison.OrdinalIgnoreCase) &&
+                old.AbsolutePath.TrimEnd('/').Equals(uri.AbsolutePath.TrimEnd('/'), StringComparison.OrdinalIgnoreCase);
+        });
 
     private List<SourceRepository> BuildRepositoryList()
     {
-        var builtInDoc = _builtIn ?? new ConfigDocument();
-        HydrateDocument(builtInDoc, isBuiltIn: true);
-        var list = new List<SourceRepository>
+        var list = new List<SourceRepository>();
+        var seenIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var entry in _imports ?? [])
         {
-            new(BuiltInRepositoryId, BuiltInRepositoryName, BuiltInRepositoryId, true, builtInDoc)
-        };
-        if (_imports is not null)
-        {
-            var seenIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { BuiltInRepositoryId };
-            foreach (var entry in _imports)
-            {
-                HydrateDocument(entry.Document, isBuiltIn: false);
-                var id = ComputeRepositoryId(entry.Url);
-                if (!seenIds.Add(id)) continue;
-                var name = string.IsNullOrWhiteSpace(entry.Name) ? HostDisplayName(entry.Url) : entry.Name.Trim();
-                list.Add(new SourceRepository(id, name, entry.Url, false, entry.Document, entry.GroupUrl));
-            }
+            var id = ComputeRepositoryId(entry.Url);
+            if (!seenIds.Add(id)) continue;
+            var name = string.IsNullOrWhiteSpace(entry.Name) ? HostDisplayName(entry.Url) : entry.Name.Trim();
+            list.Add(new SourceRepository(id, name, entry.Url, false, entry.Document, entry.GroupUrl));
         }
         return list;
     }
@@ -257,26 +305,26 @@ public sealed partial class SourceConfigService : IDisposable
         var repos = BuildRepositoryList();
         Repositories = repos;
         var active = repos.FirstOrDefault(r => r.Id.Equals(_activeRepositoryId, StringComparison.OrdinalIgnoreCase))
-            ?? repos[0];
-        if (!active.Id.Equals(_activeRepositoryId, StringComparison.OrdinalIgnoreCase))
-            _activeRepositoryId = active.Id;
-
+            ?? repos.FirstOrDefault();
+        _activeRepositoryId = active?.Id ?? "";
         ActiveRepository = active;
-        Current = active.Document;
-        ActiveUrl = active.IsBuiltIn ? _builtInUrl : active.Url;
+        Current = active?.Document ?? new ConfigDocument();
+        ActiveUrl = active?.Url ?? EmptyRepositoryName;
         Changed?.Invoke(this, EventArgs.Empty);
     }
 
-    private static void HydrateDocument(ConfigDocument doc, bool isBuiltIn)
+    private static void HydrateDocument(ConfigDocument doc, string repositoryUrl, string? groupUrl)
     {
         var spider = doc.Spider?.Trim() ?? string.Empty;
         foreach (var site in doc.Sites)
         {
+            site.RepositoryUrl = repositoryUrl;
+            site.RepositoryGroupUrl = groupUrl;
             if (string.IsNullOrWhiteSpace(site.RepositorySpider) && spider.Length > 0)
                 site.RepositorySpider = spider;
         }
         foreach (var live in doc.Lives)
-            live.IsBuiltIn = isBuiltIn;
+            live.IsBuiltIn = false;
     }
 
     public static string ComputeRepositoryId(string url) =>
@@ -290,147 +338,79 @@ public sealed partial class SourceConfigService : IDisposable
 
     public async Task<ConfigDocument> LoadAsync(bool force = false, CancellationToken cancellationToken = default)
     {
-        if (!force && _builtIn is not null && Current is not null) return Current;
-        await _loadLock.WaitAsync(cancellationToken).ConfigureAwait(false);
-        try
+        if (Current is null)
         {
-            if (!force && _builtIn is not null && Current is not null) return Current;
-            await ReadImportsAsync(cancellationToken).ConfigureAwait(false);
-
-            // If user explicitly forces reload while viewing an imported repository, refresh that repository directly!
-            if (force && !string.Equals(_activeRepositoryId, BuiltInRepositoryId, StringComparison.OrdinalIgnoreCase) && _imports is not null)
-            {
-                var idx = _imports.FindIndex(item => ComputeRepositoryId(item.Url).Equals(_activeRepositoryId, StringComparison.OrdinalIgnoreCase));
-                if (idx >= 0 && Uri.TryCreate(_imports[idx].Url, UriKind.Absolute, out var importUri))
-                {
-                    var (refreshedDoc, error, _) = await ReadRepositoryEntryAsync(importUri, _imports[idx].Name, cancellationToken).ConfigureAwait(false);
-                    if (refreshedDoc is not null)
-                    {
-                        HydrateDocument(refreshedDoc, isBuiltIn: false);
-                        _imports[idx] = _imports[idx] with { Document = refreshedDoc };
-                        await _database.SetSettingAsync("source.imports", JsonSerializer.Serialize(_imports, JsonUtil.Options), cancellationToken).ConfigureAwait(false);
-                        PublishCurrent();
-                        return Current!;
-                    }
-                    if (!string.IsNullOrWhiteSpace(error))
-                        throw new InvalidOperationException("仓库刷新失败：" + error);
-                }
-            }
-
-            var autoRefresh = !string.Equals(await _database.GetSettingAsync("source.autoRefresh", cancellationToken).ConfigureAwait(false), "false", StringComparison.OrdinalIgnoreCase);
-            if ((!force || _builtIn is null) && File.Exists(AppPaths.Config))
-            {
-                try
-                {
-                    var cachedRaw = await File.ReadAllTextAsync(AppPaths.Config, cancellationToken).ConfigureAwait(false);
-                    _builtIn = Parse(cachedRaw);
-                    HydrateDocument(_builtIn, isBuiltIn: true);
-                    _builtInUrl = "本地缓存";
-                    LastError = string.Empty;
-                    PublishCurrent();
-                    if (!force && autoRefresh)
-                    {
-                        EnsurePeriodicRefresh();
-                        if (await IsRefreshDueAsync(cancellationToken).ConfigureAwait(false))
-                            _ = RefreshBackgroundAsync();
-                    }
-                    if (!force) return Current!;
-                }
-                catch (Exception ex) when (ex is not OperationCanceledException)
-                {
-                    Diagnostics.Log("配置缓存读取失败: " + ex.Message);
-                }
-            }
+            await _loadLock.WaitAsync(cancellationToken).ConfigureAwait(false);
             try
             {
-                var remote = await LoadRemoteAsync(BuiltInEndpoints, cancellationToken).ConfigureAwait(false);
-                await CommitRemoteAsync(remote.Document, remote.Raw, remote.FinalUrl, cancellationToken).ConfigureAwait(false);
+                if (Current is null)
+                {
+                    await ReadImportsAsync(cancellationToken).ConfigureAwait(false);
+                    PublishCurrent();
+                    EnsurePeriodicRefresh();
+                    _ = RefreshBackgroundAsync();
+                }
             }
-            catch (InvalidOperationException) when (!force && _imports!.Count > 0) { PublishCurrent(); }
-            if (autoRefresh) EnsurePeriodicRefresh();
-            return Current!;
+            finally { _loadLock.Release(); }
         }
-        finally { _loadLock.Release(); }
+        if (force) await RefreshActiveAsync(cancellationToken).ConfigureAwait(false);
+        return Current!;
     }
 
-    private async Task<(ConfigDocument Document, string Raw, string FinalUrl)> LoadRemoteAsync(IReadOnlyList<string> endpoints, CancellationToken cancellationToken)
+    private async Task RefreshActiveAsync(CancellationToken token)
     {
-        using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        var pending = endpoints.Select(endpoint => FetchSafeAsync(endpoint, linked.Token)).ToList();
-        var errors = new List<string>();
-        while (pending.Count > 0)
-        {
-            var completed = await Task.WhenAny(pending).ConfigureAwait(false);
-            pending.Remove(completed);
-            var result = await completed.ConfigureAwait(false);
-            if (result.Document is not null)
-            {
-                linked.Cancel();
-                return (result.Document, result.Raw, result.FinalUrl);
-            }
-            errors.Add(result.Error ?? "未知错误");
-        }
-        LastError = string.Join("\n", errors);
-        throw new InvalidOperationException("所有配置源均加载失败，请检查网络后重试。" + (errors.Count > 0 ? "\n" + LastError : string.Empty));
-    }
-
-    private async Task<(ConfigDocument? Document, string Raw, string FinalUrl, string? Error)> FetchSafeAsync(string endpoint, CancellationToken cancellationToken)
-    {
-        Diagnostics.Log($"Trying config endpoint: {endpoint}");
+        await _refreshLock.WaitAsync(token).ConfigureAwait(false);
         try
         {
-            var result = await FetchDocumentAsync(endpoint, 0, cancellationToken).ConfigureAwait(false);
-            return (result.Document, result.Raw, result.FinalUrl, null);
+            var snapshot = _imports?.FirstOrDefault(entry => ComputeRepositoryId(entry.Url) == ActiveRepositoryId);
+            if (snapshot is null || !TryGetRepositoryUri(snapshot.Url, out var address)) return;
+            var (document, error, _) = await ReadRepositoryEntryAsync(address, snapshot.Name, token).ConfigureAwait(false);
+            if (document is null) throw new InvalidOperationException("仓库刷新失败。" + (error ?? "未获取到可用片源。"));
+            HydrateDocument(document, snapshot.Url, snapshot.GroupUrl);
+            await _loadLock.WaitAsync(token).ConfigureAwait(false);
+            try
+            {
+                var index = _imports!.IndexOf(snapshot);
+                if (index < 0) return;
+                var updated = _imports.ToList();
+                updated[index] = snapshot with { Document = document };
+                await _database.SetSettingsAsync([(SettingImports, JsonSerializer.Serialize(updated, JsonUtil.Options)),
+                    ("source.lastRefresh", DateTimeOffset.Now.ToString("O"))], token).ConfigureAwait(false);
+                _imports = updated;
+                PublishCurrent();
+            }
+            finally { _loadLock.Release(); }
         }
-        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
-        {
-            return (null, string.Empty, string.Empty, $"{endpoint}: 请求超时");
-        }
-        catch (Exception ex) when (ex is not OperationCanceledException)
-        {
-            return (null, string.Empty, string.Empty, $"{endpoint}: {ex.Message}");
-        }
-    }
-
-    private async Task CommitRemoteAsync(ConfigDocument document, string raw, string finalUrl, CancellationToken cancellationToken)
-    {
-        if (_builtIn is not null)
-        {
-            var count = document.Sites.Count;
-            var keys = document.Sites.Select(site => site.Key).ToHashSet(StringComparer.OrdinalIgnoreCase);
-            foreach (var site in _builtIn.Sites.Where(site => site.IsSupported && keys.Add(site.Key))) document.Sites.Add(site);
-            var keptLives = document.Lives.Count == 0 && _builtIn.Lives.Count > 0;
-            if (keptLives) document.Lives.AddRange(_builtIn.Lives);
-            if (document.Sites.Count != count || keptLives) raw = JsonSerializer.Serialize(document, JsonUtil.Options);
-        }
-        HydrateDocument(document, isBuiltIn: true);
-        AppPaths.EnsureCreated();
-        var temp = AppPaths.Config + ".tmp";
-        await File.WriteAllTextAsync(temp, raw, Encoding.UTF8, cancellationToken).ConfigureAwait(false);
-        if (File.Exists(AppPaths.Config)) File.Copy(AppPaths.Config, AppPaths.Config + ".bak", true);
-        File.Move(temp, AppPaths.Config, true);
-        await _database.SetSettingAsync("source.active", finalUrl, cancellationToken).ConfigureAwait(false);
-        await _database.SetSettingAsync("source.lastRefresh", DateTimeOffset.Now.ToString("O"), cancellationToken).ConfigureAwait(false);
-        _builtIn = document;
-        _builtInUrl = finalUrl;
-        LastError = string.Empty;
-        PublishCurrent();
+        finally { _refreshLock.Release(); }
     }
 
     private async Task RefreshBackgroundAsync()
     {
+        var token = _lifetime.Token;
         try
         {
-            await _loadLock.WaitAsync(_lifetime.Token).ConfigureAwait(false);
-            try
+            var pending = await _database.GetSettingAsync(SettingPendingPackUrl, token).ConfigureAwait(false);
+            if (_installMigratedPack is not null && !string.IsNullOrEmpty(pending))
             {
-                var remote = await LoadRemoteAsync(BuiltInEndpoints, _lifetime.Token).ConfigureAwait(false);
-                await CommitRemoteAsync(remote.Document, remote.Raw, remote.FinalUrl, _lifetime.Token).ConfigureAwait(false);
+                var imported = _imports?.FirstOrDefault(entry => entry.Url.Equals(pending, StringComparison.OrdinalIgnoreCase));
+                if (imported is null || await _installMigratedPack(imported.GroupUrl ?? pending, token).ConfigureAwait(false))
+                {
+                    await _database.SetSettingAsync(SettingPendingPackUrl, "", token).ConfigureAwait(false);
+                    // Apply newly available rules to the visible catalogue without waiting for a full restart.
+                    if (imported is not null) Changed?.Invoke(this, EventArgs.Empty);
+                }
             }
-            finally { _loadLock.Release(); }
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested) { return; }
+        catch (Exception ex) { Diagnostics.Log("迁移饭太硬适配包: " + ex.GetType().Name); }
+        try
+        {
+            if (ActiveRepository is not null && await _database.GetSettingAsync("source.autoRefresh", token).ConfigureAwait(false) != "false"
+                && await IsRefreshDueAsync(token).ConfigureAwait(false))
+                await RefreshActiveAsync(token).ConfigureAwait(false);
         }
         catch (OperationCanceledException) { }
-        catch (Exception ex) { Diagnostics.Log("后台配置刷新失败: " + ex.Message); }
+        catch (Exception ex) { Diagnostics.Log("仓库后台刷新: " + ex.GetType().Name); }
     }
 
     private static readonly int[] RefreshSlots = [6, 12, 18];
@@ -461,12 +441,7 @@ public sealed partial class SourceConfigService : IDisposable
             try
             {
                 while (await timer.WaitForNextTickAsync(_lifetime.Token).ConfigureAwait(false))
-                {
-                    var enabled = !string.Equals(await _database.GetSettingAsync("source.autoRefresh", _lifetime.Token).ConfigureAwait(false), "false", StringComparison.OrdinalIgnoreCase);
-                    if (!enabled) continue;
-                    if (!await IsRefreshDueAsync(_lifetime.Token).ConfigureAwait(false)) continue;
                     await RefreshBackgroundAsync().ConfigureAwait(false);
-                }
             }
             catch (OperationCanceledException) { }
         });
@@ -522,9 +497,9 @@ public sealed partial class SourceConfigService : IDisposable
 
                 if (document.Sites.Count > 0 || document.Lives.Count > 0)
                 {
-                    HydrateDocument(document, isBuiltIn: false);
                     var displayName = string.IsNullOrWhiteSpace(entryName) ? baseUri.Host : entryName;
                     var groupUrl = isRoot && baseUri == root ? null : root.AbsoluteUri;
+                    HydrateDocument(document, baseUri.AbsoluteUri, groupUrl);
                     results.Add(new ImportedRepository(baseUri.AbsoluteUri, displayName, document, groupUrl));
                 }
             }
@@ -685,24 +660,6 @@ public sealed partial class SourceConfigService : IDisposable
                 addressField && trimmed.StartsWith('/');
             return relative && TryHttpUri(parent, trimmed) is { } uri ? uri.AbsoluteUri : item;
         }
-    }
-
-    private async Task<(ConfigDocument Document, string Raw, string FinalUrl)> FetchDocumentAsync(string url, int depth, CancellationToken cancellationToken)
-    {
-        if (depth > 3) throw new InvalidDataException("配置分发层级过深。");
-        var payload = await _http.GetBytesAsync(url, maxBytes: 8 * 1024 * 1024, cancellationToken: cancellationToken).ConfigureAwait(false);
-        var raw = DecodeConfig(payload.Content);
-        var document = Parse(raw);
-        if (document.Urls.Count > 0)
-        {
-            var next = document.Urls.FirstOrDefault(item => !string.IsNullOrWhiteSpace(item.Url))?.Url
-                ?? throw new InvalidDataException("配置分发地址为空。");
-            var absolute = new Uri(payload.FinalUri, next).ToString();
-            return await FetchDocumentAsync(absolute, depth + 1, cancellationToken).ConfigureAwait(false);
-        }
-        if (document.Sites.Count == 0 && document.Lives.Count == 0) throw new InvalidDataException("配置中没有可用的点播或直播站点。");
-        NormalizeLinks(document, payload.FinalUri);
-        return (document, JsonSerializer.Serialize(document, JsonUtil.Options), payload.FinalUri.ToString());
     }
 
     internal static ConfigDocument Parse(string raw)

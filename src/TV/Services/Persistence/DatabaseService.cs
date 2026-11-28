@@ -95,25 +95,30 @@ public sealed class DatabaseService
         finally { _writeLock.Release(); }
     }
 
-    internal async Task SetSettingPairAsync((string Key, string Value) first, (string Key, string Value) second, CancellationToken token)
+    internal Task SetSettingPairAsync((string Key, string Value) first, (string Key, string Value) second, CancellationToken token) =>
+        SetSettingsAsync([first, second], token);
+
+    internal async Task SetSettingsAsync(IReadOnlyList<(string Key, string Value)> settings, CancellationToken token)
     {
         await InitializeAsync(token).ConfigureAwait(false);
         await _writeLock.WaitAsync(token).ConfigureAwait(false);
         try
         {
             await using var connection = await OpenAsync(token).ConfigureAwait(false);
+            await using var transaction = connection.BeginTransaction();
             await using var command = connection.CreateCommand();
-            command.CommandText = """
-                INSERT INTO settings(key,value) VALUES($firstKey,$firstValue),($secondKey,$secondValue)
-                ON CONFLICT(key) DO UPDATE SET value=excluded.value
-                """;
-            command.Parameters.AddWithValue("$firstKey", first.Key);
-            command.Parameters.AddWithValue("$firstValue", first.Value);
-            command.Parameters.AddWithValue("$secondKey", second.Key);
-            command.Parameters.AddWithValue("$secondValue", second.Value);
-            await command.ExecuteNonQueryAsync(token).ConfigureAwait(false);
-            _settings[first.Key] = first.Value;
-            _settings[second.Key] = second.Value;
+            command.Transaction = transaction;
+            command.CommandText = "INSERT INTO settings(key,value) VALUES($key,$value) ON CONFLICT(key) DO UPDATE SET value=excluded.value";
+            var keyParameter = command.Parameters.Add("$key", SqliteType.Text);
+            var valueParameter = command.Parameters.Add("$value", SqliteType.Text);
+            foreach (var (key, value) in settings)
+            {
+                keyParameter.Value = key;
+                valueParameter.Value = value;
+                await command.ExecuteNonQueryAsync(token).ConfigureAwait(false);
+            }
+            await transaction.CommitAsync(token).ConfigureAwait(false);
+            foreach (var (key, value) in settings) _settings[key] = value;
         }
         finally { _writeLock.Release(); }
     }
@@ -304,16 +309,21 @@ public sealed class DatabaseService
         finally { _writeLock.Release(); }
     }
 
-    public async Task DeleteHistoryAsync(string id, CancellationToken cancellationToken = default)
+    public Task DeleteHistoryAsync(string id, CancellationToken cancellationToken = default) =>
+        DeleteHistoryAsync([id], cancellationToken);
+
+    public async Task DeleteHistoryAsync(IEnumerable<string> ids, CancellationToken cancellationToken = default)
     {
+        var keys = ids.Where(key => !string.IsNullOrEmpty(key)).Distinct(StringComparer.Ordinal).Take(200).ToArray();
+        if (keys.Length == 0) return;
         await InitializeAsync(cancellationToken).ConfigureAwait(false);
         await _writeLock.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
             await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
             await using var command = connection.CreateCommand();
-            command.CommandText = "DELETE FROM history WHERE id=$id";
-            command.Parameters.AddWithValue("$id", id);
+            var parameters = keys.Select((key, index) => command.Parameters.AddWithValue($"$id{index}", key).ParameterName);
+            command.CommandText = "DELETE FROM history WHERE id IN (" + string.Join(',', parameters) + ")";
             await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
         }
         finally { _writeLock.Release(); }

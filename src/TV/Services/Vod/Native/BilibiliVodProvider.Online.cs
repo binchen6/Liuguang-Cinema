@@ -18,6 +18,7 @@ public sealed partial class BilibiliVodProvider
         if (identity.BaseTitle.Length >= 2 && !identity.BaseTitle.Equals(wanted, StringComparison.OrdinalIgnoreCase))
             queries.Add(identity.BaseTitle);
 
+        Exception? searchFailure = null;
         try
         {
             var candidates = new List<(JsonElement Item, string Season, double Score)>();
@@ -48,6 +49,7 @@ public sealed partial class BilibiliVodProvider
                     }
                     catch (Exception ex) when (!token.IsCancellationRequested && ex is HttpRequestException or InvalidDataException or JsonException or OperationCanceledException)
                     {
+                        searchFailure ??= ex;
                         Diagnostics.Log($"哔哩媒体搜索不可用 ({type}): {ex.GetType().Name}");
                     }
                 }
@@ -67,6 +69,7 @@ public sealed partial class BilibiliVodProvider
         }
         catch (Exception ex) when (!token.IsCancellationRequested && ex is HttpRequestException or InvalidDataException or JsonException or OperationCanceledException)
         {
+            searchFailure ??= ex;
             Diagnostics.Log($"哔哩番剧弹幕匹配失败: {ex.GetType().Name}");
         }
         JsonElement videos;
@@ -91,7 +94,8 @@ public sealed partial class BilibiliVodProvider
             var cid = Int(episode, "cid");
             if (aid > 0 && cid > 0) return new OnlineMediaMatch(PlaybackParsing.StripHtml(Text(detail, "title")), Text(episode, "part"), aid, cid);
         }
-        throw new InvalidDataException("未找到标题与集数完全匹配的哔哩哔哩节目，请手动选择其它来源。");
+        if (searchFailure is not null) throw new HttpRequestException("部分哔哩哔哩弹幕搜索暂不可用，请稍后重试。", searchFailure);
+        throw new DanmakuNotMatchedException("未找到标题与集数完全匹配的哔哩哔哩节目，请手动选择其它来源。");
     }
 
     public async Task<IReadOnlyList<OnlineSubtitleTrack>> GetOnlineSubtitlesAsync(OnlineMediaMatch match, CancellationToken token)

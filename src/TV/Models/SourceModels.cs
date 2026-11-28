@@ -73,6 +73,8 @@ public sealed class SourceSite
     /// Repository-level spider JAR fallback populated when loading a repository, used when site.Jar is empty.
     /// </summary>
     [JsonIgnore] public string RepositorySpider { get; set; } = string.Empty;
+    [JsonIgnore] internal string RepositoryUrl { get; set; } = string.Empty;
+    [JsonIgnore] internal string? RepositoryGroupUrl { get; set; }
 
     [JsonIgnore] public string EffectiveJar => !string.IsNullOrWhiteSpace(Jar) ? Jar.Trim() : RepositorySpider.Trim();
 

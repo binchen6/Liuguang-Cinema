@@ -25,6 +25,7 @@ public sealed record CleanupResult(long FreedBytes, int DeletedFiles, int Failed
 public sealed class CleanupService(DatabaseService database)
 {
     private const string Images = "images";
+    private const string Danmaku = "danmaku";
     private const string Subtitles = "subtitles";
     private const string AppTemporary = "app-temp";
     private const string PartialDownloads = "partial-downloads";
@@ -37,6 +38,8 @@ public sealed class CleanupService(DatabaseService database)
         var categories = new List<CleanupCategory>();
         var image = await Task.Run(() => Measure(AppPaths.Images, path => Path.GetExtension(path) == ".img"), token);
         categories.Add(new CleanupCategory(Images, "海报与图片缓存", "可安全重建，不影响收藏与历史", image.Bytes, image.Files, true));
+        var danmaku = await Task.Run(() => Measure(Playback.DanmakuCache.DirectoryPath, path => Path.GetExtension(path) == ".json"), token);
+        categories.Add(new CleanupCategory(Danmaku, "弹幕缓存", "清除已加载的弹幕和无匹配记录", danmaku.Bytes, danmaku.Files, true));
         var subtitles = Path.Combine(AppPaths.Root, "cache", "subtitles");
         var aiSubtitles = Path.Combine(AppPaths.Root, "cache", "ai-subtitles");
         var subtitle = await Task.Run(() =>
@@ -101,6 +104,11 @@ public sealed class CleanupService(DatabaseService database)
         {
             progress?.Report("正在清理图片缓存…");
             await DeleteFilesAsync(Files(AppPaths.Images, path => Path.GetExtension(path) == ".img"));
+        }
+        if (ids.Contains(Danmaku))
+        {
+            progress?.Report("正在清除弹幕缓存…");
+            await DeleteFilesAsync(Files(Playback.DanmakuCache.DirectoryPath, path => Path.GetExtension(path) == ".json"));
         }
         if (ids.Contains(Subtitles))
         {

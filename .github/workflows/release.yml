@@ -161,3 +161,41 @@ jobs:
             artifacts/installers/TV-Setup-*-x64.exe.sha256
             artifacts/installers/TV-*-win-x64-portable.zip
             artifacts/installers/TV-*-win-x64-portable.zip.sha256
+
+  stage-release-assets:
+    if: github.ref == 'refs/tags/v2.0.3'
+    needs: build-windows
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      attestations: read
+      contents: write
+    steps:
+      - name: Verify and upload the Windows packages to the release draft
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          repo="$GITHUB_REPOSITORY"
+          tag="$GITHUB_REF_NAME"
+          test "$(gh release view "$tag" -R "$repo" --json isDraft,assets \
+            --jq '.isDraft and (.assets | length == 0)')" = true
+          commit="$(gh api "repos/$repo/commits/$GITHUB_SHA" --jq .sha)"
+          gh run download "$GITHUB_RUN_ID" -R "$repo" --name liuguang-cinema-win-x64 --dir dist
+          cd dist
+          files=()
+          for name in "TV-Setup-${tag#v}-x64.exe" "TV-${tag#v}-win-x64-portable.zip"; do
+            sha256sum --check --strict "$name.sha256"
+            gh attestation verify "$name" -R "$repo" --signer-workflow "$repo/.github/workflows/release.yml" \
+              --source-ref "$GITHUB_REF" --source-digest "$commit"
+            files+=("$name" "$name.sha256")
+          done
+          gh release upload "$tag" -R "$repo" "${files[@]}"
+          uploaded="$(gh release view "$tag" -R "$repo" --json isDraft,assets)"
+          jq -e '.isDraft and (.assets | length == 4)' <<< "$uploaded"
+          for name in "${files[@]}"; do
+            expected="$(sha256sum "$name" | cut -d ' ' -f 1)"
+            actual="$(jq -er --arg name "$name" '.assets[] | select(.name == $name and .state == "uploaded") | .digest' <<< "$uploaded")"
+            test "$actual" = "sha256:$expected"
+          done

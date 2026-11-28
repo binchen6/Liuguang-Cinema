@@ -4,24 +4,37 @@
       xmlns:controls="using:TV.Controls"
       Background="Transparent" Loaded="OnLoaded" SizeChanged="OnPageSizeChanged" NavigationCacheMode="Enabled">
     <Page.Resources>
-        <x:Double x:Key="ThumbnailWidth">56</x:Double>
-        <x:Double x:Key="ThumbnailHeight">84</x:Double>
-        <x:Double x:Key="LibraryRowMinHeight">56</x:Double>
-
-        <LinearGradientBrush x:Key="CardBottomScrim" StartPoint="0,0" EndPoint="0,1">
-            <GradientStop Color="#000B0B0D" Offset="0.18" />
-            <GradientStop Color="#6E0B0B0D" Offset="0.56" />
-            <GradientStop Color="#F009090C" Offset="1" />
-        </LinearGradientBrush>
-
-        <Style x:Key="LibraryRowItemStyle" TargetType="ListViewItem">
+        <ItemsPanelTemplate x:Key="LibraryCoverPanel">
+            <ItemsWrapGrid Orientation="Horizontal" ItemWidth="210" ItemHeight="356" />
+        </ItemsPanelTemplate>
+        <Style x:Key="LibraryCoverGridStyle" TargetType="GridView">
+            <Setter Property="Padding" Value="0,0,10,0" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="IsItemClickEnabled" Value="True" />
+            <Setter Property="SelectionMode" Value="None" />
+            <Setter Property="ItemsPanel" Value="{StaticResource LibraryCoverPanel}" />
+            <Setter Property="ScrollViewer.HorizontalScrollMode" Value="Disabled" />
+            <Setter Property="ScrollViewer.HorizontalScrollBarVisibility" Value="Disabled" />
+        </Style>
+        <Style x:Key="LibraryCoverItemStyle" TargetType="GridViewItem">
             <Setter Property="Padding" Value="0" />
-            <Setter Property="Margin" Value="0,0,0,2" />
-            <Setter Property="MinHeight" Value="{StaticResource LibraryRowMinHeight}" />
+            <Setter Property="Margin" Value="0,4,12,12" />
             <Setter Property="HorizontalContentAlignment" Value="Stretch" />
-            <Setter Property="VerticalContentAlignment" Value="Center" />
-            <Setter Property="CornerRadius" Value="{StaticResource RadiusControl}" />
+            <Setter Property="VerticalContentAlignment" Value="Stretch" />
             <Setter Property="UseSystemFocusVisuals" Value="True" />
+        </Style>
+        <Style x:Key="LibraryCoverMenuStyle" TargetType="Button" BasedOn="{StaticResource IconButtonStyle}">
+            <Setter Property="Content" Value="⋯" />
+            <Setter Property="Width" Value="34" />
+            <Setter Property="Height" Value="34" />
+            <Setter Property="MinWidth" Value="34" />
+            <Setter Property="MinHeight" Value="34" />
+            <Setter Property="Margin" Value="7" />
+            <Setter Property="HorizontalAlignment" Value="Right" />
+            <Setter Property="VerticalAlignment" Value="Top" />
+            <Setter Property="Background" Value="{ThemeResource GlassDarkBadgeBrush}" />
+            <Setter Property="Foreground" Value="#FFF4F3EE" />
         </Style>
     </Page.Resources>
 
@@ -142,87 +155,38 @@
 
             <!-- 继续观看（自适应行列与宽屏信息流） -->
             <Grid Visibility="{Binding IsHistoryTab, Converter={StaticResource BoolToVisibility}}">
-                <GridView x:Name="HistoryGrid" ItemsSource="{Binding History}" SelectionMode="None" IsItemClickEnabled="True"
-                          Loaded="OnHistoryGridLoaded" SizeChanged="OnHistoryViewportChanged"
-                          ItemClick="OnHistoryClick" ContainerContentChanging="OnWatchContainerChanging" Padding="0,0,12,0"
-                          Background="Transparent" BorderThickness="0"
-                          HorizontalContentAlignment="Stretch"
-                          ScrollViewer.HorizontalScrollMode="Disabled"
-                          ScrollViewer.HorizontalScrollBarVisibility="Disabled"
-                          ScrollViewer.VerticalScrollBarVisibility="Auto">
-                    <GridView.ItemsPanel>
-                        <ItemsPanelTemplate>
-                            <ItemsWrapGrid Orientation="Horizontal" ItemWidth="320" ItemHeight="192" />
-                        </ItemsPanelTemplate>
-                    </GridView.ItemsPanel>
-                    <GridView.ItemContainerStyle>
-                        <Style TargetType="GridViewItem">
-                            <Setter Property="Padding" Value="0" />
-                            <Setter Property="Margin" Value="0,4,16,16" />
-                            <Setter Property="HorizontalAlignment" Value="Stretch" />
-                            <Setter Property="VerticalAlignment" Value="Stretch" />
-                            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
-                            <Setter Property="VerticalContentAlignment" Value="Stretch" />
-                        </Style>
-                    </GridView.ItemContainerStyle>
+                <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /></Grid.RowDefinitions>
+                <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,0,0,8">
+                    <Button x:Name="ManageHistoryButton" Content="管理观看记录" Style="{StaticResource GhostButtonStyle}"
+                            Visibility="{Binding HasHistory, Converter={StaticResource BoolToVisibility}}" Click="OnManageHistoryClick" />
+                    <Button x:Name="SelectVisibleHistoryButton" Content="全选当前结果" Style="{StaticResource GhostButtonStyle}"
+                            Visibility="Collapsed" Click="OnSelectVisibleHistoryClick" />
+                    <Button x:Name="DeleteSelectedHistoryButton" Content="删除所选" Style="{StaticResource SecondaryButtonStyle}"
+                            Visibility="Collapsed" IsEnabled="False" Click="OnDeleteSelectedHistoryClick" />
+                </StackPanel>
+                <GridView x:Name="HistoryGrid" Grid.Row="1" ItemsSource="{Binding History}"
+                          Style="{StaticResource LibraryCoverGridStyle}" ItemContainerStyle="{StaticResource LibraryCoverItemStyle}"
+                          Loaded="OnCoverGridLoaded" SizeChanged="OnCoverGridSizeChanged" SelectionChanged="OnHistorySelectionChanged"
+                          ContainerContentChanging="OnHistoryCardChanging"
+                          ItemClick="OnHistoryClick" AutomationProperties.Name="观看记录">
                     <GridView.ItemTemplate>
                         <DataTemplate>
-                            <Grid HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
-                                  PointerEntered="OnWatchCardIn" PointerExited="OnWatchCardOut"
-                                  PointerPressed="OnWatchCardPressed" PointerReleased="OnWatchCardReleased" PointerCanceled="OnWatchCardReleased">
-                                <Border CornerRadius="{StaticResource RadiusPanel}"
-                                        controls:GlassOpticsEngine.Mode="Interactive"
-                                        controls:GlassOpticsEngine.Profile="Card"
-                                        controls:GlassOpticsEngine.RadiusOverride="14"
-                                        Background="{ThemeResource PosterPlaceholderBrush}"
-                                        BorderBrush="{ThemeResource GlassEdgeBrush}" BorderThickness="1">
-                                    <Grid>
-                                        <Grid>
-                                            <controls:LineIcon PathData="{StaticResource IconFilm}" IconSize="28" Foreground="{ThemeResource TertiaryTextBrush}" />
-                                            <Image x:Name="WatchArt" controls:PosterImage.CachedSource="{Binding Picture}" Stretch="UniformToFill" controls:PosterImage.AutoFit="True" />
-                                        </Grid>
-                                        <Rectangle Fill="{StaticResource CardBottomScrim}" />
-                                        <Border Height="1" VerticalAlignment="Top" Margin="14,0"
-                                                Background="{ThemeResource GlassCausticBrush}" Opacity="0.72" IsHitTestVisible="False" />
-                                        <StackPanel VerticalAlignment="Bottom" Padding="14,10,14,13" Spacing="4">
-                                            <TextBlock Text="{Binding Title}" Style="{StaticResource CardTitleText}"
-                                                       Foreground="#FFF4F3EE" MaxLines="1" TextTrimming="CharacterEllipsis" />
-                                            <TextBlock Text="{Binding Subtitle}" Style="{StaticResource MetaText}"
-                                                       Foreground="#CCF4F3EE" MaxLines="1" TextTrimming="CharacterEllipsis" />
-                                            <Grid Margin="0,5,0,0" ColumnSpacing="{StaticResource SpaceMini}">
-                                                <Grid.ColumnDefinitions>
-                                                    <ColumnDefinition Width="*" />
-                                                    <ColumnDefinition Width="Auto" />
-                                                </Grid.ColumnDefinitions>
-                                                <ProgressBar Value="{Binding Progress}" Maximum="100" Height="3.5"
-                                                             CornerRadius="2"
-                                                             VerticalAlignment="Center"
-                                                             Background="#3DFFFFFF"
-                                                             Foreground="{ThemeResource VermilionBrush}"
-                                                             Visibility="{Binding HasProgress, Converter={StaticResource BoolToVisibility}}" />
-                                                <TextBlock Grid.Column="1" Text="已看完"
-                                                           Style="{StaticResource MonoMetaText}"
-                                                           Foreground="{ThemeResource VermilionBrush}"
-                                                           Visibility="{Binding IsCompleted, Converter={StaticResource BoolToVisibility}}" />
-                                            </Grid>
-                                        </StackPanel>
-                                        <Button Style="{StaticResource IconButtonStyle}" Width="34" Height="34" MinWidth="34" MinHeight="34" Margin="10"
-                                                HorizontalAlignment="Right" VerticalAlignment="Top"
-                                                CornerRadius="17"
-                                                Background="{ThemeResource GlassDarkBadgeBrush}" BorderBrush="#3BFFFFFF" BorderThickness="1"
-                                                Tag="{Binding}" Click="OnDeleteHistoryClick"
-                                                AutomationProperties.Name="删除记录"
-                                                ToolTipService.ToolTip="删除记录">
-                                            <controls:LineIcon PathData="{StaticResource IconTrash}" IconSize="14" Foreground="#FFF4F3EE" />
-                                        </Button>
-                                    </Grid>
+                            <Grid>
+                                <controls:LibraryPoster Title="{Binding Title}" Subtitle="{Binding Subtitle}" Picture="{Binding Picture}"
+                                                        LocalPath="{Binding LocalMediaPath}" HasProgress="{Binding HasProgress}" Progress="{Binding Progress}" />
+                                <Button x:Name="HistoryCardMenu" Style="{StaticResource LibraryCoverMenuStyle}" Tag="{Binding}" Click="OnHistoryMenuClick"
+                                        AutomationProperties.Name="观看记录操作" ToolTipService.ToolTip="观看记录操作" />
+                                <Border x:Name="HistoryCardSelected" Width="32" Height="32" CornerRadius="8" Margin="8"
+                                        Visibility="Collapsed" IsHitTestVisible="False" HorizontalAlignment="Right" VerticalAlignment="Top"
+                                        Background="{ThemeResource VermilionBrush}">
+                                    <FontIcon Glyph="&#xE73E;" FontSize="16" Foreground="#FFFFFFFF" />
                                 </Border>
                             </Grid>
                         </DataTemplate>
                     </GridView.ItemTemplate>
                 </GridView>
 
-                <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center"
+                <StackPanel Grid.Row="1" HorizontalAlignment="Center" VerticalAlignment="Center"
                             MaxWidth="380" Spacing="{StaticResource SpaceSmall}"
                             Visibility="{Binding EmptyHistory, Converter={StaticResource StringToVisibility}}">
                     <Border Style="{StaticResource GlassOpticalPanelBorderStyle}" Width="64" Height="64" CornerRadius="32"
@@ -244,50 +208,19 @@
 
             <!-- 收藏 -->
             <Grid Visibility="{Binding IsFavoritesTab, Converter={StaticResource BoolToVisibility}}">
-                <ListView ItemsSource="{Binding Favorites}" SelectionMode="None" IsItemClickEnabled="True"
-                          ItemClick="OnFavoriteClick" Padding="0,0,12,0"
-                          Background="Transparent" BorderThickness="0"
-                          ScrollViewer.HorizontalScrollMode="Disabled"
-                          ItemContainerStyle="{StaticResource LibraryRowItemStyle}">
-                    <ListView.ItemTemplate>
+                <GridView x:Name="FavoritesGrid" ItemsSource="{Binding Favorites}" ItemClick="OnFavoriteClick"
+                          Style="{StaticResource LibraryCoverGridStyle}" ItemContainerStyle="{StaticResource LibraryCoverItemStyle}"
+                          Loaded="OnCoverGridLoaded" SizeChanged="OnCoverGridSizeChanged" AutomationProperties.Name="收藏">
+                    <GridView.ItemTemplate>
                         <DataTemplate>
-                            <Border BorderBrush="{ThemeResource DividerBrush}" BorderThickness="0,0,0,1">
-                                <Grid MinHeight="{StaticResource LibraryRowMinHeight}" Padding="8,10"
-                                      ColumnSpacing="{StaticResource SpaceMedium}">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="Auto" />
-                                        <ColumnDefinition Width="*" />
-                                        <ColumnDefinition Width="Auto" />
-                                    </Grid.ColumnDefinitions>
-                                    <Border Width="{StaticResource ThumbnailWidth}" Height="{StaticResource ThumbnailHeight}"
-                                            CornerRadius="{StaticResource RadiusControl}"
-                                            Background="{ThemeResource PosterPlaceholderBrush}"
-                                            BorderBrush="{ThemeResource GlassEdgeBrush}" BorderThickness="1">
-                                        <Grid>
-                                            <controls:LineIcon PathData="{StaticResource IconFilm}" IconSize="20"
-                                                               Foreground="{ThemeResource TertiaryTextBrush}" />
-                                            <Image controls:PosterImage.CachedSource="{Binding Picture}" Stretch="UniformToFill" controls:PosterImage.AutoFit="True" />
-                                        </Grid>
-                                    </Border>
-                                    <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="{StaticResource SpaceTiny}">
-                                        <TextBlock Text="{Binding Title}" Style="{StaticResource CardTitleText}"
-                                                   MaxLines="1" TextTrimming="CharacterEllipsis" />
-                                        <TextBlock Text="{Binding Subtitle}" Style="{StaticResource MetaText}"
-                                                   TextTrimming="CharacterEllipsis" />
-                                    </StackPanel>
-                                    <Button Grid.Column="2" Style="{StaticResource IconButtonStyle}" Tag="{Binding}"
-                                            Background="Transparent" BorderThickness="0"
-                                            Click="OnRemoveFavoriteClick"
-                                            AutomationProperties.Name="移除收藏"
-                                            ToolTipService.ToolTip="移除收藏">
-                                        <controls:LineIcon PathData="{StaticResource IconTrash}" IconSize="16"
-                                                           Foreground="{ThemeResource SecondaryTextBrush}" />
-                                    </Button>
-                                </Grid>
-                            </Border>
+                            <Grid>
+                                <controls:LibraryPoster Title="{Binding Title}" Subtitle="{Binding Subtitle}" Picture="{Binding Picture}" />
+                                <Button Style="{StaticResource LibraryCoverMenuStyle}" Tag="{Binding}" Click="OnFavoriteMenuClick"
+                                        AutomationProperties.Name="收藏操作" ToolTipService.ToolTip="收藏操作" />
+                            </Grid>
                         </DataTemplate>
-                    </ListView.ItemTemplate>
-                </ListView>
+                    </GridView.ItemTemplate>
+                </GridView>
                 <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center"
                             MaxWidth="380" Spacing="{StaticResource SpaceSmall}"
                             Visibility="{Binding EmptyFavorites, Converter={StaticResource StringToVisibility}}">
@@ -310,56 +243,19 @@
 
             <!-- 下载 -->
             <Grid Visibility="{Binding IsDownloadsTab, Converter={StaticResource BoolToVisibility}}">
-                <ListView ItemsSource="{Binding Downloads}" SelectionMode="None" IsItemClickEnabled="True"
-                          ItemClick="OnDownloadClick" Padding="0,0,12,0"
-                          Background="Transparent" BorderThickness="0"
-                          ScrollViewer.HorizontalScrollMode="Disabled"
-                          ItemContainerStyle="{StaticResource LibraryRowItemStyle}">
-                    <ListView.ItemTemplate>
+                <GridView x:Name="DownloadsGrid" ItemsSource="{Binding Downloads}" ItemClick="OnDownloadClick"
+                          Style="{StaticResource LibraryCoverGridStyle}" ItemContainerStyle="{StaticResource LibraryCoverItemStyle}"
+                          Loaded="OnCoverGridLoaded" SizeChanged="OnCoverGridSizeChanged" AutomationProperties.Name="下载">
+                    <GridView.ItemTemplate>
                         <DataTemplate>
-                            <Border BorderBrush="{ThemeResource DividerBrush}" BorderThickness="0,0,0,1">
-                                <Grid MinHeight="{StaticResource LibraryRowMinHeight}" Padding="8,10"
-                                      ColumnSpacing="{StaticResource SpaceMedium}">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="Auto" />
-                                        <ColumnDefinition Width="*" />
-                                        <ColumnDefinition Width="Auto" />
-                                    </Grid.ColumnDefinitions>
-                                    <Border Style="{StaticResource GlassOpticalChipBorderStyle}" Width="{StaticResource ThumbnailWidth}" Height="{StaticResource ThumbnailHeight}"
-                                            CornerRadius="{StaticResource RadiusControl}"
-                                            Background="{ThemeResource GlassChipBrush}"
-                                            BorderBrush="{ThemeResource GlassEdgeBrush}" BorderThickness="1">
-                                        <controls:LineIcon PathData="{StaticResource IconDownload}" IconSize="20"
-                                                           Foreground="{ThemeResource SecondaryTextBrush}" />
-                                    </Border>
-                                    <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="{StaticResource SpaceTiny}">
-                                        <TextBlock Text="{Binding Title}" Style="{StaticResource CardTitleText}"
-                                                   MaxLines="1" TextTrimming="CharacterEllipsis" />
-                                        <TextBlock Text="{Binding Episode}" Style="{StaticResource MetaText}"
-                                                   TextTrimming="CharacterEllipsis" />
-                                    </StackPanel>
-                                    <StackPanel Grid.Column="2" Orientation="Horizontal"
-                                                Spacing="{StaticResource SpaceMini}" VerticalAlignment="Center">
-                                        <Button Style="{StaticResource IconButtonStyle}" Tag="{Binding}"
-                                                Background="Transparent" BorderThickness="0"
-                                                Click="OnRevealDownloadClick"
-                                                AutomationProperties.Name="所在文件夹"
-                                                ToolTipService.ToolTip="所在文件夹">
-                                            <controls:LineIcon PathData="{StaticResource IconFolder}" IconSize="16" />
-                                        </Button>
-                                        <Button Style="{StaticResource IconButtonStyle}" Tag="{Binding}"
-                                                Background="Transparent" BorderThickness="0"
-                                                Click="OnRemoveDownloadClick"
-                                                AutomationProperties.Name="从媒体库移除"
-                                                ToolTipService.ToolTip="从媒体库移除">
-                                            <controls:LineIcon PathData="{StaticResource IconTrash}" IconSize="16" />
-                                        </Button>
-                                    </StackPanel>
-                                </Grid>
-                            </Border>
+                            <Grid>
+                                <controls:LibraryPoster Title="{Binding Title}" Subtitle="{Binding Episode}" LocalPath="{Binding FilePath}" />
+                                <Button Style="{StaticResource LibraryCoverMenuStyle}" Tag="{Binding}" Click="OnDownloadMenuClick"
+                                        AutomationProperties.Name="下载记录操作" ToolTipService.ToolTip="下载记录操作" />
+                            </Grid>
                         </DataTemplate>
-                    </ListView.ItemTemplate>
-                </ListView>
+                    </GridView.ItemTemplate>
+                </GridView>
                 <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center"
                             MaxWidth="380" Spacing="{StaticResource SpaceSmall}"
                             Visibility="{Binding EmptyDownloads, Converter={StaticResource StringToVisibility}}">
@@ -417,48 +313,19 @@
                     <ComboBoxItem Content="音乐" />
                 </ComboBox>
                 <Grid Grid.Row="2">
-                    <ListView ItemsSource="{Binding LocalFiles}" SelectionMode="None" IsItemClickEnabled="False"
-                              Padding="0,0,12,0" Background="Transparent" BorderThickness="0"
-                              ScrollViewer.HorizontalScrollMode="Disabled"
-                              ItemContainerStyle="{StaticResource LibraryRowItemStyle}" AutomationProperties.Name="本地媒体列表">
-                        <ListView.ItemTemplate>
+                    <GridView x:Name="LocalGrid" ItemsSource="{Binding LocalFiles}" ItemClick="OnLocalMediaClick"
+                              Style="{StaticResource LibraryCoverGridStyle}" ItemContainerStyle="{StaticResource LibraryCoverItemStyle}"
+                              Loaded="OnCoverGridLoaded" SizeChanged="OnCoverGridSizeChanged" AutomationProperties.Name="本地媒体列表">
+                        <GridView.ItemTemplate>
                             <DataTemplate>
-                                <Border BorderBrush="{ThemeResource DividerBrush}" BorderThickness="0,0,0,1">
-                                    <Grid MinHeight="64" Padding="8,10" ColumnSpacing="{StaticResource SpaceMedium}">
-                                        <Grid.ColumnDefinitions>
-                                            <ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" />
-                                        </Grid.ColumnDefinitions>
-                                        <Button Click="OnLocalMediaClick" AutomationProperties.Name="{Binding Title}"
-                                                HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
-                                                Background="Transparent" BorderThickness="0" Padding="0">
-                                            <Grid ColumnSpacing="{StaticResource SpaceMedium}">
-                                                <Grid.ColumnDefinitions>
-                                                    <ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" />
-                                                </Grid.ColumnDefinitions>
-                                                <Border Style="{StaticResource GlassOpticalChipBorderStyle}" Width="56" Height="44" CornerRadius="{StaticResource RadiusControl}"
-                                                        Background="{ThemeResource GlassChipBrush}" BorderBrush="{ThemeResource GlassEdgeBrush}" BorderThickness="1"
-                                                        VerticalAlignment="Center">
-                                                    <TextBlock Text="{Binding MediaLabel}" Style="{StaticResource MetaText}"
-                                                               HorizontalAlignment="Center" VerticalAlignment="Center" />
-                                                </Border>
-                                                <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="{StaticResource SpaceTiny}">
-                                                    <TextBlock Text="{Binding Title}" Style="{StaticResource CardTitleText}" MaxLines="1" />
-                                                    <TextBlock Text="{Binding Path}" Style="{StaticResource MetaText}" TextTrimming="CharacterEllipsis"
-                                                               ToolTipService.ToolTip="{Binding Path}" />
-                                                </StackPanel>
-                                            </Grid>
-                                        </Button>
-                                        <Button Grid.Column="1" Style="{StaticResource IconButtonStyle}" Tag="{Binding}"
-                                                Background="Transparent" BorderThickness="0"
-                                                Click="OnRemoveLocalMediaClick" AutomationProperties.Name="从本地库移除"
-                                                ToolTipService.ToolTip="仅从媒体库移除，不删除文件">
-                                            <controls:LineIcon PathData="{StaticResource IconTrash}" IconSize="16" />
-                                        </Button>
-                                    </Grid>
-                                </Border>
+                                <Grid>
+                                    <controls:LibraryPoster Title="{Binding Title}" Subtitle="{Binding MediaLabel}" LocalPath="{Binding Path}" />
+                                    <Button Style="{StaticResource LibraryCoverMenuStyle}" Tag="{Binding}" Click="OnLocalMediaMenuClick"
+                                            AutomationProperties.Name="本地媒体操作" ToolTipService.ToolTip="本地媒体操作" />
+                                </Grid>
                             </DataTemplate>
-                        </ListView.ItemTemplate>
-                    </ListView>
+                        </GridView.ItemTemplate>
+                    </GridView>
                     <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" MaxWidth="420"
                                 Spacing="{StaticResource SpaceSmall}" Visibility="{Binding EmptyLocal, Converter={StaticResource StringToVisibility}}">
                         <Border Style="{StaticResource GlassOpticalPanelBorderStyle}" Width="64" Height="64" CornerRadius="32"

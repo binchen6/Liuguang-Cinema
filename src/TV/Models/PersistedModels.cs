@@ -17,6 +17,18 @@ public sealed class HistoryEntry
     public bool HasProgress => DurationMs > 0;
     public bool IsCompleted => PositionMs > 0 && DurationMs > 0 &&
         PositionMs >= Math.Max(DurationMs - 3000, DurationMs * 0.95);
+
+    internal PlaybackRequest? ReadRequest() => System.Text.Json.JsonSerializer.Deserialize<PlaybackRequest>(RequestJson, JsonUtil.Options);
+
+    public string? LocalMediaPath
+    {
+        get
+        {
+            if (!Id.StartsWith("vod:local:", StringComparison.Ordinal)) return null;
+            var path = Id[10..];
+            return Path.IsPathFullyQualified(path) && !new Uri(path).IsUnc ? path : null;
+        }
+    }
 }
 
 public sealed class FavoriteEntry

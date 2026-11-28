@@ -14,6 +14,8 @@ public enum DanmakuMode
 
 public sealed record DanmakuEntry(double Seconds, string Text, uint Rgb, DanmakuMode Mode = DanmakuMode.Scroll);
 
+internal sealed class DanmakuNotMatchedException(string message) : Exception(message);
+
 public sealed record DanmakuPreferences(
     bool Enabled = false,
     int Size = 22,

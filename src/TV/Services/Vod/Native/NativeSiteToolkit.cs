@@ -138,13 +138,16 @@ internal static partial class NativeSiteToolkit
     }
 
     internal static bool IsBrowserChallenge(HttpExchangeResult exchange, string html) =>
-        exchange.StatusCode == HttpStatusCode.Forbidden ||
         exchange.HasCloudflareChallenge ||
         html.Contains("cf-browser-verification", StringComparison.OrdinalIgnoreCase) ||
         html.Contains("browser verification required", StringComparison.OrdinalIgnoreCase) ||
         html.Contains("Just a moment...", StringComparison.OrdinalIgnoreCase) &&
             (html.Contains("challenge-platform", StringComparison.OrdinalIgnoreCase) ||
              html.Contains("_cf_chl_opt", StringComparison.OrdinalIgnoreCase));
+
+    internal static bool IsVerifiedResponse(Uri requested, HttpExchangeResult exchange) =>
+        (int)exchange.StatusCode is >= 200 and < 300 && MediaRequestHeaders.SameOrigin(requested, exchange.Payload.FinalUri) &&
+        !IsBrowserChallenge(exchange, SourceHttpClient.DecodeText(exchange.Payload.Content));
 
     internal static async Task<(IDocument Document, Uri FinalUri)> FetchHtmlAsync(
         SourceHttpClient http,

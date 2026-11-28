@@ -42,6 +42,33 @@ internal sealed class MagnetPlayback : IAsyncDisposable
         return _file.BitField.AllTrue && File.Exists(path);
     }
     internal string? ReadFailure { get; private set; }
+
+    internal async Task SaveSelectedFileAsync(string destination, IProgress<double> progress, CancellationToken token)
+    {
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(token, _reading.Token);
+        var buffer = new byte[128 * 1024];
+        _stream.Position = 0;
+        await using var output = new FileStream(destination, FileMode.CreateNew, FileAccess.Write, FileShare.None, buffer.Length,
+            FileOptions.Asynchronous | FileOptions.SequentialScan);
+        long written = 0;
+        try
+        {
+            while (written < _file.Length)
+            {
+                deadline.CancelAfter(TimeSpan.FromSeconds(45));
+                var count = (int)Math.Min(buffer.Length, _file.Length - written);
+                var length = await _stream.ReadAsync(buffer, 0, count, deadline.Token).ConfigureAwait(false);
+                if (length == 0) throw new EndOfStreamException("磁力资源提前结束，文件未保存。");
+                await output.WriteAsync(buffer.AsMemory(0, length), deadline.Token).ConfigureAwait(false);
+                written += length;
+                progress.Report(Math.Min(99, written * 100d / _file.Length));
+            }
+        }
+        catch (OperationCanceledException) when (!token.IsCancellationRequested && !_reading.IsCancellationRequested)
+        {
+            throw new TimeoutException("等待磁力节点继续传输超时。");
+        }
+    }
     internal static bool IsMagnet(string? address) => address?.StartsWith("magnet:", StringComparison.OrdinalIgnoreCase) == true;
 
     internal static bool TryParse(string? address, [NotNullWhen(true)] out MagnetLink? magnet)

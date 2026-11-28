@@ -140,7 +140,7 @@
                         <StackPanel x:Name="SourcePane" Spacing="16">
                             <StackPanel Spacing="4">
                                 <TextBlock Text="片源与接口" Style="{StaticResource SectionTitleText}" />
-                                <TextBlock Text="导入接口仓库、刷新内置接口，并确认当前生效的来源。" Style="{StaticResource SecondaryText}" />
+                                <TextBlock Text="导入和管理片源仓库。" Style="{StaticResource SecondaryText}" />
                             </StackPanel>
                             <Border Style="{StaticResource SettingsCardStyle}">
                                 <StackPanel Spacing="14">
@@ -186,7 +186,6 @@
                                         <Grid.ColumnDefinitions>
                                             <ColumnDefinition Width="Auto" />
                                             <ColumnDefinition Width="*" />
-                                            <ColumnDefinition Width="Auto" />
                                         </Grid.ColumnDefinitions>
                                         <TextBlock Text="当前仓库" Style="{StaticResource LabelText}" Width="{StaticResource SettingsFormLabelWidth}" VerticalAlignment="Center" />
                                         <controls:AnchoredChoice Grid.Column="1" Header="当前仓库" ShowHeader="False" MinWidth="220"
@@ -196,9 +195,6 @@
                                                                  DisplayMemberPath="MenuLabel"
                                                                  SelectedItem="{Binding SelectedRepository, Mode=TwoWay}"
                                                                  PlaceholderText="选择片源仓库" />
-                                        <Button Grid.Column="2" Content="切回内置" Command="{Binding SwitchToBuiltInCommand}"
-                                                Style="{StaticResource GhostButtonStyle}" VerticalAlignment="Center"
-                                                Visibility="{Binding CanSwitchToBuiltIn, Converter={StaticResource BoolToVisibility}}" />
                                     </Grid>
                                     <Border Height="1" Background="{ThemeResource DividerBrush}" />
                                     <StackPanel Spacing="6">

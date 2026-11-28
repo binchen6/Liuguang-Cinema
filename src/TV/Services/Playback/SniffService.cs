@@ -241,9 +241,10 @@ public sealed partial class SniffService
             cancellationToken.ThrowIfCancellationRequested();
             if (!string.IsNullOrWhiteSpace(userAgent)) core.Settings.UserAgent = userAgent;
             core.Navigate(page.AbsoluteUri);
+            var polls = 0;
             while (!found.Task.IsCompleted)
             {
-                if (await Task.WhenAny(found.Task, Task.Delay(900, cancellationToken)) == found.Task) break;
+                if (await Task.WhenAny(found.Task, Task.Delay(polls++ < 8 ? 250 : 700, cancellationToken)) == found.Task) break;
                 cancellationToken.ThrowIfCancellationRequested();
                 try
                 {
@@ -270,7 +271,7 @@ public sealed partial class SniffService
                             if (v.paused) v.play().catch(() => {});
                           });
                           if (!window.__tvPlaybackStarted) {
-                            const button = [...document.querySelectorAll('.dplayer-play-icon,.xgplayer-start,.vjs-big-play-button,button[aria-label]')]
+                            const button = [...document.querySelectorAll('.dplayer-play-icon,.xgplayer-start,.vjs-big-play-button,.art-layer-auto-playback,button[aria-label]')]
                               .find(e => e.getClientRects().length && (!e.matches('button[aria-label]') ||
                                 /^(play|播放|开始播放)$/i.test(e.getAttribute('aria-label').trim())));
                             if (button) { window.__tvPlaybackStarted = true; button.click(); }

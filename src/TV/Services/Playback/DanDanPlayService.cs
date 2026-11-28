@@ -181,6 +181,13 @@ public sealed partial class DanDanPlayService
     public Task ClearCustomCredentialsAsync(CancellationToken token = default) =>
         _database.SetSettingPairAsync((SettingAppId, string.Empty), (SettingAppSecret, string.Empty), token);
 
+    internal async Task RestoreDefaultServiceAsync(CancellationToken token = default)
+    {
+        await _database.SetSettingsAsync([(SettingAppId, ""), (SettingAppSecret, ""), (SettingRelayUrl, "")], token)
+            .ConfigureAwait(false);
+        Volatile.Write(ref _preferredRelayIndex, 0);
+    }
+
     /// <summary>
     /// Computes X-Signature = Base64(SHA256(AppId + Timestamp + Path + AppSecret)) per DanDanPlay Open API v2 spec.
     /// </summary>
@@ -210,6 +217,7 @@ public sealed partial class DanDanPlayService
             return cached.Episode;
 
         DanDanPlayEpisode? fileCandidate = null;
+        Exception? lastLookupError = null;
 
         // Strategy A: Exact local file 16 MB MD5 hash + filename matching via POST /api/v2/match
         if (!string.IsNullOrWhiteSpace(localFilePath) && File.Exists(localFilePath))
@@ -227,6 +235,7 @@ public sealed partial class DanDanPlayService
             catch (OperationCanceledException) when (token.IsCancellationRequested) { throw; }
             catch (Exception ex)
             {
+                lastLookupError = ex;
                 Diagnostics.Log($"DanDanPlay file hash match skipped: {ex.GetType().Name} {ex.Message}");
             }
         }
@@ -236,16 +245,14 @@ public sealed partial class DanDanPlayService
         // avoiding redundant sequential requests that increase timeout risk on high-latency links.
         var collectedGroups = new Dictionary<long, DanDanPlayAnimeGroup>();
         var queries = BuildSearchQueries(identity);
-        Exception? lastTransientError = null;
-
         foreach (var query in queries)
         {
             var (groups, error) = await TrySearchEpisodesSafeAsync(query, null, useV2: true, token).ConfigureAwait(false);
-            if (error is not null) lastTransientError = error;
+            if (error is not null) lastLookupError = error;
             if (groups.Count == 0 && error is null)
             {
                 var (legacyGroups, legacyError) = await TrySearchEpisodesSafeAsync(query, null, useV2: false, token).ConfigureAwait(false);
-                if (legacyError is not null) lastTransientError = legacyError;
+                if (legacyError is not null) lastLookupError = legacyError;
                 groups = legacyGroups;
             }
 
@@ -289,8 +296,7 @@ public sealed partial class DanDanPlayService
             catch (OperationCanceledException) when (token.IsCancellationRequested) { throw; }
             catch (Exception ex)
             {
-                if (ex is TimeoutException or HttpRequestException or OperationCanceledException)
-                    lastTransientError ??= ex;
+                lastLookupError ??= ex;
                 Diagnostics.Log($"DanDanPlay filename match fallback skipped: {ex.GetType().Name} {ex.Message}");
             }
         }
@@ -301,15 +307,15 @@ public sealed partial class DanDanPlayService
             return fileCandidate;
         }
 
-        if (collectedGroups.Count == 0 && lastTransientError is not null)
+        if (lastLookupError is not null)
         {
-            if (lastTransientError is TimeoutException or OperationCanceledException)
-                throw new TimeoutException("弹弹play 服务响应超时，请稍后重试。", lastTransientError);
-            throw lastTransientError;
+            if (lastLookupError is TimeoutException or OperationCanceledException)
+                throw new TimeoutException("弹弹play 服务响应超时，请稍后重试。", lastLookupError);
+            throw lastLookupError;
         }
 
         var display = string.IsNullOrWhiteSpace(identity.CleanTitle) ? title : identity.CleanTitle;
-        throw new InvalidDataException($"弹弹play 弹幕库未找到与“{display}”匹配的剧集。");
+        throw new DanmakuNotMatchedException($"弹弹play 弹幕库未找到与“{display}”匹配的剧集。");
     }
 
     public async Task<IReadOnlyList<DanDanPlayAnimeGroup>> SearchEpisodesAsync(string keyword, int? episodeNumber = null, CancellationToken token = default)
@@ -335,12 +341,7 @@ public sealed partial class DanDanPlayService
             return (result, null);
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested) { throw; }
-        catch (InvalidDataException ex)
-        {
-            Diagnostics.Log($"DanDanPlay search skipped ({query}, ep={episodeNumber}, v2={useV2}): {ex.Message}");
-            return ([], null);
-        }
-        catch (Exception ex) when (ex is TimeoutException or HttpRequestException or OperationCanceledException)
+        catch (Exception ex) when (ex is TimeoutException or HttpRequestException or OperationCanceledException or InvalidDataException or JsonException)
         {
             Diagnostics.Log($"DanDanPlay search transient error ({query}, ep={episodeNumber}, v2={useV2}): {ex.GetType().Name} {ex.Message}");
             return ([], ex);
@@ -364,7 +365,7 @@ public sealed partial class DanDanPlayService
 
         var groups = new List<DanDanPlayAnimeGroup>();
         if (!root.TryGetProperty("animes", out var animes) || animes.ValueKind != JsonValueKind.Array)
-            return groups;
+            throw new InvalidDataException("弹弹play 服务未返回有效的剧集列表。");
 
         foreach (var anime in animes.EnumerateArray().Take(30))
         {
@@ -432,7 +433,7 @@ public sealed partial class DanDanPlayService
     public async Task<(bool Ok, string Message)> VerifyCredentialsAsync(string? appIdOverride = null, string? appSecretOverride = null, CancellationToken token = default)
     {
         var path = "/api/v2/search/episodes";
-        var url = $"{ApiBaseUrl}{path}?anime={Uri.EscapeDataString("你的名字")}";
+        var url = $"{ApiBaseUrl}{path}?anime={Uri.EscapeDataString("你的名字")}&v2=true";
         try
         {
             string json;
@@ -453,6 +454,8 @@ public sealed partial class DanDanPlayService
             }
             using var doc = JsonDocument.Parse(json);
             EnsureSuccess(doc.RootElement, "凭证验证失败");
+            if (!doc.RootElement.TryGetProperty("animes", out var results) || results.ValueKind != JsonValueKind.Array)
+                return (false, "服务未返回有效的剧集列表。");
             return (true, "弹弹play 开放弹幕库连接正常");
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested) { throw; }
@@ -914,23 +917,38 @@ public sealed partial class DanDanPlayService
             try
             {
                 var payload = await SendViaRelayAsync(relay, apiPath, pathAndQuery, body, timeout, preferDirectCommentCdn: isCommentRoute, token).ConfigureAwait(false);
+                ValidateRelayPayload(payload, apiPath);
                 RememberHealthyRelay(relay);
                 return payload;
             }
-            catch (Exception ex) when (IsTransientRelayFailure(ex, token))
+            catch (Exception ex) when (!token.IsCancellationRequested && (IsTransientRelayFailure(ex, token) ||
+                ex is InvalidDataException or JsonException || ex is HttpRequestException { StatusCode: HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden or HttpStatusCode.NotFound }))
             {
                 lastError = ex;
                 Diagnostics.Log($"DanDanPlay relay {relay.Host} failed on {apiPath} ({ex.GetType().Name}: {ex.Message})");
-                if (relays.Count == 1)
+                if (relays.Count == 1 && IsTransientRelayFailure(ex, token))
                 {
                     await Task.Delay(400, token).ConfigureAwait(false);
                     var retryPayload = await SendViaRelayAsync(relay, apiPath, pathAndQuery, body, timeout, preferDirectCommentCdn: isCommentRoute, token).ConfigureAwait(false);
+                    ValidateRelayPayload(retryPayload, apiPath);
                     return retryPayload;
                 }
             }
         }
 
         throw lastError ?? new HttpRequestException("默认弹幕服务暂不可用，请稍后重试或配置国内签名中继 / 自定义凭据。");
+    }
+
+    private static void ValidateRelayPayload(string payload, string apiPath)
+    {
+        using var document = JsonDocument.Parse(payload);
+        var root = document.RootElement;
+        if (root.ValueKind == JsonValueKind.Array && apiPath.StartsWith("/api/v2/comment/", StringComparison.Ordinal)) return;
+        if (root.ValueKind != JsonValueKind.Object) throw new InvalidDataException("弹幕中继返回格式异常。");
+        EnsureSuccess(root, "弹幕中继无法连接弹弹play。");
+        if (apiPath == "/api/v2/search/episodes" &&
+            (!root.TryGetProperty("animes", out var list) || list.ValueKind != JsonValueKind.Array))
+            throw new InvalidDataException("弹幕中继未返回有效的剧集列表。");
     }
 
     private async Task<string> SendViaRelayAsync(
@@ -1085,7 +1103,9 @@ public sealed partial class DanDanPlayService
         }
 
         if (exchange.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
-            throw new HttpRequestException($"弹弹play API 鉴权失败（HTTP {(int)exchange.StatusCode}），请检查密钥配置或系统时间是否准确。", null, exchange.StatusCode);
+            throw new HttpRequestException(fromRelay
+                ? $"弹幕中继鉴权失败（HTTP {(int)exchange.StatusCode}）。"
+                : $"弹弹play API 鉴权失败（HTTP {(int)exchange.StatusCode}），请检查密钥配置或系统时间。", null, exchange.StatusCode);
 
         if ((int)exchange.StatusCode < 200 || (int)exchange.StatusCode >= 300)
             throw new HttpRequestException(fromRelay
@@ -1134,6 +1154,7 @@ public sealed partial class DanDanPlayService
 
     private static void EnsureSuccess(JsonElement root, string fallbackMessage)
     {
+        if (root.ValueKind != JsonValueKind.Object) throw new InvalidDataException("弹弹play 服务响应格式异常。");
         if (root.TryGetProperty("success", out var success) && success.ValueKind == JsonValueKind.False)
         {
             var msg = ReadString(root, "errorMessage");

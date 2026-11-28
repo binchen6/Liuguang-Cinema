@@ -64,8 +64,7 @@ public sealed partial class SettingsViewModel : ObservableObject
     [ObservableProperty] private bool _isLoadingRepoPacks;
     [ObservableProperty] private bool _isDownloadingRepoPack;
     [ObservableProperty] private double _repoPackDownloadProgress;
-    [ObservableProperty, NotifyPropertyChangedFor(nameof(CanSwitchToBuiltIn))] private SourceRepository? _selectedRepository;
-    public bool CanSwitchToBuiltIn => SelectedRepository is { IsBuiltIn: false };
+    [ObservableProperty] private SourceRepository? _selectedRepository;
     public ObservableCollection<CloudAccountInfo> CloudAccounts { get; } = [];
     public ObservableCollection<CleanupCategory> CleanupCategories { get; } = [];
     [ObservableProperty] private bool _hasCleanupResults;
@@ -370,13 +369,26 @@ public sealed partial class SettingsViewModel : ObservableObject
     [RelayCommand]
     private async Task ClearDanDanPlayAsync()
     {
-        await _services.DanDanPlay.ClearCustomCredentialsAsync();
-        await _services.DanDanPlay.ClearCustomRelayUrlAsync();
-        DanDanPlayRelayUrlInput = string.Empty;
-        DanDanPlayAppIdInput = string.Empty;
-        DanDanPlayAppSecretInput = string.Empty;
-        await RefreshDanDanPlayStatusAsync();
-        StatusMessage = _services.DanDanPlay.HasDefaultService ? "已清除自定义配置，并恢复默认弹幕服务。" : "已清除自定义弹弹play 配置。";
+        if (IsTestingDanDanPlay) return;
+        IsTestingDanDanPlay = true;
+        try
+        {
+            await _services.DanDanPlay.RestoreDefaultServiceAsync();
+            DanDanPlayRelayUrlInput = string.Empty;
+            DanDanPlayAppIdInput = string.Empty;
+            DanDanPlayAppSecretInput = string.Empty;
+            await RefreshDanDanPlayStatusAsync();
+            if (!_services.DanDanPlay.HasDefaultService)
+            {
+                StatusMessage = "已清除自定义配置。当前版本未配置默认弹幕服务。";
+                return;
+            }
+            StatusMessage = "已恢复默认配置，正在验证服务连接…";
+            var (ok, message) = await _services.DanDanPlay.VerifyCredentialsAsync();
+            StatusMessage = ok ? "已恢复默认配置，弹弹play 连接正常。" : "已恢复默认配置，默认服务当前不可用。" + message;
+        }
+        catch (Exception ex) { StatusMessage = "恢复默认配置失败。" + ex.Message; }
+        finally { IsTestingDanDanPlay = false; }
     }
 
     partial void OnBailianRegionIndexChanged(int value) =>
@@ -413,6 +425,12 @@ public sealed partial class SettingsViewModel : ObservableObject
         StatusMessage = "正在更新…";
         try
         {
+            await _services.Config.LoadAsync(false);
+            if (_services.Config.ActiveRepository is null)
+            {
+                StatusMessage = "请先导入仓库。";
+                return;
+            }
             await _services.Config.LoadAsync(true);
             ActiveSource = _services.Config.ActiveUrl;
             await UpdateSourceSummaryAsync();
@@ -436,10 +454,6 @@ public sealed partial class SettingsViewModel : ObservableObject
         var repoId = Services.Configuration.SourceConfigService.ComputeRepositoryId(repository.Url);
         await SwitchRepositoryCoreAsync(repoId, repository.Name);
     }
-
-    [RelayCommand]
-    private Task SwitchToBuiltInAsync() =>
-        SwitchRepositoryCoreAsync(Services.Configuration.SourceConfigService.BuiltInRepositoryId, Services.Configuration.SourceConfigService.BuiltInRepositoryName);
 
     private async Task SwitchRepositoryCoreAsync(string repositoryId, string displayName)
     {
@@ -664,20 +678,19 @@ public sealed partial class SettingsViewModel : ObservableObject
 
     private async Task LoadImportsAsync()
     {
+        await _services.Config.LoadAsync(false);
         var repositories = await _services.Config.GetImportsAsync();
         ImportedRepositories.Clear();
         foreach (var repository in repositories) ImportedRepositories.Add(repository);
-        await _services.Config.GetRepositoriesAsync();
         SyncRepositories();
     }
 
     private async Task UpdateSourceSummaryAsync()
     {
         var config = _services.Config.Current;
-        var activeName = _services.Config.ActiveRepository?.Name ?? Services.Configuration.SourceConfigService.BuiltInRepositoryName;
-        SourceSummary = config is null
-            ? "尚未加载配置"
-            : $"当前：{activeName}（{config.Sites.Count} 个点播站点 · {config.Lives.Count} 个直播源）· 共 {Math.Max(1, Repositories.Count)} 个仓库";
+        SourceSummary = config is null || _services.Config.ActiveRepository is not { } active
+            ? "导入仓库后可浏览点播和直播。"
+            : $"当前：{active.Name}（{config.Sites.Count} 个点播站点 · {config.Lives.Count} 个直播源）· 共 {Repositories.Count} 个仓库";
         if (DateTimeOffset.TryParse(await _services.Database.GetSettingAsync("source.lastRefresh"), System.Globalization.CultureInfo.InvariantCulture,
             System.Globalization.DateTimeStyles.RoundtripKind, out var refreshed))
             LastSourceRefresh = "最近刷新 " + refreshed.ToLocalTime().ToString("yyyy-MM-dd HH:mm", System.Globalization.CultureInfo.InvariantCulture);

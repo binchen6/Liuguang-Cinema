@@ -124,7 +124,8 @@ public sealed partial class LiveViewModel : ObservableObject
 
     public bool IsEmpty => !IsLoading && !HasChannels;
     public string EmptyTitle => HasError ? "直播源加载失败" : "没有可播放的频道";
-    public string EmptyHint => HasError ? StatusMessage : "试试刷新，或切换到其他直播源与分组";
+    public string EmptyHint => HasError ? StatusMessage : AvailableSources.Count == 0
+        ? "请在「设置 → 片源」导入带有直播源的仓库。" : "可以刷新，或切换到其他直播源与分组。";
 
     [RelayCommand(AllowConcurrentExecutions = true)]
     private async Task ReloadAsync()
@@ -140,21 +141,19 @@ public sealed partial class LiveViewModel : ObservableObject
         {
             var config = await _services.Config.LoadAsync(cancellationToken: token);
             var selectedUrl = SelectedRepository?.Url;
-            var fresh = config.Lives.OrderBy(source => source.IsBuiltIn).ToArray();
+            var fresh = config.Lives.ToArray();
             if (!AvailableSources.SequenceEqual(fresh))
             {
-                var firstImport = AvailableSources.Any(source => !source.IsBuiltIn)
-                    ? null : fresh.FirstOrDefault(source => !source.IsBuiltIn);
                 _changingSources = true;
                 try
                 {
                     AvailableSources = fresh;
-                    SelectedRepository = fresh.FirstOrDefault(source => source.Url == selectedUrl) ?? firstImport;
+                    SelectedRepository = fresh.FirstOrDefault(source => source.Url == selectedUrl) ?? fresh.FirstOrDefault();
+                    OnPropertyChanged(nameof(EmptyHint));
                 }
                 finally { _changingSources = false; }
             }
-            var sources = SelectedRepository is { } selected ? new[] { selected } :
-                fresh.Where(source => source.IsBuiltIn).ToArray();
+            var sources = SelectedRepository is { } selected ? new[] { selected } : fresh;
             List<LiveChannel> channels = sources.Length > 0 ? await _services.Live.LoadAsync(sources, token) : [];
             token.ThrowIfCancellationRequested();
             _allChannels.Clear();
@@ -182,13 +181,6 @@ public sealed partial class LiveViewModel : ObservableObject
             }
         }
         finally { if (!token.IsCancellationRequested) IsLoading = false; }
-    }
-
-    [RelayCommand]
-    private void SelectBuiltIn()
-    {
-        if (SelectedRepository is null) _ = ReloadAsync();
-        else SelectedRepository = null;
     }
 
     partial void OnSelectedRepositoryChanged(LiveSource? value)

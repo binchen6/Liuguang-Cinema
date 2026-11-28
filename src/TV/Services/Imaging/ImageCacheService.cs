@@ -84,7 +84,8 @@ public sealed partial class ImageCacheService : IDisposable
     {
         if (_disposed) return Task.FromResult<BitmapImage?>(null);
         url = Unwrap(url);
-        if (string.IsNullOrWhiteSpace(url) || !Uri.TryCreate(url, UriKind.Absolute, out var uri) || uri.Scheme is not ("http" or "https"))
+        if (string.IsNullOrWhiteSpace(url) || !Uri.TryCreate(url, UriKind.Absolute, out var uri) ||
+            (uri.Scheme is not ("http" or "https") && LocalArtworkPath(uri) is null))
             return Task.FromResult<BitmapImage?>(null);
 
         var cacheKey = highRes ? "H|" + url : url;
@@ -215,6 +216,12 @@ public sealed partial class ImageCacheService : IDisposable
     {
         try
         {
+            if (Uri.TryCreate(url, UriKind.Absolute, out var uri) && LocalArtworkPath(uri) is { } artwork)
+            {
+                var artworkFile = new FileInfo(artwork);
+                if (!artworkFile.Exists || artworkFile.Length is <= 12 or > Library.LocalMediaArtwork.MaxPictureBytes) return null;
+                return await File.ReadAllBytesAsync(artwork).ConfigureAwait(false);
+            }
             if (!_dirEnsured)
             {
                 AppPaths.EnsureCreated();
@@ -481,7 +488,15 @@ public sealed partial class ImageCacheService : IDisposable
         return nested;
     }
 
-    private static bool LooksLikeImage(byte[] bytes) => bytes.Length > 12 &&
+    private static string? LocalArtworkPath(Uri uri)
+    {
+        if (uri.Scheme != "tv-artwork" || uri.IdnHost != "local" || uri.Query.Length != 0 || uri.Fragment.Length != 0 ||
+            uri.UserInfo.Length != 0 || uri.AbsolutePath.Length != 65) return null;
+        var key = uri.AbsolutePath[1..];
+        return key.All(char.IsAsciiHexDigit) ? Library.LocalMediaArtwork.ImagePath(key) : null;
+    }
+
+    internal static bool LooksLikeImage(byte[] bytes) => bytes.Length > 12 &&
         ((bytes[0] == 0xFF && bytes[1] == 0xD8) || (bytes[0] == 0x89 && bytes[1] == 0x50)
         || (bytes[0] == 0x47 && bytes[1] == 0x49) || (bytes[0] == 0x52 && bytes[1] == 0x49 && bytes[8] == 0x57)
         || (bytes[0] == 0x42 && bytes[1] == 0x4D)

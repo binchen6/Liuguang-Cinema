@@ -90,9 +90,13 @@ public sealed class RepoPackService : IDisposable
         (InstalledRepoPack Pack, RepoPackSiteRule Rule)? apiMatch = null;
         foreach (var installed in _installed.Values)
         {
+            if (installed.Definition.RestrictToRepository && !MatchesHost(site.RepositoryUrl, installed.Definition.MatchHosts) &&
+                !MatchesHost(site.RepositoryGroupUrl, installed.Definition.MatchHosts)) continue;
             foreach (var candidate in installed.Definition.Sites)
             {
                 if (overrideUniversalOnly && !candidate.OverrideUniversal) continue;
+                if (installed.Definition.RestrictToRepository && candidate.Api.Length > 0 &&
+                    !candidate.Api.Equals(site.Api, StringComparison.OrdinalIgnoreCase)) continue;
                 if (!string.IsNullOrWhiteSpace(candidate.Key) &&
                     candidate.Key.Equals(site.Key, StringComparison.OrdinalIgnoreCase))
                 {
@@ -294,16 +298,9 @@ public sealed class RepoPackService : IDisposable
 
     public static RepoPackManifestEntry? MatchManifestEntry(RepoPackManifest manifest, string? repoUrl, ConfigDocument? document)
     {
-        string? host = null;
-        if (!string.IsNullOrWhiteSpace(repoUrl) && Uri.TryCreate(repoUrl.Trim(), UriKind.Absolute, out var uri))
-            host = uri.IdnHost;
-
         foreach (var entry in manifest.Packs)
         {
-            if (!string.IsNullOrEmpty(host) && entry.MatchHosts.Any(h =>
-                host.Equals(h, StringComparison.OrdinalIgnoreCase) ||
-                host.EndsWith("." + h, StringComparison.OrdinalIgnoreCase)))
-                return entry;
+            if (MatchesHost(repoUrl, entry.MatchHosts)) return entry;
 
             if (!string.IsNullOrWhiteSpace(repoUrl) && entry.MatchUrlKeywords.Any(k =>
                 !string.IsNullOrWhiteSpace(k) && repoUrl.Contains(k, StringComparison.OrdinalIgnoreCase)))
@@ -321,6 +318,16 @@ public sealed class RepoPackService : IDisposable
             }
         }
         return null;
+    }
+
+    private static bool MatchesHost(string? repositoryUrl, IEnumerable<string> hosts)
+    {
+        if (!Uri.TryCreate(repositoryUrl, UriKind.Absolute, out var repository)) return false;
+        var host = repository.IdnHost;
+        return hosts.Any(value => Uri.TryCreate("https://" + value.Trim(), UriKind.Absolute, out var parsed) &&
+            parsed.AbsolutePath == "/" && parsed.UserInfo.Length == 0 &&
+            (host.Equals(parsed.IdnHost, StringComparison.OrdinalIgnoreCase) ||
+             host.EndsWith("." + parsed.IdnHost, StringComparison.OrdinalIgnoreCase)));
     }
 
     public async Task<RepoPackAutoInstallResult> AutoInstallForRepositoryAsync(
@@ -352,6 +359,18 @@ public sealed class RepoPackService : IDisposable
             return new RepoPackAutoInstallResult(true, false, entry.Name, entry.Version, null,
                 $"检测到专属资源包「{entry.Name}」，但自动下载失败（{ex.Message}），可在设置 → 片源 → 仓库资源包中手动下载。");
         }
+    }
+
+    internal async Task<bool> InstallMigratedFantaitangPackAsync(string repositoryUrl, CancellationToken token)
+    {
+        const string id = "fantaitang";
+        if (_installed.ContainsKey(id)) return true;
+        var manifest = await GetManifestAsync(false, token).ConfigureAwait(false);
+        if (!manifest.Packs.Any(pack => pack.Id == id)) manifest = await GetManifestAsync(true, token).ConfigureAwait(false);
+        var entry = MatchManifestEntry(new RepoPackManifest { Packs = manifest.Packs.Where(pack => pack.Id == id).ToList() }, repositoryUrl, null);
+        if (entry is null) return false;
+        await InstallPackAsync(entry, null, token).ConfigureAwait(false);
+        return true;
     }
 
     public async Task<string> InstallPackAsync(

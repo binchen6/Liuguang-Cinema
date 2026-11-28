@@ -47,6 +47,12 @@ public sealed partial class VodCardViewModel : ObservableObject
 
     public void ReplaceItem(VodItem item)
     {
+        if (!string.Equals(Item.BestPicture, item.BestPicture, StringComparison.Ordinal))
+        {
+            _visualLoad = null;
+            _priorityLoaded = false;
+            Poster = null;
+        }
         Item = item;
         Rating = item.Rating ?? string.Empty;
         OnPropertyChanged(nameof(Item));
@@ -55,13 +61,16 @@ public sealed partial class VodCardViewModel : ObservableObject
 
     private async Task LoadCoreAsync(bool priority)
     {
-        var primaryUrl = Item.BestPicture;
+        var item = Item;
+        var primaryUrl = item.BestPicture;
         if (Poster is null || priority)
         {
             var fetched = await _services.Images.GetImageAsync(primaryUrl, highRes: priority);
+            if (!ReferenceEquals(Item, item)) return;
             if (fetched is not null) Poster = fetched;
         }
         Rating = Item.Rating ?? string.Empty;
+        if (item.SiteKey == "local") return;
         if (!priority && Poster is not null && !string.IsNullOrWhiteSpace(Rating)) return;
         IsMetadataLoading = true;
         try

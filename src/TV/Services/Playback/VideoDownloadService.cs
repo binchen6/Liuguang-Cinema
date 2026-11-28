@@ -22,6 +22,7 @@ public sealed partial class VideoDownloadService : IDisposable
 
     public async Task<string> GetExtensionAsync(PlaybackRequest request, CancellationToken token)
     {
+        if (request.Magnet is { } magnet) return Path.GetExtension(magnet.FileName).ToLowerInvariant();
         using var response = await OpenAsync(new Uri(request.Url), request.Headers, token).ConfigureAwait(false);
         var uri = response.RequestMessage!.RequestUri!;
         var contentType = response.Content.Headers.ContentType?.MediaType;
@@ -49,17 +50,24 @@ public sealed partial class VideoDownloadService : IDisposable
         var committed = false;
         try
         {
-            using var response = await OpenAsync(uri, request.Headers, token).ConfigureAwait(false);
-            if (HlsManifest.IsPlaylist(response.RequestMessage!.RequestUri!.AbsoluteUri, response.Content.Headers.ContentType?.MediaType))
+            if (request.Magnet is { } magnet)
             {
-                assets = Path.Combine(Path.GetDirectoryName(destination)!, "media-" + Guid.NewGuid().ToString("N")[..12]);
-                Directory.CreateDirectory(assets);
-                var files = new Dictionary<Uri, string>();
-                var lines = await ReadPlaylistAsync(response, token).ConfigureAwait(false);
-                var updated = await MaterializeAsync(lines, response.RequestMessage.RequestUri, uri, assets, files, request.Headers, progress, token, 0, true).ConfigureAwait(false);
-                await File.WriteAllLinesAsync(temporary, updated, new UTF8Encoding(false), token).ConfigureAwait(false);
+                await magnet.SaveSelectedFileAsync(temporary, progress, token).ConfigureAwait(false);
             }
-            else await CopyAsync(response, temporary, progress, token).ConfigureAwait(false);
+            else
+            {
+                using var response = await OpenAsync(uri, request.Headers, token).ConfigureAwait(false);
+                if (HlsManifest.IsPlaylist(response.RequestMessage!.RequestUri!.AbsoluteUri, response.Content.Headers.ContentType?.MediaType))
+                {
+                    assets = Path.Combine(Path.GetDirectoryName(destination)!, "media-" + Guid.NewGuid().ToString("N")[..12]);
+                    Directory.CreateDirectory(assets);
+                    var files = new Dictionary<Uri, string>();
+                    var lines = await ReadPlaylistAsync(response, token).ConfigureAwait(false);
+                    var updated = await MaterializeAsync(lines, response.RequestMessage.RequestUri, uri, assets, files, request.Headers, progress, token, 0, true).ConfigureAwait(false);
+                    await File.WriteAllLinesAsync(temporary, updated, new UTF8Encoding(false), token).ConfigureAwait(false);
+                }
+                else await CopyAsync(response, temporary, progress, token).ConfigureAwait(false);
+            }
             token.ThrowIfCancellationRequested();
             File.Move(temporary, destination, true);
             committed = true;

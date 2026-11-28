@@ -1,4 +1,6 @@
+using System.Collections.Concurrent;
 using System.Runtime.CompilerServices;
+using System.Text.Json;
 using TV.Models;
 using TV.Services.Packs;
 using TV.Services.Spider;
@@ -25,6 +27,7 @@ public sealed class VodClientRouter
     private readonly UniversalAutoHtmlVodProvider? _autoHtml;
     private readonly RepoPackVodProvider? _repoPack;
     private readonly ConditionalWeakTable<SourceSite, RepoPackVodProvider> _packFallbacks = new();
+    private readonly ConditionalWeakTable<SourceSite, ConcurrentDictionary<string, (DateTimeOffset Expires, CmsResponse Result)>> _catalogs = new();
 
     public VodClientRouter(
         CmsClient cms,
@@ -104,18 +107,20 @@ public sealed class VodClientRouter
     }
 
     public Task<CmsResponse> GetHomeAsync(SourceSite site, CancellationToken cancellationToken = default) =>
-        TryResolveProvider(site, out var native) ? DispatchAsync(site, native, p => p.GetHomeAsync(site, cancellationToken), cancellationToken)
+        ReadCatalogAsync(site, "home", () => TryResolveProvider(site, out var native)
+            ? DispatchAsync(site, native, p => p.GetHomeAsync(site, cancellationToken), cancellationToken)
             : _js is not null && JsSpiderClient.Supports(site) ? _js.GetHomeAsync(site, cancellationToken)
             : _py is not null && PySpiderClient.Supports(site) ? _py.GetHomeAsync(site, cancellationToken)
             : site.Type == 3 ? _spider.GetHomeAsync(site, cancellationToken)
-            : _cms.GetHomeAsync(site, cancellationToken);
+            : _cms.GetHomeAsync(site, cancellationToken), cancellationToken);
 
     public Task<CmsResponse> GetCategoryAsync(SourceSite site, string categoryId, int page, CancellationToken cancellationToken = default) =>
         GetCategoryAsync(site, categoryId, page, null, cancellationToken);
 
     public Task<CmsResponse> GetCategoryAsync(SourceSite site, string categoryId, int page,
-        IReadOnlyDictionary<string, string>? filters, CancellationToken cancellationToken) =>
-        TryResolveProvider(site, out var native)
+        IReadOnlyDictionary<string, string>? filters, CancellationToken cancellationToken)
+    {
+        Task<CmsResponse> ReadAsync() => TryResolveProvider(site, out var native)
             ? DispatchAsync(site, native, p => p is ICategoryFilterVodProvider filtered
                 ? filtered.GetCategoryAsync(site, categoryId, page, filters, cancellationToken)
                 : p.GetCategoryAsync(site, categoryId, page, cancellationToken), cancellationToken)
@@ -123,6 +128,28 @@ public sealed class VodClientRouter
             : _py is not null && PySpiderClient.Supports(site) ? _py.GetCategoryAsync(site, categoryId, page, filters, cancellationToken)
             : site.Type == 3 ? _spider.GetCategoryAsync(site, categoryId, page, filters, cancellationToken)
             : _cms.GetCategoryAsync(site, categoryId, page, cancellationToken);
+        if (page != 1) return ReadAsync();
+        var key = JsonSerializer.Serialize(new { categoryId, Filters = filters?.OrderBy(pair => pair.Key, StringComparer.Ordinal) });
+        return ReadCatalogAsync(site, key, ReadAsync, cancellationToken);
+    }
+
+    private async Task<CmsResponse> ReadCatalogAsync(SourceSite site, string key, Func<Task<CmsResponse>> read, CancellationToken token)
+    {
+        token.ThrowIfCancellationRequested();
+        if (site.Tool != SourceTool.None || _repoPack?.CanHandle(site) == true) return await read().ConfigureAwait(false);
+        var entries = _catalogs.GetOrCreateValue(site);
+        var now = DateTimeOffset.UtcNow;
+        if (entries.TryGetValue(key, out var cached) && cached.Expires > now) return cached.Result;
+        var result = await read().ConfigureAwait(false);
+        token.ThrowIfCancellationRequested();
+        if (result.List.Count is > 0 and <= 240)
+        {
+            if (entries.Count >= 18)
+                foreach (var item in entries.OrderBy(entry => entry.Value.Expires).Take(5)) entries.TryRemove(item.Key, out _);
+            entries[key] = (DateTimeOffset.UtcNow.AddSeconds(60), result);
+        }
+        return result;
+    }
 
     internal bool CanFilterCategory(SourceSite site) => TryResolveProvider(site, out var native)
         ? native is ICategoryFilterVodProvider : site.Type == 3;

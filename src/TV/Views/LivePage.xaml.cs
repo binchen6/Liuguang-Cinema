@@ -21,7 +21,6 @@ public sealed partial class LivePage : Page
         MotionService.AttachTactile(LiveStreamButton, 1.04f, 0.94f, -1f);
         MotionService.AttachTactile(PlayChannelButton, 1.02f, 0.96f, -1f);
         MotionService.AttachTactile(FavoriteChannelButton, 1.02f, 0.96f, -1f);
-        MotionService.AttachTactile(BuiltInChannelsButton, 1.02f, 0.96f, 0f);
     }
 
     private LiveViewModel ViewModel => (LiveViewModel)DataContext;

@@ -5,6 +5,7 @@ using AngleSharp.Dom;
 using TV.Models;
 using TV.Services.Http;
 using TV.Services.Persistence;
+using TV.Services.Playback;
 
 namespace TV.Services.Metadata;
 
@@ -133,6 +134,25 @@ public sealed class DoubanService
         return ReadMetadata(cached?.Json);
     }
 
+    internal async Task<DoubanMetadata?> GetExactLocalMetadataAsync(MediaIdentity identity, CancellationToken token)
+    {
+        var title = identity.SeasonNumber is > 1 ? identity.CleanTitle : identity.BaseTitle;
+        if (Normalize(title).Length < 2 || !await IsEnabledAsync(token).ConfigureAwait(false)) return null;
+        var key = $"local-artwork:v1:{Normalize(title)}|{identity.Year}";
+        var cached = await _database.GetMetadataAsync(key, token).ConfigureAwait(false);
+        if (cached?.ExpiresAt > DateTimeOffset.UtcNow) return ReadMetadata(cached.Json);
+        var candidates = await GetSuggestionsAsync(title, token).ConfigureAwait(false);
+        var exact = candidates.Where(item => IsExactLocalTitle(item.Title, item.Year, title, identity.Year) &&
+            item.Id.Length <= 18 && item.Id.All(char.IsAsciiDigit)).DistinctBy(item => item.Id).Take(2).ToArray();
+        DoubanMetadata? metadata = exact.Length == 1 ? await ReadSubjectAsync(exact[0], token).ConfigureAwait(false) : null;
+        await _database.SaveMetadataAsync(key, metadata is null ? "" : JsonSerializer.Serialize(metadata, JsonUtil.Options),
+            DateTimeOffset.UtcNow.Add(metadata is null ? TimeSpan.FromHours(12) : TimeSpan.FromDays(30)), token).ConfigureAwait(false);
+        return metadata;
+    }
+
+    internal static bool IsExactLocalTitle(string candidate, string candidateYear, string title, int? year) =>
+        Normalize(candidate) == Normalize(title) && (year is null || int.TryParse(candidateYear, out var releaseYear) && releaseYear == year);
+
     private static DoubanMetadata? ReadMetadata(string? json)
     {
         if (string.IsNullOrWhiteSpace(json)) return null;
@@ -176,8 +196,12 @@ public sealed class DoubanService
         var best = candidates.Select(candidate => new { Candidate = candidate, Score = Score(candidate, title, year) })
             .OrderByDescending(item => item.Score).FirstOrDefault();
         if (best is null || best.Score < 80) return null;
+        return await ReadSubjectAsync(best.Candidate, cancellationToken).ConfigureAwait(false);
+    }
 
-        var subjectUrl = $"https://movie.douban.com/subject/{best.Candidate.Id}/";
+    private async Task<DoubanMetadata> ReadSubjectAsync(SubjectCandidate candidate, CancellationToken cancellationToken)
+    {
+        var subjectUrl = $"https://movie.douban.com/subject/{candidate.Id}/";
         var html = await ThrottledGetStringAsync(subjectUrl, cancellationToken).ConfigureAwait(false);
         var context = BrowsingContext.New(AngleSharp.Configuration.Default);
         var document = await context.OpenAsync(request => request.Content(html).Address(subjectUrl), cancellationToken).ConfigureAwait(false);
@@ -185,14 +209,14 @@ public sealed class DoubanService
             ?? document.QuerySelector("[property='v:average']")?.TextContent.Trim() ?? string.Empty;
         if (decimal.TryParse(rating, out var score)) rating = score.ToString("0.0", System.Globalization.CultureInfo.InvariantCulture);
         var picture = document.QuerySelector("meta[property='og:image']")?.GetAttribute("content")
-            ?? document.QuerySelector("#mainpic img")?.GetAttribute("src") ?? best.Candidate.Picture;
+            ?? document.QuerySelector("#mainpic img")?.GetAttribute("src") ?? candidate.Picture;
         var summary = document.QuerySelector("span[property='v:summary']")?.TextContent.Trim()
             ?? document.QuerySelector("meta[property='og:description']")?.GetAttribute("content") ?? string.Empty;
         summary = Regex.Replace(summary, @"\s+", " ");
         return new DoubanMetadata
         {
-            SubjectId = best.Candidate.Id,
-            Title = document.QuerySelector("span[property='v:itemreviewed']")?.TextContent.Trim() ?? best.Candidate.Title,
+            SubjectId = candidate.Id,
+            Title = document.QuerySelector("span[property='v:itemreviewed']")?.TextContent.Trim() ?? candidate.Title,
             Picture = picture,
             Rating = rating,
             Summary = summary
