@@ -115,7 +115,7 @@ jobs:
           if ($version -eq '2.0.3') {
             $previousZip = Join-Path $env:RUNNER_TEMP 'TV-2.0.1-win-x64-portable.zip'
             Invoke-WebRequest -Uri 'https://github.com/binchen6/Liuguang-Cinema/releases/download/v2.0.1/TV-2.0.1-win-x64-portable.zip' -OutFile $previousZip
-            if ((Get-FileHash -LiteralPath $previousZip -Algorithm SHA256).Hash -ne 'DAB76C28444D76A5EEE3C0CBF63DDFC04C2592CCF6999F79AC1967CD553D835') {
+            if ((Get-FileHash -LiteralPath $previousZip -Algorithm SHA256).Hash -ne 'DAB76C28444D76A5EEE3C0CBF63DDFDC04C2592CCF6999F79AC1967CD553D835') {
               throw 'The public 2.0.1 baseline does not match its published digest'
             }
             Expand-Archive -LiteralPath $previousZip -DestinationPath $portableDir
