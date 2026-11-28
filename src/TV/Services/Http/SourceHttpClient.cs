@@ -15,13 +15,15 @@ public sealed class SourceHttpClient : IDisposable
     private readonly bool _ownsDns;
     private readonly SiteSessionStore? _sessions;
 
-    public SourceHttpClient(DnsResolverService? dns = null, SiteSessionStore? sessions = null)
+    public SourceHttpClient(DnsResolverService? dns = null, SiteSessionStore? sessions = null) : this(dns, sessions, false) { }
+
+    internal SourceHttpClient(DnsResolverService? dns, SiteSessionStore? sessions, bool useSystemDns)
     {
         _dns = dns ?? new DnsResolverService(new Persistence.DatabaseService());
         _ownsDns = dns is null;
         _sessions = sessions;
         Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
-        _client = CreateClient();
+        _client = CreateClient(useSystemDns);
     }
 
     internal SourceHttpClient(HttpMessageHandler handler, SiteSessionStore? sessions = null)
@@ -35,7 +37,7 @@ public sealed class SourceHttpClient : IDisposable
 
     public SiteSessionStore? Sessions => _sessions;
 
-    private HttpClient CreateClient() => new(new SocketsHttpHandler
+    private HttpClient CreateClient(bool useSystemDns) => new(new SocketsHttpHandler
         {
             AutomaticDecompression = DecompressionMethods.All,
             AllowAutoRedirect = false,
@@ -44,7 +46,7 @@ public sealed class SourceHttpClient : IDisposable
             PooledConnectionIdleTimeout = TimeSpan.FromMinutes(2),
             MaxConnectionsPerServer = 10,
             EnableMultipleHttp2Connections = true,
-            ConnectCallback = _dns.ConnectAsync,
+            ConnectCallback = useSystemDns ? null : _dns.ConnectAsync,
             UseCookies = false
         });
 
@@ -261,6 +263,7 @@ public sealed class SourceHttpClient : IDisposable
     private static async Task<HttpResponseMessage> SendAsync(HttpClient client, HttpMethod method, Uri uri,
         IReadOnlyDictionary<string, string>? headers, HttpContent? content, CancellationToken token, bool addDefaultReferer = true)
     {
+        uri = AsWireUri(uri);
         using var request = new HttpRequestMessage(method, uri) { Content = content };
         request.Headers.TryAddWithoutValidation("User-Agent", DefaultUserAgent);
         request.Headers.TryAddWithoutValidation("Accept", "application/json, text/plain, */*");
@@ -271,6 +274,12 @@ public sealed class SourceHttpClient : IDisposable
             {
                 if (key.Equals("Host", StringComparison.OrdinalIgnoreCase)) continue;
                 request.Headers.Remove(key);
+                if (key.Equals("Referer", StringComparison.OrdinalIgnoreCase) &&
+                    Uri.TryCreate(value, UriKind.Absolute, out var referer) && MediaRequestHeaders.IsHttpAddress(referer))
+                {
+                    request.Headers.Referrer = AsWireUri(referer);
+                    continue;
+                }
                 request.Headers.TryAddWithoutValidation(key, value);
             }
         }
@@ -278,6 +287,11 @@ public sealed class SourceHttpClient : IDisposable
         try { return await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, token).ConfigureAwait(false); }
         finally { request.Content = null; }
     }
+
+    private static Uri AsWireUri(Uri uri) => uri.HostNameType == UriHostNameType.Dns &&
+        !uri.Host.Equals(uri.IdnHost, StringComparison.OrdinalIgnoreCase)
+        ? new UriBuilder(uri) { Host = uri.IdnHost }.Uri
+        : uri;
 
     public async Task<string> GetStringAsync(
         string url,

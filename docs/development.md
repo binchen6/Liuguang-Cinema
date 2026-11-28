@@ -66,7 +66,7 @@ $env:TV_DATA_ROOT = Join-Path $PWD 'artifacts/tmp/dev-profile'
   - 解压前由 `ExtractZipSafely` 严格拦截 Zip-Slip 路径穿越，校验通过后通过临时 staging 目录原子切换并热重载；
   - 资源包仅允许声明式规则（`alias` / `js` / `cms` / `bili-preset` / `info`），不执行任意原生二进制，不破解闭源 DRM / `.so`。
 - **请求与解码守卫**：页面异步任务必带取消令牌与代际守卫；LibVLC 仅经 `PlayerService` 串行队列访问；跨域重定向经 `MediaRequestHeaders.ForTarget` 剥离敏感头；本地代理仅监听 `127.0.0.1`；XML 禁用 DTD；本地清理绝不删除未勾选磁盘文件。
-- **UI 边界**：修改界面须遵循 [视觉与材质规范](brand-design-system.md)、[设计契约](design-guide.md) 与 [动效工程规范](motion-spec.md)，保留全部 UIA 名称。
+- **UI 边界**：修改界面须遵循 [代码书写规范](coding-standards.md)、[视觉与材质规范](brand-design-system.md)、[设计契约](design-guide.md) 与 [动效工程规范](motion-spec.md)，保留全部 UIA 名称。
 
 ## 5. Java 引擎与安装器打包
 
@@ -74,13 +74,13 @@ $env:TV_DATA_ROOT = Join-Path $PWD 'artifacts/tmp/dev-profile'
 # 仅修改 Java 引擎后重新编译（需 JDK 17+，指定 JAVA_HOME）
 mvn -o -q -DskipTests -f engine/catvod/pom.xml package
 
-# 构建完整安装器、便携包与文件级双向增量包（输出至 artifacts/installers/）
+# 构建完整安装器（输出至 artifacts/installers/；已移除便携包打包）
 $env:TMP = $env:TEMP = (Resolve-Path 'artifacts/tmp').Path
-& .\scripts\build-installer.ps1 -MavenOffline -NoRestore
+& .\scripts\build-installer.ps1 -MavenOffline -NoRestore -ForceFullUpdate
 ```
 
 打包核心机制（版本取自 `Directory.Build.props`）：
-1. **双向差异增量包**：对比上一版便携包逐文件 SHA-256，仅打包变更项并自动生成 `[InstallDelete]`，升级后与完整包逐字节一致。
+1. **清单驱动的跨版本全量与安全增量升级**：打包自动生成 `install-manifest.txt`（记录全部文件的路径、字节大小与 SHA-256）；完整安装包覆盖升级时自动清理旧版受管运行时与历史清单中已移除的残留文件，静默升级完成后自动重启应用；后续增量更新在下载前由 `AppUpdateService` 强制校验本地清单、核心文件哈希与历史失败标记，任何异常或跨版本跳跃均自动回退完整安装包自愈。传入 `-ForceFullUpdate` 可强制仅发布全量安装包，如需为后续版本生成增量补丁可传入 `-IncrementalBaseDir <旧版目录> -IncrementalBaseVersion <旧版本号>`。
 2. **高签名覆盖与免提权**：`jlink` 后还原微软官方签名 OpenJDK PE 文件并附带 6 个微软签名本地 VC++ CRT DLL（免 UAC，98.4% 已签名）。
 3. **双层 Authenticode 签名与启动耗时守卫**：`installer/TV.iss` 必须保持 `InternalCompressLevel=none`、`SolidCompression=no` 且不嵌套外部 `.exe`，发版前执行：
 

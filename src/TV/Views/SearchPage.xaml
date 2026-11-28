@@ -72,10 +72,10 @@
                             Command="{Binding SubmitCommand}"
                             AutomationProperties.Name="搜索"
                             ToolTipService.ToolTip="搜索（回车）">
-                        <StackPanel Orientation="Horizontal" Spacing="8">
+                        <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
                             <controls:LineIcon PathData="{StaticResource IconSearch}" IconSize="15"
                                                Foreground="{ThemeResource AccentInkBrush}" />
-                            <TextBlock Text="搜索" FontWeight="SemiBold" Foreground="{ThemeResource AccentInkBrush}" />
+                            <TextBlock Text="搜索" FontWeight="SemiBold" Foreground="{ThemeResource AccentInkBrush}" VerticalAlignment="Center" />
                         </StackPanel>
                     </Button>
                 </Grid>
@@ -171,7 +171,7 @@
                         <Border x:Name="ScopeGlideIndicator" Width="3" Height="22" CornerRadius="1.5"
                                 Background="{ThemeResource SelectionIndicatorBrush}"
                                 HorizontalAlignment="Left" VerticalAlignment="Top"
-                                Margin="0,0,0,0" Opacity="0" IsHitTestVisible="False" />
+                                Margin="5,0,0,0" Opacity="0" IsHitTestVisible="False" />
                     </Grid>
                 </Grid>
             </controls:GlassSurface>
@@ -204,10 +204,9 @@
                             AutomationProperties.Name="筛选"
                             VerticalAlignment="Center"
                             Visibility="{Binding ShowsHistory, Converter={StaticResource BoolToVisibility}, ConverterParameter=Inverse}">
-                        <StackPanel Orientation="Horizontal" Spacing="{StaticResource SpaceMini}">
+                        <StackPanel Orientation="Horizontal" Spacing="{StaticResource SpaceMini}" VerticalAlignment="Center">
                             <controls:LineIcon PathData="{StaticResource IconFilter}" IconSize="16" />
-                            <TextBlock Text="筛选" Style="{StaticResource SecondaryText}"
-                                       Foreground="{ThemeResource PrimaryTextBrush}" />
+                            <TextBlock Text="筛选" VerticalAlignment="Center" />
                         </StackPanel>
                         <Button.Flyout>
                             <Flyout Placement="BottomEdgeAlignedRight">
@@ -345,7 +344,7 @@
                                             <RowDefinition Height="Auto" />
                                         </Grid.RowDefinitions>
 
-                                        <Border Grid.Row="0"
+                                        <Border Grid.Row="0" Style="{StaticResource GlassOpticalPanelBorderStyle}"
                                                 CornerRadius="{StaticResource RadiusCard}"
                                                 BorderThickness="1"
                                                 BorderBrush="{ThemeResource GlassEdgeBrush}"
@@ -366,29 +365,29 @@
                                                 <Border Visibility="{Binding Item.Remarks, Converter={StaticResource StringToVisibility}}"
                                                         Background="{ThemeResource GlassDarkBadgeBrush}"
                                                         BorderBrush="#2EFFFFFF" BorderThickness="1"
-                                                        CornerRadius="5"
-                                                        Padding="7,3"
+                                                        CornerRadius="5" Height="24"
+                                                        Padding="8,0"
                                                         HorizontalAlignment="Left" VerticalAlignment="Top"
                                                         Margin="9">
                                                     <TextBlock Text="{Binding Item.Remarks}"
                                                                Style="{StaticResource MetaText}"
                                                                FontWeight="SemiBold"
                                                                Foreground="{ThemeResource GlassDarkBadgeInkBrush}"
-                                                               MaxWidth="108" TextTrimming="CharacterEllipsis" />
+                                                               MaxWidth="108" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
                                                 </Border>
                                                 <Border Visibility="{Binding Rating, Converter={StaticResource StringToVisibility}}"
                                                         Background="{ThemeResource GlassDarkBadgeBrush}"
                                                         BorderBrush="#2EFFFFFF" BorderThickness="1"
-                                                        CornerRadius="5"
-                                                        Padding="7,3"
+                                                        CornerRadius="5" Height="24"
+                                                        Padding="8,0"
                                                         HorizontalAlignment="Right" VerticalAlignment="Top"
                                                         Margin="9">
-                                                    <StackPanel Orientation="Horizontal" Spacing="4">
+                                                    <StackPanel Orientation="Horizontal" Spacing="5" VerticalAlignment="Center">
                                                         <Ellipse Width="4.5" Height="4.5" Fill="{ThemeResource VermilionBrush}" VerticalAlignment="Center" />
                                                         <TextBlock Text="{Binding Rating}"
                                                                    Style="{StaticResource MonoMetaText}"
                                                                    FontWeight="SemiBold"
-                                                                   Foreground="{ThemeResource GlassDarkBadgeInkBrush}" />
+                                                                   Foreground="{ThemeResource GlassDarkBadgeInkBrush}" VerticalAlignment="Center" />
                                                     </StackPanel>
                                                 </Border>
                                                 <Grid x:Name="PlayOverlay" Background="#660B0B0D" Opacity="0">
@@ -396,7 +395,7 @@
                                                             Background="#E8F4F3EE" BorderBrush="#66FFFFFF" BorderThickness="1"
                                                             HorizontalAlignment="Center" VerticalAlignment="Center">
                                                         <controls:LineIcon PathData="{StaticResource IconPlaySolid}" IconSize="20" IsFilled="True"
-                                                                           Margin="2,0,0,0" Foreground="#0D0D10" />
+                                                                           Foreground="#0D0D10" />
                                                     </Border>
                                                 </Grid>
                                             </Grid>

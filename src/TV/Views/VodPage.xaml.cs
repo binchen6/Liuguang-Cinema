@@ -197,7 +197,7 @@ public sealed partial class VodPage : Page
         MotionService.Changed -= OnMotionPreferenceChanged;
         MotionService.Changed += OnMotionPreferenceChanged;
 
-        _postersScroll = SearchPage.FindScrollViewer(Posters);
+        _postersScroll = VisualTreeHelpers.FindDescendant<ScrollViewer>(Posters);
         if (_postersScroll is not null)
         {
             _postersScroll.ViewChanged -= OnBrowseScroll;
@@ -353,13 +353,13 @@ public sealed partial class VodPage : Page
             Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(args.ItemContainer, category.Name);
     }
 
+    private readonly CardHoverTracker _posterCards = new("PosterArt", withPlayOverlay: true);
+    private readonly CardHoverTracker _galleryCards = new("GalleryArt");
+
     private void OnPosterContainerChanging(ListViewBase sender, ContainerContentChangingEventArgs args)
     {
         if (args.ItemContainer.ContentTemplateRoot is FrameworkElement card)
-        {
-            var parts = GetCardParts(card, "PosterArt");
-            MotionService.ResetCard(card, parts.Overlay, parts.Badge, parts.Art);
-        }
+            _posterCards.Reset(card);
         if (!args.InRecycleQueue && args.Item is VodCardViewModel vm) _ = vm.LoadVisualAsync();
     }
 
@@ -383,63 +383,10 @@ public sealed partial class VodPage : Page
         if (sender is Button { DataContext: VodCardViewModel card }) ViewModel.SelectedCard = card;
     }
 
-    private sealed record CardParts(FrameworkElement? Overlay, FrameworkElement? Badge, FrameworkElement? Art);
-    private readonly System.Runtime.CompilerServices.ConditionalWeakTable<FrameworkElement, CardParts> _cardParts = new();
-
-    private CardParts GetCardParts(FrameworkElement card, string artName)
-    {
-        if (_cardParts.TryGetValue(card, out var parts) && (parts.Art is not null || parts.Overlay is not null)) return parts;
-        parts = new CardParts(FindDescendant(card, "PlayOverlay"), FindDescendant(card, "PlayBadge"), FindDescendant(card, artName));
-        if (parts.Art is not null || parts.Overlay is not null) _cardParts.AddOrUpdate(card, parts);
-        return parts;
-    }
-
-    private void OnFeaturedIn(object sender, PointerRoutedEventArgs e)
-    {
-        if (sender is not FrameworkElement element) return;
-        var parts = GetCardParts(element, "GalleryArt");
-        MotionService.SetCardHover(element, null, null, parts.Art, true);
-    }
-
-    private void OnFeaturedOut(object sender, PointerRoutedEventArgs e)
-    {
-        if (sender is not FrameworkElement element) return;
-        var parts = GetCardParts(element, "GalleryArt");
-        MotionService.SetCardHover(element, null, null, parts.Art, false);
-    }
-
-    private void OnCardIn(object sender, PointerRoutedEventArgs e)
-    {
-        if (sender is not FrameworkElement element) return;
-        var parts = GetCardParts(element, "PosterArt");
-        MotionService.SetCardHover(element, parts.Overlay, parts.Badge, parts.Art, true);
-    }
-
-    private void OnCardOut(object sender, PointerRoutedEventArgs e)
-    {
-        if (sender is not FrameworkElement element) return;
-        var parts = GetCardParts(element, "PosterArt");
-        MotionService.SetCardHover(element, parts.Overlay, parts.Badge, parts.Art, false);
-    }
-
-    private void OnCardPressed(object sender, PointerRoutedEventArgs e)
-    {
-        if (sender is FrameworkElement element) MotionService.SetCardPressed(element, true);
-    }
-
-    private void OnCardReleased(object sender, PointerRoutedEventArgs e)
-    {
-        if (sender is FrameworkElement element) MotionService.SetCardPressed(element, false);
-    }
-
-    private static FrameworkElement? FindDescendant(DependencyObject root, string name)
-    {
-        if (root is FrameworkElement element && element.Name == name) return element;
-        var count = VisualTreeHelper.GetChildrenCount(root);
-        for (var i = 0; i < count; i++)
-        {
-            if (FindDescendant(VisualTreeHelper.GetChild(root, i), name) is { } found) return found;
-        }
-        return null;
-    }
+    private void OnFeaturedIn(object sender, PointerRoutedEventArgs e) => _galleryCards.SetHovered(sender, true);
+    private void OnFeaturedOut(object sender, PointerRoutedEventArgs e) => _galleryCards.SetHovered(sender, false);
+    private void OnCardIn(object sender, PointerRoutedEventArgs e) => _posterCards.SetHovered(sender, true);
+    private void OnCardOut(object sender, PointerRoutedEventArgs e) => _posterCards.SetHovered(sender, false);
+    private void OnCardPressed(object sender, PointerRoutedEventArgs e) => CardHoverTracker.SetPressed(sender, true);
+    private void OnCardReleased(object sender, PointerRoutedEventArgs e) => CardHoverTracker.SetPressed(sender, false);
 }

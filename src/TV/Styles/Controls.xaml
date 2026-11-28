@@ -35,19 +35,19 @@
             <SolidColorBrush x:Key="CardStrokeColorDefaultSolidBrush" Color="#1E1E24" />
             <SolidColorBrush x:Key="DividerStrokeColorDefaultBrush" Color="#16FFFFFF" />
 
-            <!-- 光学磨砂浮层菜单与对话框底板 -->
-            <AcrylicBrush x:Key="FlyoutPresenterBackground" TintColor="#181A24" TintOpacity="0.68" TintLuminosityOpacity="0.78" FallbackColor="#EE161820" />
-            <AcrylicBrush x:Key="MenuFlyoutPresenterBackground" TintColor="#181A24" TintOpacity="0.70" TintLuminosityOpacity="0.80" FallbackColor="#F0161820" />
-            <LinearGradientBrush x:Key="MenuFlyoutPresenterBorderBrush" StartPoint="0.1,0" EndPoint="0.9,1">
-                <GradientStop Color="#44FFFFFF" Offset="0" />
-                <GradientStop Color="#1CFFFFFF" Offset="0.35" />
-                <GradientStop Color="#24FFFFFF" Offset="1" />
+            <!-- 月光透光玻璃浮层菜单与对话框底板（深色：低雾高通透 + 冷银切边） -->
+            <AcrylicBrush x:Key="FlyoutPresenterBackground" TintColor="#131722" TintOpacity="0.52" TintLuminosityOpacity="0.62" FallbackColor="#E8141822" />
+            <AcrylicBrush x:Key="MenuFlyoutPresenterBackground" TintColor="#131722" TintOpacity="0.54" TintLuminosityOpacity="0.64" FallbackColor="#EA141822" />
+            <LinearGradientBrush x:Key="MenuFlyoutPresenterBorderBrush" StartPoint="0.08,0" EndPoint="0.92,1">
+                <GradientStop Color="#56E8F4FF" Offset="0" />
+                <GradientStop Color="#22C4DCFF" Offset="0.36" />
+                <GradientStop Color="#30C8E0FF" Offset="1" />
             </LinearGradientBrush>
-            <AcrylicBrush x:Key="ContentDialogBackground" TintColor="#151720" TintOpacity="0.76" TintLuminosityOpacity="0.84" FallbackColor="#F514161E" />
-            <LinearGradientBrush x:Key="ContentDialogBorderBrush" StartPoint="0.1,0" EndPoint="0.9,1">
-                <GradientStop Color="#44FFFFFF" Offset="0" />
-                <GradientStop Color="#1CFFFFFF" Offset="0.35" />
-                <GradientStop Color="#24FFFFFF" Offset="1" />
+            <AcrylicBrush x:Key="ContentDialogBackground" TintColor="#121621" TintOpacity="0.62" TintLuminosityOpacity="0.72" FallbackColor="#F0131721" />
+            <LinearGradientBrush x:Key="ContentDialogBorderBrush" StartPoint="0.08,0" EndPoint="0.92,1">
+                <GradientStop Color="#58E8F4FF" Offset="0" />
+                <GradientStop Color="#24C4DCFF" Offset="0.36" />
+                <GradientStop Color="#32C8E0FF" Offset="1" />
             </LinearGradientBrush>
 
             <!-- 填充与描边 -->
@@ -70,29 +70,29 @@
             <SolidColorBrush x:Key="AccentFillColorTertiaryBrush" Color="#CE3A2B" />
             <SolidColorBrush x:Key="AccentFillColorDisabledBrush" Color="#24FFFFFF" />
 
-            <!-- 次级按钮（轻透光学晶体质感 + 顶部受光倒角描边） -->
+            <!-- 次级按钮（月光清透晶体质感 + 冷银受光倒角描边） -->
             <LinearGradientBrush x:Key="ButtonBackground" StartPoint="0,0" EndPoint="0,1">
-                <GradientStop Color="#18FFFFFF" Offset="0" />
-                <GradientStop Color="#0EFFFFFF" Offset="1" />
+                <GradientStop Color="#1CE6F2FF" Offset="0" />
+                <GradientStop Color="#0CC4DCFF" Offset="1" />
             </LinearGradientBrush>
             <LinearGradientBrush x:Key="ButtonBackgroundPointerOver" StartPoint="0,0" EndPoint="0,1">
-                <GradientStop Color="#24FFFFFF" Offset="0" />
-                <GradientStop Color="#17FFFFFF" Offset="1" />
+                <GradientStop Color="#2AEAF4FF" Offset="0" />
+                <GradientStop Color="#16CCE2FF" Offset="1" />
             </LinearGradientBrush>
-            <SolidColorBrush x:Key="ButtonBackgroundPressed" Color="#0EFFFFFF" />
+            <SolidColorBrush x:Key="ButtonBackgroundPressed" Color="#10C6DEFF" />
             <SolidColorBrush x:Key="ButtonBackgroundDisabled" Color="#08FFFFFF" />
             <SolidColorBrush x:Key="ButtonForeground" Color="#F4F3EE" />
             <SolidColorBrush x:Key="ButtonForegroundPointerOver" Color="#FFFFFF" />
             <SolidColorBrush x:Key="ButtonForegroundPressed" Color="#D2D2DA" />
             <SolidColorBrush x:Key="ButtonForegroundDisabled" Color="#666F6F7A" />
             <LinearGradientBrush x:Key="ButtonBorderBrush" StartPoint="0,0" EndPoint="0,1">
-                <GradientStop Color="#36FFFFFF" Offset="0" />
-                <GradientStop Color="#18FFFFFF" Offset="0.55" />
-                <GradientStop Color="#1EFFFFFF" Offset="1" />
+                <GradientStop Color="#46E8F4FF" Offset="0" />
+                <GradientStop Color="#1EC4DCFF" Offset="0.55" />
+                <GradientStop Color="#26C8E0FF" Offset="1" />
             </LinearGradientBrush>
             <LinearGradientBrush x:Key="ButtonBorderBrushPointerOver" StartPoint="0,0" EndPoint="0,1">
-                <GradientStop Color="#52FFFFFF" Offset="0" />
-                <GradientStop Color="#26FFFFFF" Offset="1" />
+                <GradientStop Color="#66EEF6FF" Offset="0" />
+                <GradientStop Color="#30CCE2FF" Offset="1" />
             </LinearGradientBrush>
             <SolidColorBrush x:Key="ButtonBorderBrushPressed" Color="#1CFFFFFF" />
             <SolidColorBrush x:Key="ButtonBorderBrushDisabled" Color="#0FFFFFFF" />
@@ -355,6 +355,7 @@
                 <ControlTemplate TargetType="Button">
                     <Border x:Name="RootBorder"
                             Background="{TemplateBinding Background}"
+                            BackgroundSizing="OuterBorderEdge"
                             BorderBrush="{TemplateBinding BorderBrush}"
                             BorderThickness="{TemplateBinding BorderThickness}"
                             CornerRadius="{TemplateBinding CornerRadius}"
@@ -402,10 +403,13 @@
         <Setter Property="FontWeight" Value="Medium" />
         <Setter Property="CornerRadius" Value="{StaticResource RadiusControl}" />
         <Setter Property="HorizontalContentAlignment" Value="Center" />
+        <Setter Property="VerticalContentAlignment" Value="Center" />
     </Style>
 
-    <!-- 纯文字操作 -->
+    <!-- 纯文字操作（接入轻度玻璃光影，居中对齐） -->
     <Style x:Key="GhostButtonStyle" TargetType="Button" BasedOn="{StaticResource DefaultButtonStyle}">
+        <Setter Property="controls:GlassOpticsEngine.Mode" Value="Interactive" />
+        <Setter Property="controls:GlassOpticsEngine.Profile" Value="Control" />
         <Setter Property="Background" Value="Transparent" />
         <Setter Property="BorderThickness" Value="0" />
         <Setter Property="Height" Value="{StaticResource SecondaryButtonHeight}" />
@@ -413,10 +417,12 @@
         <Setter Property="Padding" Value="12,0" />
         <Setter Property="FontSize" Value="{StaticResource FontSizeSecondary}" />
         <Setter Property="CornerRadius" Value="{StaticResource RadiusControl}" />
+        <Setter Property="HorizontalContentAlignment" Value="Center" />
+        <Setter Property="VerticalContentAlignment" Value="Center" />
     </Style>
 
-    <!-- 图标按钮 40×40（轻透玻璃光学反应） -->
-    <Style x:Key="IconButtonStyle" TargetType="Button" BasedOn="{StaticResource DefaultButtonStyle}">
+    <!-- 图标按钮 40×40（轻透玻璃光学反应 + 严格几何居中模板） -->
+    <Style x:Key="IconButtonStyle" TargetType="Button">
         <Setter Property="controls:GlassOpticsEngine.Mode" Value="Interactive" />
         <Setter Property="controls:GlassOpticsEngine.Profile" Value="Control" />
         <Setter Property="Width" Value="{StaticResource IconButtonSize}" />
@@ -424,9 +430,231 @@
         <Setter Property="MinWidth" Value="{StaticResource IconButtonSize}" />
         <Setter Property="MinHeight" Value="{StaticResource IconButtonSize}" />
         <Setter Property="Padding" Value="0" />
+        <Setter Property="Background" Value="{ThemeResource ButtonBackground}" />
+        <Setter Property="Foreground" Value="{ThemeResource ButtonForeground}" />
+        <Setter Property="BorderBrush" Value="{ThemeResource ButtonBorderBrush}" />
+        <Setter Property="BorderThickness" Value="1" />
         <Setter Property="CornerRadius" Value="{StaticResource RadiusControl}" />
         <Setter Property="HorizontalContentAlignment" Value="Center" />
         <Setter Property="VerticalContentAlignment" Value="Center" />
+        <Setter Property="UseSystemFocusVisuals" Value="True" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Button">
+                    <Border x:Name="RootBorder"
+                            Background="{TemplateBinding Background}"
+                            BorderBrush="{TemplateBinding BorderBrush}"
+                            BorderThickness="{TemplateBinding BorderThickness}"
+                            CornerRadius="{TemplateBinding CornerRadius}"
+                            Padding="{TemplateBinding Padding}">
+                        <ContentPresenter x:Name="ContentPresenter"
+                                          Content="{TemplateBinding Content}"
+                                          ContentTemplate="{TemplateBinding ContentTemplate}"
+                                          Foreground="{TemplateBinding Foreground}"
+                                          HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                          VerticalAlignment="{TemplateBinding VerticalContentAlignment}" />
+                        <VisualStateManager.VisualStateGroups>
+                            <VisualStateGroup x:Name="CommonStates">
+                                <VisualState x:Name="Normal" />
+                                <VisualState x:Name="PointerOver">
+                                    <VisualState.Setters>
+                                        <Setter Target="RootBorder.Background" Value="{ThemeResource ButtonBackgroundPointerOver}" />
+                                        <Setter Target="RootBorder.BorderBrush" Value="{ThemeResource ButtonBorderBrushPointerOver}" />
+                                        <Setter Target="ContentPresenter.Foreground" Value="{ThemeResource ButtonForegroundPointerOver}" />
+                                    </VisualState.Setters>
+                                </VisualState>
+                                <VisualState x:Name="Pressed">
+                                    <VisualState.Setters>
+                                        <Setter Target="RootBorder.Background" Value="{ThemeResource ButtonBackgroundPressed}" />
+                                        <Setter Target="RootBorder.BorderBrush" Value="{ThemeResource ButtonBorderBrushPressed}" />
+                                        <Setter Target="ContentPresenter.Foreground" Value="{ThemeResource ButtonForegroundPressed}" />
+                                    </VisualState.Setters>
+                                </VisualState>
+                                <VisualState x:Name="Disabled">
+                                    <VisualState.Setters>
+                                        <Setter Target="RootBorder.Opacity" Value="0.42" />
+                                    </VisualState.Setters>
+                                </VisualState>
+                            </VisualStateGroup>
+                        </VisualStateManager.VisualStateGroups>
+                    </Border>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- 全站光学玻璃下拉按钮（统一替代默认 DropDownButton 与 AnchoredChoice，严格居中对齐与清晰箭头） -->
+    <Style x:Key="GlassDropDownButtonStyle" TargetType="DropDownButton">
+        <Setter Property="controls:GlassOpticsEngine.Mode" Value="Interactive" />
+        <Setter Property="controls:GlassOpticsEngine.Profile" Value="Control" />
+        <Setter Property="Height" Value="{StaticResource SecondaryButtonHeight}" />
+        <Setter Property="MinHeight" Value="{StaticResource SecondaryButtonHeight}" />
+        <Setter Property="Padding" Value="14,0,12,0" />
+        <Setter Property="FontFamily" Value="{StaticResource BodyFontFamily}" />
+        <Setter Property="FontSize" Value="{StaticResource FontSizeSecondary}" />
+        <Setter Property="FontWeight" Value="Medium" />
+        <Setter Property="Background" Value="{ThemeResource ButtonBackground}" />
+        <Setter Property="Foreground" Value="{ThemeResource ButtonForeground}" />
+        <Setter Property="BorderBrush" Value="{ThemeResource ButtonBorderBrush}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="CornerRadius" Value="{StaticResource RadiusControl}" />
+        <Setter Property="HorizontalContentAlignment" Value="Center" />
+        <Setter Property="VerticalContentAlignment" Value="Center" />
+        <Setter Property="UseSystemFocusVisuals" Value="True" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="DropDownButton">
+                    <Border x:Name="RootBorder"
+                            Background="{TemplateBinding Background}"
+                            BorderBrush="{TemplateBinding BorderBrush}"
+                            BorderThickness="{TemplateBinding BorderThickness}"
+                            CornerRadius="{TemplateBinding CornerRadius}"
+                            Padding="{TemplateBinding Padding}">
+                        <Grid ColumnSpacing="8">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <ContentPresenter x:Name="ContentPresenter"
+                                              Content="{TemplateBinding Content}"
+                                              ContentTemplate="{TemplateBinding ContentTemplate}"
+                                              Foreground="{TemplateBinding Foreground}"
+                                              HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                              VerticalAlignment="{TemplateBinding VerticalContentAlignment}" />
+                            <Path x:Name="ChevronGlyph" Grid.Column="1"
+                                  Data="M 0.5,1 L 4.5,5 L 8.5,1"
+                                  Width="9" Height="6"
+                                  Stroke="{TemplateBinding Foreground}" StrokeThickness="1.35" Opacity="0.72"
+                                  StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"
+                                  HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Grid>
+                        <VisualStateManager.VisualStateGroups>
+                            <VisualStateGroup x:Name="CommonStates">
+                                <VisualState x:Name="Normal" />
+                                <VisualState x:Name="PointerOver">
+                                    <VisualState.Setters>
+                                        <Setter Target="RootBorder.Background" Value="{ThemeResource ButtonBackgroundPointerOver}" />
+                                        <Setter Target="RootBorder.BorderBrush" Value="{ThemeResource ButtonBorderBrushPointerOver}" />
+                                        <Setter Target="ContentPresenter.Foreground" Value="{ThemeResource ButtonForegroundPointerOver}" />
+                                        <Setter Target="ChevronGlyph.Opacity" Value="0.95" />
+                                    </VisualState.Setters>
+                                </VisualState>
+                                <VisualState x:Name="Pressed">
+                                    <VisualState.Setters>
+                                        <Setter Target="RootBorder.Background" Value="{ThemeResource ButtonBackgroundPressed}" />
+                                        <Setter Target="RootBorder.BorderBrush" Value="{ThemeResource ButtonBorderBrushPressed}" />
+                                        <Setter Target="ContentPresenter.Foreground" Value="{ThemeResource ButtonForegroundPressed}" />
+                                    </VisualState.Setters>
+                                </VisualState>
+                                <VisualState x:Name="Disabled">
+                                    <VisualState.Setters>
+                                        <Setter Target="RootBorder.Opacity" Value="0.42" />
+                                    </VisualState.Setters>
+                                </VisualState>
+                            </VisualStateGroup>
+                        </VisualStateManager.VisualStateGroups>
+                    </Border>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+    <Style TargetType="DropDownButton" BasedOn="{StaticResource GlassDropDownButtonStyle}" />
+
+    <!-- 数学严格居中光学玻璃滑块（消除 WinUI 默认 Slider 的轨道与圆点偏心及时间码错位） -->
+    <Style x:Key="GlassSliderThumbStyle" TargetType="Thumb">
+        <Setter Property="Width" Value="18" />
+        <Setter Property="Height" Value="18" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Thumb">
+                    <Border x:Name="ThumbOuter" Width="18" Height="18" CornerRadius="9"
+                            Background="#F6FFFFFF" BorderBrush="#66FFFFFF" BorderThickness="1">
+                        <Ellipse x:Name="ThumbCore" Width="8" Height="8"
+                                 Fill="{ThemeResource VermilionBrush}"
+                                 HorizontalAlignment="Center" VerticalAlignment="Center" />
+                    </Border>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+    <Style x:Key="GlassSliderStyle" TargetType="Slider">
+        <Setter Property="MinHeight" Value="24" />
+        <Setter Property="Height" Value="24" />
+        <Setter Property="Background" Value="#40FFFFFF" />
+        <Setter Property="Foreground" Value="{ThemeResource VermilionBrush}" />
+        <Setter Property="VerticalAlignment" Value="Center" />
+        <Setter Property="HorizontalAlignment" Value="Stretch" />
+        <Setter Property="IsThumbToolTipEnabled" Value="False" />
+        <Setter Property="UseSystemFocusVisuals" Value="True" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Slider">
+                    <Grid Margin="{TemplateBinding Padding}" VerticalAlignment="Center">
+                        <ContentPresenter x:Name="HeaderContentPresenter"
+                                          Content="{TemplateBinding Header}"
+                                          ContentTemplate="{TemplateBinding HeaderTemplate}"
+                                          Visibility="Collapsed" />
+                        <Grid x:Name="SliderContainer" Background="Transparent" Control.IsTemplateFocusTarget="True"
+                              VerticalAlignment="Center" Height="24">
+                            <Grid x:Name="HorizontalTemplate" VerticalAlignment="Center" Height="24">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <Rectangle x:Name="HorizontalTrackRect" Grid.ColumnSpan="3"
+                                           Height="4" RadiusX="2" RadiusY="2"
+                                           Fill="{TemplateBinding Background}"
+                                           VerticalAlignment="Center" />
+                                <Rectangle x:Name="HorizontalDecreaseRect" Grid.Column="0"
+                                           Height="4" RadiusX="2" RadiusY="2"
+                                           Fill="{TemplateBinding Foreground}"
+                                           VerticalAlignment="Center" />
+                                <Thumb x:Name="HorizontalThumb" Grid.Column="1"
+                                       Style="{StaticResource GlassSliderThumbStyle}"
+                                       VerticalAlignment="Center" HorizontalAlignment="Center"
+                                       AutomationProperties.AccessibilityView="Raw" />
+                            </Grid>
+                            <Grid x:Name="VerticalTemplate" Visibility="Collapsed">
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="*" />
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                </Grid.RowDefinitions>
+                                <Rectangle x:Name="VerticalTrackRect" Grid.RowSpan="3" Width="4" RadiusX="2" RadiusY="2"
+                                           Fill="{TemplateBinding Background}" HorizontalAlignment="Center" />
+                                <Rectangle x:Name="VerticalDecreaseRect" Grid.Row="2" Width="4" RadiusX="2" RadiusY="2"
+                                           Fill="{TemplateBinding Foreground}" HorizontalAlignment="Center" />
+                                <Thumb x:Name="VerticalThumb" Grid.Row="1"
+                                       Style="{StaticResource GlassSliderThumbStyle}"
+                                       HorizontalAlignment="Center" VerticalAlignment="Center"
+                                       AutomationProperties.AccessibilityView="Raw" />
+                            </Grid>
+                        </Grid>
+                        <VisualStateManager.VisualStateGroups>
+                            <VisualStateGroup x:Name="CommonStates">
+                                <VisualState x:Name="Normal" />
+                                <VisualState x:Name="PointerOver">
+                                    <VisualState.Setters>
+                                        <Setter Target="HorizontalTrackRect.Fill" Value="#5CFFFFFF" />
+                                    </VisualState.Setters>
+                                </VisualState>
+                                <VisualState x:Name="Pressed">
+                                    <VisualState.Setters>
+                                        <Setter Target="HorizontalTrackRect.Fill" Value="#6CFFFFFF" />
+                                    </VisualState.Setters>
+                                </VisualState>
+                                <VisualState x:Name="Disabled">
+                                    <VisualState.Setters>
+                                        <Setter Target="SliderContainer.Opacity" Value="0.38" />
+                                    </VisualState.Setters>
+                                </VisualState>
+                            </VisualStateGroup>
+                        </VisualStateManager.VisualStateGroups>
+                    </Grid>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
     </Style>
 
     <!-- 五层光学磨砂玻璃通用控件模板与风格预设（Controls/GlassSurface） -->
@@ -569,8 +797,8 @@
                                               Content="{TemplateBinding Content}"
                                               ContentTemplate="{TemplateBinding ContentTemplate}"
                                               Foreground="{TemplateBinding Foreground}"
-                                              HorizontalContentAlignment="{TemplateBinding HorizontalContentAlignment}"
-                                              VerticalContentAlignment="{TemplateBinding VerticalContentAlignment}" />
+                                              HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                              VerticalAlignment="{TemplateBinding VerticalContentAlignment}" />
                         </Grid>
                         <VisualStateManager.VisualStateGroups>
                             <VisualStateGroup x:Name="CommonStates">
@@ -598,7 +826,67 @@
         </Setter>
     </Style>
 
-    <!-- 播放器通透玻璃图标按钮（悬停/按压呈现清透玻璃光晕胶囊） -->
+    <!-- 播放器主播放/暂停键：清透珠光晶白玻璃圆钮（视频/音乐播放器共用） -->
+    <Style x:Key="PlayerPrimaryTransportStyle" TargetType="Button">
+        <Setter Property="controls:GlassOpticsEngine.Mode" Value="Interactive" />
+        <Setter Property="controls:GlassOpticsEngine.Profile" Value="Control" />
+        <Setter Property="controls:GlassOpticsEngine.RadiusOverride" Value="19" />
+        <Setter Property="Width" Value="38" />
+        <Setter Property="Height" Value="38" />
+        <Setter Property="MinWidth" Value="38" />
+        <Setter Property="MinHeight" Value="38" />
+        <Setter Property="Padding" Value="0" />
+        <Setter Property="CornerRadius" Value="19" />
+        <Setter Property="Background" Value="#DDF8F7F2" />
+        <Setter Property="BorderBrush" Value="#8AFFFFFF" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="Foreground" Value="#0D0D10" />
+        <Setter Property="HorizontalContentAlignment" Value="Center" />
+        <Setter Property="VerticalContentAlignment" Value="Center" />
+        <Setter Property="UseSystemFocusVisuals" Value="True" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Button">
+                    <Border x:Name="RootBorder"
+                            Background="{TemplateBinding Background}"
+                            BorderBrush="{TemplateBinding BorderBrush}"
+                            BorderThickness="{TemplateBinding BorderThickness}"
+                            CornerRadius="{TemplateBinding CornerRadius}"
+                            Padding="{TemplateBinding Padding}">
+                        <ContentPresenter x:Name="ContentPresenter"
+                                          Content="{TemplateBinding Content}"
+                                          ContentTemplate="{TemplateBinding ContentTemplate}"
+                                          Foreground="{TemplateBinding Foreground}"
+                                          HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                          VerticalAlignment="{TemplateBinding VerticalContentAlignment}" />
+                        <VisualStateManager.VisualStateGroups>
+                            <VisualStateGroup x:Name="CommonStates">
+                                <VisualState x:Name="Normal" />
+                                <VisualState x:Name="PointerOver">
+                                    <VisualState.Setters>
+                                        <Setter Target="RootBorder.Background" Value="#F8FFFFFF" />
+                                        <Setter Target="RootBorder.BorderBrush" Value="#A8FFFFFF" />
+                                    </VisualState.Setters>
+                                </VisualState>
+                                <VisualState x:Name="Pressed">
+                                    <VisualState.Setters>
+                                        <Setter Target="RootBorder.Background" Value="#C8DDDAD2" />
+                                    </VisualState.Setters>
+                                </VisualState>
+                                <VisualState x:Name="Disabled">
+                                    <VisualState.Setters>
+                                        <Setter Target="RootBorder.Opacity" Value="0.42" />
+                                    </VisualState.Setters>
+                                </VisualState>
+                            </VisualStateGroup>
+                        </VisualStateManager.VisualStateGroups>
+                    </Border>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- 播放器通透玻璃图标按钮（悬停/按压呈现清透玻璃光晕胶囊，单层描边+绝对居中） -->
     <Style x:Key="PlayerIconButtonStyle" TargetType="Button">
         <Setter Property="controls:GlassOpticsEngine.Mode" Value="Interactive" />
         <Setter Property="controls:GlassOpticsEngine.Profile" Value="Cinema" />
@@ -611,7 +899,7 @@
         <Setter Property="CornerRadius" Value="19" />
         <Setter Property="Background" Value="Transparent" />
         <Setter Property="BorderBrush" Value="Transparent" />
-        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="BorderThickness" Value="0" />
         <Setter Property="Foreground" Value="#FFF8F7F2" />
         <Setter Property="HorizontalContentAlignment" Value="Center" />
         <Setter Property="VerticalContentAlignment" Value="Center" />
@@ -633,10 +921,10 @@
                         <ContentPresenter x:Name="ContentPresenter"
                                           Content="{TemplateBinding Content}"
                                           ContentTemplate="{TemplateBinding ContentTemplate}"
-                                          Padding="{TemplateBinding Padding}"
+                                          Margin="{TemplateBinding Padding}"
                                           Foreground="{TemplateBinding Foreground}"
-                                          HorizontalContentAlignment="{TemplateBinding HorizontalContentAlignment}"
-                                          VerticalContentAlignment="{TemplateBinding VerticalContentAlignment}" />
+                                          HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                          VerticalAlignment="{TemplateBinding VerticalContentAlignment}" />
                         <VisualStateManager.VisualStateGroups>
                             <VisualStateGroup x:Name="CommonStates">
                                 <VisualState x:Name="Normal" />
@@ -665,20 +953,20 @@
         </Setter>
     </Style>
 
-    <!-- 播放器通透玻璃下拉胶囊按钮（倍速 / 画质 / 跳过，无磨砂、清透光学高光态 + 专属光学折射） -->
+    <!-- 播放器通透玻璃下拉胶囊按钮（倍速 / 画质 / 跳过 / 封面与歌词，36 高，严格居中对齐） -->
     <Style x:Key="PlayerDropDownButtonStyle" TargetType="DropDownButton">
         <Setter Property="controls:GlassOpticsEngine.Mode" Value="Interactive" />
         <Setter Property="controls:GlassOpticsEngine.Profile" Value="Cinema" />
-        <Setter Property="controls:GlassOpticsEngine.RadiusOverride" Value="17" />
-        <Setter Property="Height" Value="34" />
-        <Setter Property="MinHeight" Value="34" />
-        <Setter Property="Padding" Value="11,0,9,0" />
-        <Setter Property="CornerRadius" Value="17" />
-        <Setter Property="Background" Value="#1AFFFFFF" />
-        <Setter Property="BorderBrush" Value="#30FFFFFF" />
+        <Setter Property="controls:GlassOpticsEngine.RadiusOverride" Value="18" />
+        <Setter Property="Height" Value="36" />
+        <Setter Property="MinHeight" Value="36" />
+        <Setter Property="Padding" Value="12,0,10,0" />
+        <Setter Property="CornerRadius" Value="18" />
+        <Setter Property="Background" Value="#1EFFFFFF" />
+        <Setter Property="BorderBrush" Value="#34FFFFFF" />
         <Setter Property="BorderThickness" Value="1" />
         <Setter Property="Foreground" Value="#FFF8F7F2" />
-        <Setter Property="FontSize" Value="12.5" />
+        <Setter Property="FontSize" Value="{StaticResource FontSizeMeta}" />
         <Setter Property="FontWeight" Value="Medium" />
         <Setter Property="HorizontalContentAlignment" Value="Center" />
         <Setter Property="VerticalContentAlignment" Value="Center" />
@@ -692,7 +980,7 @@
                           BorderThickness="{TemplateBinding BorderThickness}"
                           CornerRadius="{TemplateBinding CornerRadius}"
                           Padding="{TemplateBinding Padding}">
-                        <StackPanel Orientation="Horizontal" Spacing="5"
+                        <StackPanel Orientation="Horizontal" Spacing="6"
                                     HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
                                     VerticalAlignment="{TemplateBinding VerticalContentAlignment}">
                             <ContentPresenter x:Name="ContentPresenter"
@@ -702,9 +990,9 @@
                                               VerticalAlignment="Center" />
                             <Path Data="M 0.5,1 L 4,4.5 L 7.5,1"
                                   Width="8" Height="5.5"
-                                  Stroke="#CCF8F7F2" StrokeThickness="1.35"
+                                  Stroke="#D8F8F7F2" StrokeThickness="1.35"
                                   StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"
-                                  VerticalAlignment="Center" Margin="0,1,0,0" />
+                                  VerticalAlignment="Center" />
                         </StackPanel>
                         <VisualStateManager.VisualStateGroups>
                             <VisualStateGroup x:Name="CommonStates">
@@ -795,6 +1083,8 @@
 
     <!-- 输入框与下拉全站光学对齐 -->
     <Style TargetType="TextBox" BasedOn="{StaticResource DefaultTextBoxStyle}">
+        <Setter Property="controls:GlassOpticsEngine.Mode" Value="Interactive" />
+        <Setter Property="controls:GlassOpticsEngine.Profile" Value="Control" />
         <Setter Property="MinHeight" Value="{StaticResource InputHeight}" />
         <Setter Property="FontSize" Value="{StaticResource FontSizeBody}" />
         <Setter Property="CornerRadius" Value="{StaticResource RadiusControl}" />
@@ -802,6 +1092,8 @@
         <Setter Property="VerticalContentAlignment" Value="Center" />
     </Style>
     <Style TargetType="PasswordBox" BasedOn="{StaticResource DefaultPasswordBoxStyle}">
+        <Setter Property="controls:GlassOpticsEngine.Mode" Value="Interactive" />
+        <Setter Property="controls:GlassOpticsEngine.Profile" Value="Control" />
         <Setter Property="MinHeight" Value="{StaticResource InputHeight}" />
         <Setter Property="FontSize" Value="{StaticResource FontSizeBody}" />
         <Setter Property="CornerRadius" Value="{StaticResource RadiusControl}" />
@@ -809,8 +1101,25 @@
         <Setter Property="VerticalContentAlignment" Value="Center" />
     </Style>
     <Style TargetType="ComboBox" BasedOn="{StaticResource DefaultComboBoxStyle}">
+        <Setter Property="controls:GlassOpticsEngine.Mode" Value="Interactive" />
+        <Setter Property="controls:GlassOpticsEngine.Profile" Value="Control" />
         <Setter Property="MinHeight" Value="{StaticResource MenuItemHeight}" />
         <Setter Property="FontSize" Value="{StaticResource FontSizeBody}" />
         <Setter Property="CornerRadius" Value="{StaticResource RadiusControl}" />
+        <Setter Property="VerticalContentAlignment" Value="Center" />
+    </Style>
+    <Style TargetType="NumberBox" BasedOn="{StaticResource DefaultNumberBoxStyle}">
+        <Setter Property="controls:GlassOpticsEngine.Mode" Value="Interactive" />
+        <Setter Property="controls:GlassOpticsEngine.Profile" Value="Control" />
+        <Setter Property="MinHeight" Value="{StaticResource MenuItemHeight}" />
+        <Setter Property="CornerRadius" Value="{StaticResource RadiusControl}" />
+    </Style>
+    <Style TargetType="ToggleButton" BasedOn="{StaticResource DefaultToggleButtonStyle}">
+        <Setter Property="controls:GlassOpticsEngine.Mode" Value="Interactive" />
+        <Setter Property="controls:GlassOpticsEngine.Profile" Value="Control" />
+        <Setter Property="MinHeight" Value="{StaticResource SecondaryButtonHeight}" />
+        <Setter Property="CornerRadius" Value="{StaticResource RadiusControl}" />
+        <Setter Property="HorizontalContentAlignment" Value="Center" />
+        <Setter Property="VerticalContentAlignment" Value="Center" />
     </Style>
 </ResourceDictionary>

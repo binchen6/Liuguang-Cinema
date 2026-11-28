@@ -168,19 +168,7 @@ public sealed partial class PlayerPage : Page
 
     private UIElement? ResolveVideoSwapChainPanel()
     {
-        if (_videoSwapChainPanel is not null) return _videoSwapChainPanel;
-        static UIElement? FindSwapChain(DependencyObject root)
-        {
-            var count = VisualTreeHelper.GetChildrenCount(root);
-            for (var i = 0; i < count; i++)
-            {
-                var child = VisualTreeHelper.GetChild(root, i);
-                if (child is SwapChainPanel panel) return panel;
-                if (FindSwapChain(child) is { } found) return found;
-            }
-            return null;
-        }
-        _videoSwapChainPanel = VideoView is { } view ? FindSwapChain(view) : null;
+        _videoSwapChainPanel ??= VisualTreeHelpers.FindDescendant<SwapChainPanel>(VideoView);
         return _videoSwapChainPanel;
     }
 

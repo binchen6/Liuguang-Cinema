@@ -11,7 +11,7 @@ namespace TV.Views;
 public sealed partial class LibraryPage : Page
 {
     private readonly NavigationRailController _segmentNav;
-    private readonly System.Runtime.CompilerServices.ConditionalWeakTable<FrameworkElement, FrameworkElement?> _watchArts = new();
+    private readonly CardHoverTracker _watchCards = new("WatchArt");
 
     public LibraryPage()
     {
@@ -83,47 +83,16 @@ public sealed partial class LibraryPage : Page
         }
     }
 
-    private FrameworkElement? GetWatchArt(FrameworkElement card)
-    {
-        if (_watchArts.TryGetValue(card, out var cached) && cached is not null) return cached;
-        var found = FindDescendant(card, "WatchArt");
-        if (found is not null) _watchArts.AddOrUpdate(card, found);
-        return found;
-    }
-
-    private static FrameworkElement? FindDescendant(DependencyObject root, string name)
-    {
-        if (root is FrameworkElement fe && fe.Name == name) return fe;
-        for (var i = 0; i < VisualTreeHelper.GetChildrenCount(root); i++)
-            if (FindDescendant(VisualTreeHelper.GetChild(root, i), name) is { } found) return found;
-        return null;
-    }
-
     private void OnWatchContainerChanging(ListViewBase sender, ContainerContentChangingEventArgs e)
     {
         if (e.ItemContainer.ContentTemplateRoot is FrameworkElement card)
-            MotionService.ResetCard(card, artworkZoom: GetWatchArt(card));
+            _watchCards.Reset(card);
     }
 
-    private void OnWatchCardIn(object sender, PointerRoutedEventArgs e)
-    {
-        if (sender is FrameworkElement fe) MotionService.SetCardHover(fe, null, null, GetWatchArt(fe), true);
-    }
-
-    private void OnWatchCardOut(object sender, PointerRoutedEventArgs e)
-    {
-        if (sender is FrameworkElement fe) MotionService.SetCardHover(fe, null, null, GetWatchArt(fe), false);
-    }
-
-    private void OnWatchCardPressed(object sender, PointerRoutedEventArgs e)
-    {
-        if (sender is FrameworkElement fe) MotionService.SetCardPressed(fe, true);
-    }
-
-    private void OnWatchCardReleased(object sender, PointerRoutedEventArgs e)
-    {
-        if (sender is FrameworkElement fe) MotionService.SetCardPressed(fe, false);
-    }
+    private void OnWatchCardIn(object sender, PointerRoutedEventArgs e) => _watchCards.SetHovered(sender, true);
+    private void OnWatchCardOut(object sender, PointerRoutedEventArgs e) => _watchCards.SetHovered(sender, false);
+    private void OnWatchCardPressed(object sender, PointerRoutedEventArgs e) => CardHoverTracker.SetPressed(sender, true);
+    private void OnWatchCardReleased(object sender, PointerRoutedEventArgs e) => CardHoverTracker.SetPressed(sender, false);
 
     private void OnHistoryClick(object sender, ItemClickEventArgs e) => ViewModel.OpenHistoryCommand.Execute(e.ClickedItem as HistoryEntry);
     private void OnFavoriteClick(object sender, ItemClickEventArgs e) => ViewModel.OpenFavoriteCommand.Execute(e.ClickedItem as FavoriteEntry);

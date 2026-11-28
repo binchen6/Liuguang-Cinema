@@ -284,7 +284,6 @@ public sealed partial class MainWindow : Window
 
     private bool _syncingNav;
     private static readonly string[] PrimaryTags = { "vod", "live", "library", "cloud", "cast" };
-    private static readonly Windows.UI.ViewManagement.AccessibilitySettings Accessibility = new();
     private double _cachedWidePaneWidth;
 
     private void SyncNavSelection(string tag)
@@ -314,26 +313,10 @@ public sealed partial class MainWindow : Window
     private void UpdateSettingsButtonForeground(bool active)
     {
         var key = active ? "NavItemSelectedForegroundBrush" : "NavItemForegroundBrush";
-        if (ResolveThemeBrush(key) is { } brush)
+        if (ThemeResources.ResolveThemeBrush(ShellRoot, key) is { } brush)
             SettingsButton.Foreground = brush;
         else
             SettingsButton.ClearValue(Control.ForegroundProperty);
-    }
-
-    private Brush? ResolveThemeBrush(string key)
-    {
-        var themeKey = Accessibility.HighContrast
-            ? "HighContrast"
-            : ShellRoot.ActualTheme == ElementTheme.Light ? "Light" : "Default";
-        foreach (var dict in Application.Current.Resources.MergedDictionaries)
-        {
-            if (dict.ThemeDictionaries.TryGetValue(themeKey, out var themed) &&
-                themed is ResourceDictionary rd &&
-                rd.TryGetValue(key, out var raw) &&
-                raw is Brush brush)
-                return brush;
-        }
-        return Application.Current.Resources.TryGetValue(key, out var fallback) ? fallback as Brush : null;
     }
 
     private FrameworkElement? ResolveActiveNavTarget()
@@ -488,7 +471,7 @@ public sealed partial class MainWindow : Window
         if (!AppWindowTitleBar.IsCustomizationSupported()) return;
         Windows.UI.Color? foreground = null;
         Windows.UI.Color? inactiveForeground = null;
-        if (!Accessibility.HighContrast)
+        if (!ThemeResources.IsHighContrast)
         {
             // 与 Styles/Tokens.xaml 的 PrimaryTextBrush / SecondaryTextBrush 保持一致。
             if (ShellRoot.ActualTheme == ElementTheme.Light)
@@ -607,7 +590,7 @@ public sealed partial class MainWindow : Window
                 UseShellExecute = true,
                 WorkingDirectory = AppPaths.Root
             };
-            foreach (var argument in new[] { "/SILENT", "/NORESTART", "/CLOSEAPPLICATIONS" }) start.ArgumentList.Add(argument);
+            foreach (var argument in new[] { "/SILENT", "/NORESTART", "/CLOSEAPPLICATIONS", "/RELAUNCH" }) start.ArgumentList.Add(argument);
             start.ArgumentList.Add("/DIR=" + AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar));
             start.ArgumentList.Add("/LOG=" + Path.Combine(AppPaths.Root, "update-install.log"));
             if (System.Diagnostics.Process.Start(start) is null) throw new InvalidOperationException("无法启动安装程序。");

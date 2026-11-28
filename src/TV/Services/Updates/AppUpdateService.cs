@@ -15,7 +15,7 @@ namespace TV.Services.Updates;
 public sealed record AppUpdateAsset(string Name, long Size, string DownloadUrl, string? Digest, bool SizeApproximate = false);
 public sealed record AppUpdateRelease(Version Version, string Tag, string Title, string Notes, string PageUrl,
     DateTimeOffset PublishedAt, IReadOnlyList<AppUpdateAsset> Assets);
-public sealed record AppUpdatePackage(AppUpdateAsset Asset, string? ChecksumUrl, string? ExpectedHash, bool Incremental);
+public sealed record AppUpdatePackage(AppUpdateAsset Asset, string? ChecksumUrl, string? ExpectedHash, bool Incremental, string? SelectionReason = null);
 public sealed record DownloadedUpdate(string Path, AppUpdatePackage Package);
 public readonly record struct UpdateDownloadProgress(
     double Percent,
@@ -245,22 +245,203 @@ public sealed partial class AppUpdateService : IDisposable
             ReadString(root, "html_url"), ReadDate(root, "published_at"), assets);
     }
 
-    public AppUpdatePackage SelectPackage(AppUpdateRelease release, bool allowIncremental = true)
+    public AppUpdatePackage SelectPackage(AppUpdateRelease release, bool allowIncremental = true) =>
+        SelectPackageCore(release, allowIncremental, CurrentVersion, AppContext.BaseDirectory, AppPaths.UpdateCache);
+
+    internal static AppUpdatePackage SelectPackageCore(
+        AppUpdateRelease release,
+        bool allowIncremental,
+        Version currentVersion,
+        string? installDirectory,
+        string? updateCacheDirectory)
     {
-        var current = CurrentVersion.ToString(3);
+        var current = currentVersion.ToString(3);
         var target = release.Version.ToString(3);
+        string? fullReason = null;
+
         if (allowIncremental)
         {
-            var delta = FindAsset(release, $"TV-Update-{target}-from-{current}-x64.exe");
-            if (delta is not null && TryPackage(release, delta, true, out var package)) return package;
+            if (IsForceFullRelease(release))
+            {
+                fullReason = "此版本要求全量覆盖升级";
+            }
+            else if (WasPreviousIncrementalFailed(current, target, updateCacheDirectory))
+            {
+                fullReason = "上次增量安装未完成，已自动切换全量升级";
+            }
+            else
+            {
+                var delta = FindAsset(release, $"TV-Update-{target}-from-{current}-x64.exe");
+                if (delta is null)
+                {
+                    var hasAnyDelta = release.Assets.Any(a =>
+                        a.Name.StartsWith($"TV-Update-{target}-from-", StringComparison.OrdinalIgnoreCase) &&
+                        a.Name.EndsWith("-x64.exe", StringComparison.OrdinalIgnoreCase));
+                    fullReason = hasAnyDelta ? "跨版本升级，自动使用完整安装包" : "此版本采用全量覆盖升级";
+                }
+                else
+                {
+                    var (integrityOk, integrityError) = VerifyLocalInstallationForIncremental(installDirectory, current);
+                    if (!integrityOk)
+                    {
+                        Diagnostics.Log($"本地安装完整性检查未通过，自动回退完整安装包: {integrityError}");
+                        fullReason = "检测到本地文件差异，已自动切换全量修复";
+                    }
+                    else if (TryPackage(release, delta, true, $"从 {current} 增量升级", out var package))
+                    {
+                        return package;
+                    }
+                }
+            }
         }
+        else
+        {
+            fullReason = "已切换完整安装包";
+        }
+
         var full = FindAsset(release, $"TV-Setup-{target}-x64.exe")
             ?? throw new InvalidDataException("当前发行版缺少 Windows x64 完整安装包。");
-        if (TryPackage(release, full, false, out var fullPackage)) return fullPackage;
+        if (TryPackage(release, full, false, fullReason, out var fullPackage)) return fullPackage;
         throw new InvalidDataException("安装包缺少 SHA-256 校验信息，已停止更新。");
     }
 
-    private static bool TryPackage(AppUpdateRelease release, AppUpdateAsset asset, bool incremental, out AppUpdatePackage package)
+    private static bool IsForceFullRelease(AppUpdateRelease release)
+    {
+        if (!string.IsNullOrWhiteSpace(release.Notes) &&
+            release.Notes.Contains("[FORCE-FULL-UPDATE]", StringComparison.OrdinalIgnoreCase))
+            return true;
+        var target = release.Version.ToString(3);
+        return release.Assets.Any(a => a.Name.Equals($"TV-Update-{target}-force-full", StringComparison.OrdinalIgnoreCase));
+    }
+
+    internal static (bool Ok, string? Reason) VerifyLocalInstallationForIncremental(string? installDirectory, string expectedVersion)
+    {
+        if (string.IsNullOrWhiteSpace(installDirectory) || !Directory.Exists(installDirectory))
+            return (false, "安装目录不存在");
+
+        var manifestPath = Path.Combine(installDirectory, "install-manifest.txt");
+        if (!File.Exists(manifestPath))
+            return (false, "缺少 install-manifest.txt（旧版或非标准安装）");
+
+        string? manifestVersion = null;
+        var entries = new List<(string Sha256, long Length, string RelativePath)>();
+        try
+        {
+            foreach (var rawLine in File.ReadLines(manifestPath, Encoding.UTF8))
+            {
+                var line = rawLine.Trim();
+                if (line.Length == 0) continue;
+                if (line.StartsWith("# version=", StringComparison.OrdinalIgnoreCase))
+                {
+                    manifestVersion = line["# version=".Length..].Trim();
+                    continue;
+                }
+                if (line.StartsWith('#')) continue;
+                var parts = line.Split('|', 3);
+                if (parts.Length != 3 || !IsHash(parts[0]) ||
+                    !long.TryParse(parts[1], NumberStyles.Integer, CultureInfo.InvariantCulture, out var length) ||
+                    length < 0 || string.IsNullOrWhiteSpace(parts[2]))
+                {
+                    return (false, "install-manifest.txt 格式损坏");
+                }
+                entries.Add((parts[0], length, parts[2]));
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return (false, $"无法读取 install-manifest.txt ({ex.GetType().Name})");
+        }
+
+        if (!string.Equals(manifestVersion, expectedVersion, StringComparison.OrdinalIgnoreCase))
+            return (false, $"清单版本 {manifestVersion ?? "未知"} 与当前版本 {expectedVersion} 不一致");
+        if (entries.Count == 0)
+            return (false, "install-manifest.txt 为空");
+
+        var rootFull = Path.GetFullPath(installDirectory).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+            + Path.DirectorySeparatorChar;
+        foreach (var (sha256, length, relativePath) in entries)
+        {
+            if (Path.IsPathRooted(relativePath) || relativePath.Contains("..", StringComparison.Ordinal))
+                return (false, $"清单包含非法路径: {relativePath}");
+            var fullPath = Path.GetFullPath(Path.Combine(installDirectory, relativePath));
+            if (!fullPath.StartsWith(rootFull, StringComparison.OrdinalIgnoreCase))
+                return (false, $"清单路径越界: {relativePath}");
+            var info = new FileInfo(fullPath);
+            if (!info.Exists)
+                return (false, $"缺失基础文件: {relativePath}");
+            if (info.Length != length)
+                return (false, $"基础文件大小不一致: {relativePath}");
+            if (IsCriticalCoreFile(relativePath))
+            {
+                try
+                {
+                    using var stream = new FileStream(fullPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+                    var actual = Convert.ToHexString(SHA256.HashData(stream));
+                    if (!actual.Equals(sha256, StringComparison.OrdinalIgnoreCase))
+                        return (false, $"核心文件哈希不一致: {relativePath}");
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    return (false, $"无法校验核心文件 {relativePath}: {ex.GetType().Name}");
+                }
+            }
+        }
+
+        return (true, null);
+    }
+
+    private static bool IsCriticalCoreFile(string relativePath)
+    {
+        var normalized = relativePath.Replace('/', '\\');
+        return normalized.Equals("TV.exe", StringComparison.OrdinalIgnoreCase)
+            || normalized.Equals("TV.dll", StringComparison.OrdinalIgnoreCase)
+            || normalized.Equals("TV.pri", StringComparison.OrdinalIgnoreCase)
+            || normalized.Equals(@"runtime\catvod-engine.jar", StringComparison.OrdinalIgnoreCase)
+            || normalized.Equals(@"runtime\java\bin\java.exe", StringComparison.OrdinalIgnoreCase)
+            || normalized.Equals(@"runtime\python\python.exe", StringComparison.OrdinalIgnoreCase)
+            || normalized.Equals(@"libvlc\win-x64\libvlc.dll", StringComparison.OrdinalIgnoreCase);
+    }
+
+    public void RecordInstallAttempt(AppUpdatePackage package, Version targetVersion) =>
+        RecordInstallAttemptCore(package.Incremental, CurrentVersion.ToString(3), targetVersion.ToString(3), AppPaths.UpdateCache);
+
+    internal static void RecordInstallAttemptCore(bool incremental, string currentVersion, string targetVersion, string? updateCacheDirectory)
+    {
+        if (string.IsNullOrWhiteSpace(updateCacheDirectory)) return;
+        try
+        {
+            Directory.CreateDirectory(updateCacheDirectory);
+            var marker = Path.Combine(updateCacheDirectory, "incremental-attempt.txt");
+            if (incremental)
+                File.WriteAllText(marker, $"{currentVersion}|{targetVersion}", Encoding.UTF8);
+            else
+                TryDeleteFile(marker);
+        }
+        catch { }
+    }
+
+    internal static bool WasPreviousIncrementalFailed(string currentVersion, string targetVersion, string? updateCacheDirectory)
+    {
+        if (string.IsNullOrWhiteSpace(updateCacheDirectory)) return false;
+        try
+        {
+            var marker = Path.Combine(updateCacheDirectory, "incremental-attempt.txt");
+            if (!File.Exists(marker)) return false;
+            var parts = File.ReadAllText(marker, Encoding.UTF8).Trim().Split('|', 2);
+            if (parts.Length != 2) return false;
+            if (string.Equals(parts[0], currentVersion, StringComparison.OrdinalIgnoreCase) &&
+                string.Equals(parts[1], targetVersion, StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+            if (Version.TryParse(currentVersion, out var cur) && Version.TryParse(parts[1], out var attemptedTarget) && cur >= attemptedTarget)
+                TryDeleteFile(marker);
+        }
+        catch { }
+        return false;
+    }
+
+    private static bool TryPackage(AppUpdateRelease release, AppUpdateAsset asset, bool incremental, string? selectionReason, out AppUpdatePackage package)
     {
         var checksum = FindAsset(release, asset.Name + ".sha256");
         if (asset.Digest is null && checksum is null)
@@ -268,7 +449,7 @@ public sealed partial class AppUpdateService : IDisposable
             package = null!;
             return false;
         }
-        package = new AppUpdatePackage(asset, checksum?.DownloadUrl, asset.Digest, incremental);
+        package = new AppUpdatePackage(asset, checksum?.DownloadUrl, asset.Digest, incremental, selectionReason);
         return true;
     }
 
@@ -689,8 +870,11 @@ public sealed partial class AppUpdateService : IDisposable
         response.EnsureSuccessStatusCode();
         var append = offset > 0 && response.StatusCode == HttpStatusCode.PartialContent && response.Content.Headers.ContentRange?.From == offset;
         if (!append) offset = 0;
-        var total = response.Content.Headers.ContentLength is { } length && length > 0 ? offset + length : asset.Size;
-        if (total != asset.Size || response.Content.Headers.ContentLength > asset.Size)
+        var contentLength = response.Content.Headers.ContentLength;
+        var total = contentLength is > 0 ? offset + contentLength.Value : asset.Size;
+        if (total <= 0 || total > MaxPackageBytes)
+            throw new InvalidDataException("更新服务器返回了无效的安装包大小。");
+        if (!asset.SizeApproximate && (total != asset.Size || contentLength > asset.Size))
             throw new InvalidDataException("更新服务器返回了不匹配的安装包大小。");
         await using var source = await response.Content.ReadAsStreamAsync(token).ConfigureAwait(false);
         await using var target = new FileStream(partial, append ? FileMode.Append : FileMode.Create,
@@ -709,7 +893,8 @@ public sealed partial class AppUpdateService : IDisposable
             if (read <= 0) break;
             await target.WriteAsync(buffer.AsMemory(0, read), token).ConfigureAwait(false);
             downloaded += read;
-            if (downloaded > asset.Size) throw new InvalidDataException("下载内容超过发行版记录大小。");
+            if (downloaded > (asset.SizeApproximate ? MaxPackageBytes : asset.Size))
+                throw new InvalidDataException("下载内容超过发行版记录大小。");
             var nowMs = speedSw.ElapsedMilliseconds;
             if (nowMs - lastReportMs >= 120 || downloaded == total)
             {

@@ -4,8 +4,9 @@ param(
     [string]$Configuration = "Release",
     [switch]$MavenOffline,
     [switch]$NoRestore,
-    [switch]$SkipPortableZip,
-    [string]$IncrementalBaseZip,
+    [switch]$ForceFullUpdate,
+    [string]$IncrementalBaseDir,
+    [string]$IncrementalBaseVersion,
     [string]$ReleaseDirectory,
     [string]$CertThumbprint = $env:TV_SIGN_THUMBPRINT,
     [string]$PfxPath = $env:TV_SIGN_PFX,
@@ -62,8 +63,6 @@ $version = ([xml](Get-Content (Join-Path $root 'Directory.Build.props') -Raw)).P
 if ($version -notmatch '^\d+\.\d+\.\d+$') { throw "Invalid application version: $version" }
 $installerName = "TV-Setup-$version-x64"
 $installer = Join-Path $release "$installerName.exe"
-$portableName = "TV-$version-win-x64-portable"
-$portableZip = Join-Path $release "$portableName.zip"
 New-Item -ItemType Directory -Force -Path $publish | Out-Null
 if (-not $env:ProgramFiles) { $env:ProgramFiles = "C:\Program Files" }
 if (-not ${env:ProgramFiles(x86)}) { ${env:ProgramFiles(x86)} = "C:\Program Files (x86)" }
@@ -182,7 +181,7 @@ Write-Host "Restored $restoredSignedJava Authenticode-signed Java runtime binari
 
 # App-local Visual C++ x64 Runtime DLLs (Microsoft-signed, ~1.5 MB total):
 # Replaces the 24.45 MB nested vc_redist.x64.exe — enables instant installer launch, zero UAC prompt,
-# and universal compatibility on clean Windows 10/11 PCs (including Portable ZIP).
+# and universal compatibility on clean Windows 10/11 PCs.
 $crtDlls = @("vcruntime140.dll", "vcruntime140_1.dll", "msvcp140.dll", "msvcp140_1.dll", "msvcp140_2.dll", "concrt140.dll")
 $system32 = Join-Path $env:SystemRoot "System32"
 $copiedCrt = 0
@@ -365,6 +364,20 @@ foreach ($packagePath in ($packagePaths | Sort-Object -Unique)) {
     }
 }
 
+$manifestPath = Join-Path $publish "install-manifest.txt"
+$manifestLines = [Collections.Generic.List[string]]::new()
+$manifestLines.Add("# version=$version")
+Get-ChildItem -LiteralPath $publish -Recurse -File |
+    Where-Object { $_.FullName -ne $manifestPath } |
+    Sort-Object { $_.FullName.Substring($publish.Length + 1).ToLowerInvariant() } |
+    ForEach-Object {
+        $rel = $_.FullName.Substring($publish.Length + 1).Replace('/', '\')
+        $fileSha = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+        $manifestLines.Add("$fileSha|$($_.Length)|$rel")
+    }
+[IO.File]::WriteAllLines($manifestPath, $manifestLines, [Text.UTF8Encoding]::new($false))
+Write-Host ("Generated install-manifest.txt ({0} tracked files)" -f ($manifestLines.Count - 1)) -ForegroundColor Cyan
+
 $setupStage = Join-Path $root "artifacts/installer-$publishId"
 New-Item -ItemType Directory -Path $setupStage | Out-Null
 $setupOutput = Join-Path $setupStage "$installerName.exe"
@@ -400,31 +413,22 @@ Write-Host "Installer created: $($file.FullName)" -ForegroundColor Green
 Write-Host ("Size: {0:N0} bytes ({1:N2} MB); SHA256: {2}" -f $file.Length, ($file.Length / 1MB), $hash.Hash) -ForegroundColor Green
 "$($hash.Hash.ToLowerInvariant()) *$installerName.exe" | Set-Content "$installer.sha256" -Encoding ascii
 
-if (-not $SkipPortableZip) {
-    if (Test-Path -LiteralPath $portableZip) { Remove-Item -LiteralPath $portableZip -Force }
-    Add-Type -AssemblyName System.IO.Compression.FileSystem
-    [System.IO.Compression.ZipFile]::CreateFromDirectory($publish, $portableZip, [System.IO.Compression.CompressionLevel]::Fastest, $false)
-    Assert-ReleaseIntegrity $portableZip
-    $zipFile = Get-Item $portableZip
-    $zipHash = Get-FileHash $zipFile.FullName -Algorithm SHA256
-    "$($zipHash.Hash.ToLowerInvariant()) *$portableName.zip" | Set-Content "$portableZip.sha256" -Encoding ascii
-    Write-Host ("Portable ZIP created: {0} ({1:N2} MB)" -f $zipFile.FullName, ($zipFile.Length / 1MB)) -ForegroundColor Green
-}
+# Remove any legacy portable archive for the current version (portable ZIP workflow is retired)
+Get-ChildItem -LiteralPath $release -Filter "TV-$version-win-x64-portable.zip*" -File -ErrorAction SilentlyContinue |
+    Remove-Item -Force -ErrorAction SilentlyContinue
 
-if (-not $IncrementalBaseZip) {
-    $baseDirectories = @($release, (Join-Path $root 'artifacts/prerequisites/update-base'))
-    $IncrementalBaseZip = Get-ChildItem -LiteralPath $baseDirectories -Filter 'TV-*-win-x64-portable.zip' -File -ErrorAction SilentlyContinue |
-        Where-Object { $_.Name -ne "$portableName.zip" } |
-        Sort-Object { [regex]::Match($_.Name, '(?<=^TV-)\d+\.\d+\.\d+(?=-win-x64)').Value -as [version] } -Descending |
-        Select-Object -First 1 -ExpandProperty FullName
-}
-if ($IncrementalBaseZip -and (Test-Path -LiteralPath $IncrementalBaseZip)) {
-    $baseExtract = Join-Path $root "artifacts/update-base-$publishId"
+if ($ForceFullUpdate) {
+    Get-ChildItem -LiteralPath $release -Filter "TV-Update-$version-from-*-x64.exe*" -File -ErrorAction SilentlyContinue |
+        Remove-Item -Force -ErrorAction SilentlyContinue
+    Write-Host "ForceFullUpdate enabled: incremental patch skipped; clients will upgrade via $installerName.exe." -ForegroundColor Yellow
+} elseif ($IncrementalBaseDir -and (Test-Path -LiteralPath $IncrementalBaseDir -PathType Container)) {
+    if ($IncrementalBaseVersion -notmatch '^\d+\.\d+\.\d+$') {
+        throw "IncrementalBaseVersion must be a valid semver (e.g. 2.0.1) when IncrementalBaseDir is specified."
+    }
+    $baseExtract = (Resolve-Path -LiteralPath $IncrementalBaseDir).Path
     $patchPublish = Join-Path $root "artifacts/update-patch-$publishId"
     $deleteInclude = Join-Path $root "artifacts/update-delete-$publishId.inc"
     try {
-        Add-Type -AssemblyName System.IO.Compression.FileSystem
-        [IO.Compression.ZipFile]::ExtractToDirectory((Resolve-Path -LiteralPath $IncrementalBaseZip).Path, $baseExtract)
         $changedFiles = 0
         $changedBytes = 0L
         $currentRelSet = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
@@ -474,8 +478,7 @@ if ($IncrementalBaseZip -and (Test-Path -LiteralPath $IncrementalBaseZip)) {
             $lines | Set-Content -LiteralPath $deleteInclude -Encoding utf8
             $deleteArgs = @("/DDeleteInclude=$deleteInclude")
         }
-        $previousVersion = [regex]::Match((Split-Path -Leaf $IncrementalBaseZip), '^TV-(\d+\.\d+\.\d+)-win-x64-portable\.zip$').Groups[1].Value
-        if (-not $previousVersion) { throw "Cannot infer incremental base version from $IncrementalBaseZip" }
+        $previousVersion = $IncrementalBaseVersion
         $patchName = "TV-Update-$version-from-$previousVersion-x64"
         $patchInstaller = Join-Path $release "$patchName.exe"
         $updateIss = Join-Path $root 'installer/TV-Update.iss'
@@ -491,14 +494,14 @@ if ($IncrementalBaseZip -and (Test-Path -LiteralPath $IncrementalBaseZip)) {
         $patchSize = (Get-Item -LiteralPath $patchInstaller).Length
         Write-Host ("Incremental installer: {0}; {1} changed files, {2} removed files, {3:N2} MB payload, {4:N2} MB package" -f $patchInstaller, $changedFiles, $removedFiles.Count, ($changedBytes / 1MB), ($patchSize / 1MB)) -ForegroundColor Green
     } finally {
-        foreach ($temporary in $baseExtract, $patchPublish, $deleteInclude) {
+        foreach ($temporary in $patchPublish, $deleteInclude) {
             if ((Test-Path -LiteralPath $temporary) -and (Get-Item -LiteralPath $temporary).FullName.StartsWith((Join-Path $root 'artifacts') + '\', [StringComparison]::OrdinalIgnoreCase)) {
                 Remove-Item -LiteralPath $temporary -Recurse -Force
             }
         }
     }
 } else {
-    Write-Host 'No previous portable package available; incremental update skipped.' -ForegroundColor Yellow
+    Write-Host 'No IncrementalBaseDir provided; full installer only.' -ForegroundColor Yellow
 }
 
 Write-Host "Publish directory: $publish"

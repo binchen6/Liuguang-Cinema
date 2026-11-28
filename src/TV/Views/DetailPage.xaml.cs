@@ -10,13 +10,13 @@ namespace TV.Views;
 public sealed partial class DetailPage : Page
 {
     private VodViewModel? _observed;
-    private readonly System.Runtime.CompilerServices.ConditionalWeakTable<FrameworkElement, FrameworkElement?> _relatedArt = new();
+    private readonly Controls.CardHoverTracker _relatedCards = new("RelatedArt");
 
     public DetailPage()
     {
         InitializeComponent();
         DetailInfo.SizeChanged += (_, args) => UpdateActionGrid(args.NewSize.Width);
-        MotionService.AttachTactile(PlayAction, 1.025f, 0.96f, -1.5f);
+        MotionService.AttachTactile(PlayAction, 1.02f, 0.965f, -1f);
         MotionService.AttachTactile(FavoriteAction, 1.02f, 0.965f, -1f);
         MotionService.AttachTactile(DownloadAction, 1.02f, 0.965f, -1f);
         MotionService.AttachTactile(CastAction, 1.02f, 0.965f, -1f);
@@ -185,51 +185,17 @@ public sealed partial class DetailPage : Page
         MotionService.EnterSection(HeroBanner, offsetY: 14);
     }
 
-    private FrameworkElement? GetRelatedArt(FrameworkElement card)
-    {
-        if (_relatedArt.TryGetValue(card, out var cached) && cached is not null) return cached;
-        var found = FindDescendant(card, "RelatedArt");
-        if (found is not null) _relatedArt.AddOrUpdate(card, found);
-        return found;
-    }
-
-    private void OnRelatedIn(object sender, PointerRoutedEventArgs e)
-    {
-        if (sender is FrameworkElement element) MotionService.SetCardHover(element, null, null, GetRelatedArt(element), true);
-    }
-
-    private void OnRelatedOut(object sender, PointerRoutedEventArgs e)
-    {
-        if (sender is FrameworkElement element) MotionService.SetCardHover(element, null, null, GetRelatedArt(element), false);
-    }
-
-    private void OnRelatedPressed(object sender, PointerRoutedEventArgs e)
-    {
-        if (sender is FrameworkElement element) MotionService.SetCardPressed(element, true);
-    }
-
-    private void OnRelatedReleased(object sender, PointerRoutedEventArgs e)
-    {
-        if (sender is FrameworkElement element) MotionService.SetCardPressed(element, false);
-    }
+    private void OnRelatedIn(object sender, PointerRoutedEventArgs e) => _relatedCards.SetHovered(sender, true);
+    private void OnRelatedOut(object sender, PointerRoutedEventArgs e) => _relatedCards.SetHovered(sender, false);
+    private void OnRelatedPressed(object sender, PointerRoutedEventArgs e) => Controls.CardHoverTracker.SetPressed(sender, true);
+    private void OnRelatedReleased(object sender, PointerRoutedEventArgs e) => Controls.CardHoverTracker.SetPressed(sender, false);
 
     private void OnRelatedContainerChanging(ListViewBase sender, ContainerContentChangingEventArgs e)
     {
         if (e.ItemContainer.ContentTemplateRoot is FrameworkElement card)
-            MotionService.ResetCard(card, artworkZoom: GetRelatedArt(card));
+            _relatedCards.Reset(card);
         if (!e.InRecycleQueue && e.Item is VodCardViewModel vm) _ = vm.LoadVisualAsync();
     }
 
     private void OnCastClick(object sender, RoutedEventArgs e) => App.Window.Navigate("cast");
-
-    private static FrameworkElement? FindDescendant(DependencyObject root, string name)
-    {
-        if (root is FrameworkElement element && element.Name == name) return element;
-        var count = VisualTreeHelper.GetChildrenCount(root);
-        for (var i = 0; i < count; i++)
-        {
-            if (FindDescendant(VisualTreeHelper.GetChild(root, i), name) is { } found) return found;
-        }
-        return null;
-    }
 }

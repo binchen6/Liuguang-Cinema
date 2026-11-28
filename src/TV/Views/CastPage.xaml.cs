@@ -265,7 +265,7 @@ public sealed partial class CastPage : Page
         receiver.Status = new CastStatus(state, session.Position, session.NaturalDuration, (int)Math.Round(player.Volume * 100), player.IsMuted);
         _showingPosition = true;
         PreviewToggle.IsEnabled = state is "PLAYING" or "PAUSED_PLAYBACK";
-        PreviewPlayIcon.Glyph = state == "PLAYING" ? "\uE769" : "\uE768";
+        SetPreviewPlayingIcon(state == "PLAYING");
         PreviewPosition.IsEnabled = session.CanSeek;
         PreviewPosition.Maximum = Math.Max(1, session.NaturalDuration.TotalSeconds);
         PreviewPosition.Value = Math.Clamp(session.Position.TotalSeconds, 0, PreviewPosition.Maximum);
@@ -288,7 +288,13 @@ public sealed partial class CastPage : Page
         var playing = player.PlaybackSession.PlaybackState == MediaPlaybackState.Playing;
         if (playing) player.Pause();
         else player.Play();
-        PreviewPlayIcon.Glyph = playing ? "\uE768" : "\uE769";
+        SetPreviewPlayingIcon(!playing);
+    }
+
+    private void SetPreviewPlayingIcon(bool isPlaying)
+    {
+        PreviewPlayIcon.Visibility = isPlaying ? Visibility.Collapsed : Visibility.Visible;
+        PreviewPauseIcon.Visibility = isPlaying ? Visibility.Visible : Visibility.Collapsed;
     }
 
     private void OnPreviewPositionChanged(object sender, RangeBaseValueChangedEventArgs args)

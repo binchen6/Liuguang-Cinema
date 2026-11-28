@@ -6,7 +6,8 @@
 -->
 <ResourceDictionary
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:controls="using:TV.Controls">
 
     <!-- 导航文字基础样式（不硬编码 Foreground，自动继承导航项 Normal / PointerOver / Selected 语义色） -->
     <Style x:Key="NavItemTextStyle" TargetType="TextBlock">
@@ -29,8 +30,10 @@
          A. 统一竖向导航家族（Vertical Navigation Family）
          ============================================================ -->
 
-    <!-- 竖向导航基础项（配合 NavigationMotion.AttachVerticalList 全局弹性朱砂滑轨使用，不内嵌静态红条） -->
+    <!-- 竖向导航基础项（配合 NavigationMotion.AttachVerticalList 全局弹性朱砂滑轨使用，接入统一玻璃光影） -->
     <Style x:Key="VerticalNavItemStyle" TargetType="ListViewItem">
+        <Setter Property="controls:GlassOpticsEngine.Mode" Value="Interactive" />
+        <Setter Property="controls:GlassOpticsEngine.Profile" Value="Control" />
         <Setter Property="MinHeight" Value="{StaticResource NavItemHeight}" />
         <Setter Property="Height" Value="NaN" />
         <Setter Property="Padding" Value="14,0" />
@@ -289,6 +292,8 @@
             <Setter.Value>
                 <ControlTemplate TargetType="Expander">
                     <ToggleButton x:Name="HeaderToggle"
+                                  controls:GlassOpticsEngine.Mode="Interactive"
+                                  controls:GlassOpticsEngine.Profile="Control"
                                   Content="{TemplateBinding Header}"
                                   Height="{StaticResource NavItemHeight}"
                                   Padding="0,0,12,0"
@@ -380,16 +385,18 @@
          B. 统一横向导航家族（Horizontal Navigation Family）
          ============================================================ -->
 
-    <!-- 横向胶囊导航项（点播分类栏：单选 ListView + 底层高反差弹簧滑行胶囊，彻底杜绝多选残留） -->
+    <!-- 横向胶囊导航项（点播分类栏：单选 ListView + 底层高反差弹簧滑行胶囊 + 交互玻璃光学） -->
     <Style x:Key="HorizontalNavChipItemStyle" TargetType="ListViewItem">
-        <Setter Property="Height" Value="36" />
-        <Setter Property="MinHeight" Value="36" />
+        <Setter Property="controls:GlassOpticsEngine.Mode" Value="Interactive" />
+        <Setter Property="controls:GlassOpticsEngine.Profile" Value="Control" />
+        <Setter Property="Height" Value="38" />
+        <Setter Property="MinHeight" Value="38" />
         <Setter Property="MinWidth" Value="0" />
         <Setter Property="Padding" Value="18,0" />
         <Setter Property="Margin" Value="0,0,8,0" />
         <Setter Property="FontSize" Value="{StaticResource FontSizeSecondary}" />
         <Setter Property="FontWeight" Value="SemiBold" />
-        <Setter Property="CornerRadius" Value="{StaticResource RadiusChip}" />
+        <Setter Property="CornerRadius" Value="19" />
         <Setter Property="HorizontalContentAlignment" Value="Center" />
         <Setter Property="VerticalContentAlignment" Value="Center" />
         <Setter Property="UseSystemFocusVisuals" Value="True" />
@@ -565,8 +572,10 @@
         </Setter>
     </Style>
 
-    <!-- 横向状态卡片导航项（云盘四网盘切换带：零模糊晶透卡片 + 底部水平滑行朱砂指示条） -->
+    <!-- 横向状态卡片导航项（云盘四网盘切换带：零模糊晶透卡片 + 交互玻璃光学 + 底部水平滑行朱砂指示条） -->
     <Style x:Key="HorizontalNavCardItemStyle" TargetType="ListViewItem">
+        <Setter Property="controls:GlassOpticsEngine.Mode" Value="Interactive" />
+        <Setter Property="controls:GlassOpticsEngine.Profile" Value="Card" />
         <Setter Property="Height" Value="72" />
         <Setter Property="MinHeight" Value="72" />
         <Setter Property="MinWidth" Value="184" />

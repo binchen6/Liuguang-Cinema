@@ -14,37 +14,39 @@
          ============================================================ -->
     <ResourceDictionary.ThemeDictionaries>
         <ResourceDictionary x:Key="Default">
-            <!-- 建筑底层画布与微光大气底纹 -->
+            <!-- 建筑底层画布与月光大气底纹（深色主题：月光 + 高通透晶澈玻璃） -->
             <SolidColorBrush x:Key="AppBackgroundBrush" Color="#0B0B0D" />
+            <Color x:Key="SolarCanvasKeyColor">#18DCEAFF</Color>
+            <Color x:Key="SolarCanvasMidColor">#0A84B2F2</Color>
             <Color x:Key="MusicGlassLightColor">#AD856A58</Color>
             <Color x:Key="MusicGlassRimColor">#946C585F</Color>
             <Color x:Key="MusicGlassScatterColor">#5A455373</Color>
             <LinearGradientBrush x:Key="AppCanvasGradientBrush" StartPoint="0,0" EndPoint="1,1">
-                <GradientStop Color="#0E0E11" Offset="0" />
-                <GradientStop Color="#0A0A0C" Offset="0.55" />
-                <GradientStop Color="#0D0C0E" Offset="1" />
+                <GradientStop Color="#0D0E14" Offset="0" />
+                <GradientStop Color="#0A0B0F" Offset="0.55" />
+                <GradientStop Color="#0B0C11" Offset="1" />
             </LinearGradientBrush>
             <RadialGradientBrush x:Key="BackdropGlowPrimaryBrush">
-                <GradientStop Color="#16FFFFFF" Offset="0" />
-                <GradientStop Color="#00FFFFFF" Offset="1" />
+                <GradientStop Color="#1CE4F0FF" Offset="0" />
+                <GradientStop Color="#00E4F0FF" Offset="1" />
             </RadialGradientBrush>
             <RadialGradientBrush x:Key="BackdropGlowSecondaryBrush">
-                <GradientStop Color="#0E6E92D8" Offset="0" />
-                <GradientStop Color="#006E92D8" Offset="1" />
+                <GradientStop Color="#1476A2EA" Offset="0" />
+                <GradientStop Color="#0076A2EA" Offset="1" />
             </RadialGradientBrush>
             <RadialGradientBrush x:Key="BackdropGlowAccentBrush">
-                <GradientStop Color="#0EE8503E" Offset="0" />
-                <GradientStop Color="#00E8503E" Offset="1" />
+                <GradientStop Color="#0D8C9CE0" Offset="0" />
+                <GradientStop Color="#008C9CE0" Offset="1" />
             </RadialGradientBrush>
 
-            <!-- 宏观建筑磨砂玻璃层级（低 Luminosity 校准释放柔和透光，低配/RDP 自动平滑降级至 FallbackColor） -->
-            <AcrylicBrush x:Key="GlassRailBrush" TintColor="#12141B" TintOpacity="0.60" TintLuminosityOpacity="0.74" FallbackColor="#EB12141B" />
-            <AcrylicBrush x:Key="GlassPanelBrush" TintColor="#161820" TintOpacity="0.54" TintLuminosityOpacity="0.68" FallbackColor="#E615171F" />
-            <AcrylicBrush x:Key="GlassOverlayBrush" TintColor="#1B1E28" TintOpacity="0.74" TintLuminosityOpacity="0.82" FallbackColor="#F2181B24" />
-            <!-- 虚拟化微件采用零模糊透明晶体渐变：视觉通透锐利，滚动期消除 30+ 并发背景模糊 Pass -->
+            <!-- 月光透光玻璃层级：低雾度高通透，凸显月光折射与冷银玻璃切边 -->
+            <AcrylicBrush x:Key="GlassRailBrush" TintColor="#10131C" TintOpacity="0.46" TintLuminosityOpacity="0.62" FallbackColor="#E611141E" />
+            <AcrylicBrush x:Key="GlassPanelBrush" TintColor="#131722" TintOpacity="0.38" TintLuminosityOpacity="0.54" FallbackColor="#E0141822" />
+            <AcrylicBrush x:Key="GlassOverlayBrush" TintColor="#171B27" TintOpacity="0.62" TintLuminosityOpacity="0.72" FallbackColor="#EE171B26" />
+            <!-- 虚拟化微件采用零模糊清透月光晶体渐变 -->
             <LinearGradientBrush x:Key="GlassChipBrush" StartPoint="0,0" EndPoint="0,1">
-                <GradientStop Color="#1EFFFFFF" Offset="0" />
-                <GradientStop Color="#10FFFFFF" Offset="1" />
+                <GradientStop Color="#20E6F2FF" Offset="0" />
+                <GradientStop Color="#0EC4DCFF" Offset="1" />
             </LinearGradientBrush>
             <LinearGradientBrush x:Key="GlassDarkBadgeBrush" StartPoint="0,0" EndPoint="0,1">
                 <GradientStop Color="#B80C0E16" Offset="0" />
@@ -53,37 +55,37 @@
             <SolidColorBrush x:Key="GlassDarkBadgeInkBrush" Color="#F4F3EE" />
             <SolidColorBrush x:Key="GlassDarkBadgeAccentBrush" Color="#F06B5B" />
             <LinearGradientBrush x:Key="GlassActivePlateBrush" StartPoint="0,0" EndPoint="0,1">
-                <GradientStop Color="#22FFFFFF" Offset="0" />
-                <GradientStop Color="#11FFFFFF" Offset="1" />
+                <GradientStop Color="#26E6F2FF" Offset="0" />
+                <GradientStop Color="#10C6DEFF" Offset="1" />
             </LinearGradientBrush>
 
-            <!-- 光学玻璃体积光影、内倒角厚度边与顶部焦散高光丝 -->
-            <LinearGradientBrush x:Key="GlassVolumeBrush" StartPoint="0.1,0" EndPoint="0.9,1">
-                <GradientStop Color="#18FFFFFF" Offset="0" />
-                <GradientStop Color="#06FFFFFF" Offset="0.28" />
-                <GradientStop Color="#00000000" Offset="0.60" />
-                <GradientStop Color="#22030408" Offset="1" />
+            <!-- 月光透光玻璃体积折射、冷银内倒角厚度边与顶部焦散高光丝 -->
+            <LinearGradientBrush x:Key="GlassVolumeBrush" StartPoint="0.08,0" EndPoint="0.92,1">
+                <GradientStop Color="#22E8F4FF" Offset="0" />
+                <GradientStop Color="#0AC6E0FF" Offset="0.26" />
+                <GradientStop Color="#00000000" Offset="0.58" />
+                <GradientStop Color="#20040710" Offset="1" />
             </LinearGradientBrush>
             <LinearGradientBrush x:Key="GlassInnerBevelBrush" StartPoint="0,0" EndPoint="0,1">
-                <GradientStop Color="#1AFFFFFF" Offset="0" />
-                <GradientStop Color="#06FFFFFF" Offset="0.35" />
-                <GradientStop Color="#1E000000" Offset="1" />
+                <GradientStop Color="#28E8F4FF" Offset="0" />
+                <GradientStop Color="#0AC8E2FF" Offset="0.34" />
+                <GradientStop Color="#22000000" Offset="1" />
             </LinearGradientBrush>
             <LinearGradientBrush x:Key="GlassCausticBrush" StartPoint="0,0" EndPoint="1,0">
                 <GradientStop Color="#00FFFFFF" Offset="0" />
-                <GradientStop Color="#4CFFFFFF" Offset="0.30" />
-                <GradientStop Color="#2AFFFFFF" Offset="0.64" />
+                <GradientStop Color="#66EEF6FF" Offset="0.28" />
+                <GradientStop Color="#36C4DEFF" Offset="0.64" />
                 <GradientStop Color="#00FFFFFF" Offset="1" />
             </LinearGradientBrush>
             <LinearGradientBrush x:Key="GlassBottomBevelBrush" StartPoint="0,0" EndPoint="1,0">
                 <GradientStop Color="#00FFFFFF" Offset="0" />
-                <GradientStop Color="#1AFFFFFF" Offset="0.5" />
+                <GradientStop Color="#26CAE0FF" Offset="0.5" />
                 <GradientStop Color="#00FFFFFF" Offset="1" />
             </LinearGradientBrush>
             <LinearGradientBrush x:Key="GlassRailSeamHighlightBrush" StartPoint="0,0" EndPoint="0,1">
                 <GradientStop Color="#00FFFFFF" Offset="0" />
-                <GradientStop Color="#2CFFFFFF" Offset="0.22" />
-                <GradientStop Color="#12FFFFFF" Offset="0.75" />
+                <GradientStop Color="#3AE6F2FF" Offset="0.22" />
+                <GradientStop Color="#1AC0DCFF" Offset="0.75" />
                 <GradientStop Color="#00FFFFFF" Offset="1" />
             </LinearGradientBrush>
 
@@ -136,12 +138,12 @@
             <SolidColorBrush x:Key="TertiaryTextBrush" Color="#727380" />
             <SolidColorBrush x:Key="OnInverseTextBrush" Color="#0D0D10" />
 
-            <!-- 菲涅尔定向高光描边与极细分割线（顶亮→侧轻→底柔反光，塑造真实玻璃倒角透视） -->
-            <LinearGradientBrush x:Key="GlassEdgeBrush" StartPoint="0.1,0" EndPoint="0.9,1">
-                <GradientStop Color="#3EFFFFFF" Offset="0" />
-                <GradientStop Color="#1CFFFFFF" Offset="0.28" />
-                <GradientStop Color="#0EFFFFFF" Offset="0.76" />
-                <GradientStop Color="#22FFFFFF" Offset="1" />
+            <!-- 月光透光玻璃菲涅尔冷银外框（顶左受月光清透折射 → 底右微冷反光） -->
+            <LinearGradientBrush x:Key="GlassEdgeBrush" StartPoint="0.08,0" EndPoint="0.92,1">
+                <GradientStop Color="#52E8F4FF" Offset="0" />
+                <GradientStop Color="#24C4DCFF" Offset="0.28" />
+                <GradientStop Color="#12B8D4FF" Offset="0.76" />
+                <GradientStop Color="#2EC8E0FF" Offset="1" />
             </LinearGradientBrush>
             <SolidColorBrush x:Key="SubtleBorderBrush" Color="#1AFFFFFF" />
             <SolidColorBrush x:Key="StrongBorderBrush" Color="#34FFFFFF" />
@@ -176,6 +178,8 @@
         <ResourceDictionary x:Key="Light">
             <!-- 素白画廊 · 温润护眼宣纸画布（明度 ~90%，消除高亮度纯白眩光，久看不累） -->
             <SolidColorBrush x:Key="AppBackgroundBrush" Color="#ECE9E1" />
+            <Color x:Key="SolarCanvasKeyColor">#52FFF9EC</Color>
+            <Color x:Key="SolarCanvasMidColor">#18A8C6E8</Color>
             <Color x:Key="MusicGlassLightColor">#AAFFE0AD</Color>
             <Color x:Key="MusicGlassRimColor">#9AF0C5B5</Color>
             <Color x:Key="MusicGlassScatterColor">#72B4C4E2</Color>
@@ -198,10 +202,10 @@
                 <GradientStop Color="#00D2907A" Offset="1" />
             </RadialGradientBrush>
 
-            <!-- 月白晶玉磨砂玻璃层级：略亮于暖绢底布，清澈通透且具明显悬浮层次 -->
-            <AcrylicBrush x:Key="GlassRailBrush" TintColor="#F5F3EC" TintOpacity="0.58" TintLuminosityOpacity="0.68" FallbackColor="#ECF3F0E9" />
-            <AcrylicBrush x:Key="GlassPanelBrush" TintColor="#FAF8F3" TintOpacity="0.52" TintLuminosityOpacity="0.62" FallbackColor="#EBF8F6F0" />
-            <AcrylicBrush x:Key="GlassOverlayBrush" TintColor="#FCFBF7" TintOpacity="0.76" TintLuminosityOpacity="0.80" FallbackColor="#F6FAF8F3" />
+            <!-- 日光磨砂玻璃层级（浅色主题：自然日光 + 柔雾磨砂玻璃 + 自动微晶酸蚀纹理） -->
+            <AcrylicBrush x:Key="GlassRailBrush" TintColor="#F6F3EB" TintOpacity="0.68" TintLuminosityOpacity="0.78" FallbackColor="#F0F3F0E8" />
+            <AcrylicBrush x:Key="GlassPanelBrush" TintColor="#FAF8F2" TintOpacity="0.64" TintLuminosityOpacity="0.74" FallbackColor="#EFF8F5EE" />
+            <AcrylicBrush x:Key="GlassOverlayBrush" TintColor="#FCFBF6" TintOpacity="0.80" TintLuminosityOpacity="0.84" FallbackColor="#F8FAF8F2" />
             <!-- 零模糊清透玉石微件 -->
             <LinearGradientBrush x:Key="GlassChipBrush" StartPoint="0,0" EndPoint="0,1">
                 <GradientStop Color="#DCFAF8F3" Offset="0" />
@@ -334,6 +338,8 @@
 
         <ResourceDictionary x:Key="HighContrast">
             <SolidColorBrush x:Key="AppBackgroundBrush" Color="{ThemeResource SystemColorWindowColor}" />
+            <Color x:Key="SolarCanvasKeyColor">Transparent</Color>
+            <Color x:Key="SolarCanvasMidColor">Transparent</Color>
             <Color x:Key="MusicGlassLightColor">Transparent</Color>
             <Color x:Key="MusicGlassRimColor">Transparent</Color>
             <Color x:Key="MusicGlassScatterColor">Transparent</Color>

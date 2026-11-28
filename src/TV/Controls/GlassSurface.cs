@@ -194,7 +194,17 @@ public sealed class GlassSurface : ContentControl
 
         if (_frostGrainLayer is not null)
         {
-            var showGrain = !hc && FrostGrainOpacity > 0.001;
+            // Dark = moonlight + clear transmissive glass (zero frost grain);
+            // Light = sunlight + frosted glass (subtle acid-etched micro-silica frost grain);
+            // Cinema / player surfaces never participate in theme switching and stay crystal clear.
+            var effectiveGrain = FrostGrainOpacity;
+            if (effectiveGrain <= 0.001 &&
+                OpticsProfile != GlassOpticsProfile.Cinema &&
+                ActualTheme == ElementTheme.Light)
+            {
+                effectiveGrain = 0.055;
+            }
+            var showGrain = !hc && effectiveGrain > 0.001;
             _frostGrainLayer.Visibility = showGrain ? Visibility.Visible : Visibility.Collapsed;
             if (showGrain)
             {
@@ -207,7 +217,7 @@ public sealed class GlassSurface : ContentControl
                     };
                     _frostGrainLayer.Background = brush;
                 }
-                brush.Opacity = FrostGrainOpacity;
+                brush.Opacity = effectiveGrain;
             }
         }
     }

@@ -7,6 +7,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Hosting;
 using Microsoft.UI.Xaml.Input;
+using Microsoft.UI.Xaml.Media;
 using TV.Services;
 using TV.Views;
 using Windows.UI;
@@ -31,14 +32,16 @@ public enum GlassOpticsProfile
 }
 
 /// <summary>
-/// Dedicated GPU-composited optical glass light &amp; shadow engine (SHIRO · MA · OPTICAL GLASS).
-/// Simulates physical optical glass phenomena entirely on WinUI 3's DWM Compositor thread:
-///   1. Volumetric specular transmission + Snell's Law perspective lateral refraction shift
-///   2. Schlick Fresnel chamfered rim reflection with subtle chromatic dispersion (cool-ice / warm-caustic)
-///   3. Sliding top-bevel total-internal-reflection caustic catchlight tracking pointer glide
-///   4. Expanding click caustic refraction shockwave on pointer press
-/// Strictly maintains 0% idle GPU/CPU cost (no perpetual timers/loops), SwapChainPanel safety
-/// (zero ThemeShadow, zero extra AcrylicBrush), 120Hz pointer throttling, and HighContrast + MotionService compliance.
+/// Dedicated GPU-composited physical sunlight &amp; optical glass engine (SHIRO · MA · OPTICAL GLASS).
+/// Simulates realistic sunlight interaction with beveled optical glass on WinUI 3's DWM Compositor thread:
+///   1. Resting global directional sunlight field (upper-left warm solar key + cool sky counter-bounce, zero idle loops)
+///   2. Dynamic Snell's Law crown-glass (n=1.52) volumetric transmission + convex lens caustic &amp; lateral parallax
+///   3. Schlick Fresnel chamfered rim reflection with subtle chromatic dispersion (warm solar / cool sky)
+///   4. Dual top &amp; bottom total-internal-reflection (TIR) caustic ridges tracking pointer glide
+///   5. Coupled external incident light diffuse wash + directional Fresnel rim catchlight (e.g. music player sunlight)
+///   6. Expanding click caustic refraction shockwave on pointer press
+/// Strictly maintains 0% idle GPU/CPU cost, SwapChainPanel safety (zero ThemeShadow, zero extra AcrylicBrush),
+/// 120Hz pointer throttling, and HighContrast + MotionService compliance.
 /// </summary>
 public static class GlassOpticsEngine
 {
@@ -81,11 +84,7 @@ public static class GlassOpticsEngine
         var mode = GetMode(element);
         if (mode == GlassOpticsMode.Off)
         {
-            if (Sessions.TryGetValue(element, out var existing))
-            {
-                existing.Detach();
-                Sessions.Remove(element);
-            }
+            Detach(element);
             return;
         }
         AttachOrUpdate(element, element, mode, GetProfile(element), GetRadiusOverride(element));
@@ -93,8 +92,7 @@ public static class GlassOpticsEngine
 
     /// <summary>
     /// Attaches optical glass rendering where pointer events are observed on <paramref name="pointerHost"/>
-    /// and GPU Composition visuals are hosted inside <paramref name="visualHost"/> (which may be a dedicated
-    /// non-hit-testable template layer such as GlassSurface's OpticsHost).
+    /// and GPU Composition visuals are hosted inside <paramref name="visualHost"/> (such as GlassSurface's OpticsHost).
     /// </summary>
     public static void AttachOrUpdate(
         FrameworkElement pointerHost,
@@ -105,23 +103,14 @@ public static class GlassOpticsEngine
     {
         if (mode == GlassOpticsMode.Off)
         {
-            if (Sessions.TryGetValue(pointerHost, out var existing))
-            {
-                existing.Detach();
-                Sessions.Remove(pointerHost);
-            }
+            Detach(pointerHost);
             return;
         }
 
         if (Sessions.TryGetValue(pointerHost, out var session))
-        {
             session.UpdateConfig(visualHost, mode, profile, radiusOverride);
-        }
         else
-        {
-            var created = new OpticsSession(pointerHost, visualHost, mode, profile, radiusOverride);
-            Sessions.Add(pointerHost, created);
-        }
+            Sessions.Add(pointerHost, new OpticsSession(pointerHost, visualHost, mode, profile, radiusOverride));
     }
 
     public static void NotifyGeometryChanged(FrameworkElement pointerHost)
@@ -130,15 +119,10 @@ public static class GlassOpticsEngine
             session.SyncGeometry();
     }
 
-    internal static void SetIncidentLight(FrameworkElement host, Vector2 direction, float illuminance)
+    internal static void SetIncidentLight(FrameworkElement host, Vector2 direction, float illuminance, float warmth = 0.65f)
     {
-        if (Sessions.TryGetValue(host, out var session)) session.SetIncidentLight(direction, illuminance);
-    }
-
-    private static float Fresnel(float cosine)
-    {
-        const float reflectanceAtNormal = 0.04f;
-        return reflectanceAtNormal + (1f - reflectanceAtNormal) * MathF.Pow(1f - Math.Clamp(cosine, 0f, 1f), 5f);
+        if (Sessions.TryGetValue(host, out var session))
+            session.SetIncidentLight(direction, illuminance, warmth);
     }
 
     public static void Detach(FrameworkElement pointerHost)
@@ -148,6 +132,15 @@ public static class GlassOpticsEngine
             session.Detach();
             Sessions.Remove(pointerHost);
         }
+    }
+
+    /// <summary>Schlick Fresnel approximation for optical crown glass (n ≈ 1.52, F0 ≈ 0.042).</summary>
+    private static float Fresnel(float cosine)
+    {
+        const float f0 = 0.042f;
+        var oneMinus = 1f - Math.Clamp(cosine, 0f, 1f);
+        var sq = oneMinus * oneMinus;
+        return f0 + (1f - f0) * (sq * sq * oneMinus);
     }
 
     private sealed class OpticsSession
@@ -162,9 +155,19 @@ public static class GlassOpticsEngine
         private ContainerVisual? _rootVisual;
         private ContainerVisual? _hoverVisualGroup;
 
+        // Resting global sunlight layer (zero idle animation cost — static GPU gradient calibrated to upper-left sun)
+        private ShapeVisual? _solarAmbientVisual;
+        private CompositionLinearGradientBrush? _solarFillBrush;
+        private ShapeVisual? _solarBevelVisual;
+        private CompositionLinearGradientBrush? _solarBevelBrush;
+
+        // Dynamic hover optical layers
         private ShapeVisual? _transmissionVisual;
         private CompositionRoundedRectangleGeometry? _transmissionGeometry;
         private CompositionRadialGradientBrush? _transmissionBrush;
+
+        private ShapeVisual? _lensCoreVisual;
+        private CompositionRadialGradientBrush? _lensCoreBrush;
 
         private ShapeVisual? _fresnelRimVisual;
         private CompositionRoundedRectangleGeometry? _rimGeometry;
@@ -174,11 +177,24 @@ public static class GlassOpticsEngine
         private CompositionRectangleGeometry? _causticGeometry;
         private CompositionRadialGradientBrush? _causticBrush;
 
+        private ShapeVisual? _bottomBounceVisual;
+        private CompositionRectangleGeometry? _bottomBounceGeometry;
+        private CompositionRadialGradientBrush? _bottomBounceBrush;
+
+        // Click caustic refraction shockwave
         private ShapeVisual? _rippleVisual;
         private CompositionRoundedRectangleGeometry? _rippleGeometry;
         private CompositionRadialGradientBrush? _rippleBrush;
-        private ShapeVisual? _incidentVisual;
-        private CompositionRadialGradientBrush? _incidentBrush;
+
+        // Coupled external incident light (diffuse wash + directional Fresnel rim catchlight)
+        private ContainerVisual? _incidentGroup;
+        private ShapeVisual? _incidentDiffuseVisual;
+        private CompositionRadialGradientBrush? _incidentDiffuseBrush;
+        private ShapeVisual? _incidentRimVisual;
+        private CompositionRadialGradientBrush? _incidentRimBrush;
+        private Vector2KeyFrameAnimation? _incidentCenterAnim;
+        private Vector2KeyFrameAnimation? _incidentRimCenterAnim;
+        private ScalarKeyFrameAnimation? _incidentOpacityAnim;
 
         private CubicBezierEasingFunction? _easeOutExpo;
         private CubicBezierEasingFunction? _easeOutQuint;
@@ -218,7 +234,6 @@ public static class GlassOpticsEngine
             _pressedHandler = OnPointerPressed;
 
             Wire();
-            if (_pointerHost.IsLoaded) WatchMotion();
         }
 
         public void UpdateConfig(FrameworkElement visualHost, GlassOpticsMode mode, GlassOpticsProfile profile, double radiusOverride)
@@ -227,8 +242,10 @@ public static class GlassOpticsEngine
             if (hostChanged)
             {
                 ClearChildVisual();
+                _visualHost.Loaded -= OnVisualLoaded;
                 _visualHost.SizeChanged -= OnVisualSizeChanged;
                 _visualHost = visualHost;
+                _visualHost.Loaded += OnVisualLoaded;
                 _visualHost.SizeChanged += OnVisualSizeChanged;
                 _visualsUnavailable = false;
             }
@@ -241,31 +258,47 @@ public static class GlassOpticsEngine
                 SyncGeometry();
                 OnMotionChanged(this, EventArgs.Empty);
             }
+            else if (ShouldEagerlyAttachSolarLayer && _visualHost.IsLoaded)
+            {
+                TryEnsureVisuals();
+            }
         }
+
+        /// <summary>
+        /// Materialize static light layer on load for architectural glass panels (GlassSurface, Ambient, Rail),
+        /// while keeping transparent buttons, virtualized Cards, and small Controls clean until pointer hover or incident light.
+        /// </summary>
+        private bool ShouldEagerlyAttachSolarLayer =>
+            !Accessibility.HighContrast &&
+            (_mode == GlassOpticsMode.Ambient ||
+             _pointerHost is GlassSurface ||
+             _profile == GlassOpticsProfile.Rail);
 
         private void Wire()
         {
             if (_wired) return;
             _wired = true;
-            _pointerHost.Loaded += OnLoaded;
             _pointerHost.Unloaded += OnUnloaded;
             _pointerHost.ActualThemeChanged += OnThemeChanged;
+            _visualHost.Loaded += OnVisualLoaded;
             _visualHost.SizeChanged += OnVisualSizeChanged;
 
-            // Use handledEventsToo: true so optical light responds seamlessly even when child buttons/controls handle clicks
             _pointerHost.AddHandler(UIElement.PointerEnteredEvent, _enteredHandler, handledEventsToo: true);
             _pointerHost.AddHandler(UIElement.PointerMovedEvent, _movedHandler, handledEventsToo: true);
             _pointerHost.AddHandler(UIElement.PointerExitedEvent, _exitedHandler, handledEventsToo: true);
             _pointerHost.AddHandler(UIElement.PointerPressedEvent, _pressedHandler, handledEventsToo: true);
+
+            if (ShouldEagerlyAttachSolarLayer && _visualHost.IsLoaded)
+                TryEnsureVisuals();
         }
 
         public void Detach()
         {
             if (!_wired) return;
             _wired = false;
-            _pointerHost.Loaded -= OnLoaded;
             _pointerHost.Unloaded -= OnUnloaded;
             _pointerHost.ActualThemeChanged -= OnThemeChanged;
+            _visualHost.Loaded -= OnVisualLoaded;
             _visualHost.SizeChanged -= OnVisualSizeChanged;
 
             _pointerHost.RemoveHandler(UIElement.PointerEnteredEvent, _enteredHandler);
@@ -276,7 +309,11 @@ public static class GlassOpticsEngine
             ClearChildVisual();
         }
 
-        private void OnLoaded(object sender, RoutedEventArgs e) => WatchMotion();
+        private void OnVisualLoaded(object sender, RoutedEventArgs e)
+        {
+            if (ShouldEagerlyAttachSolarLayer)
+                TryEnsureVisuals();
+        }
 
         private void WatchMotion()
         {
@@ -298,11 +335,15 @@ public static class GlassOpticsEngine
             ClearChildVisual();
         }
 
-        private void OnThemeChanged(FrameworkElement sender, object args) => ApplyPalette();
+        private void OnThemeChanged(FrameworkElement sender, object args)
+        {
+            ApplyPalette();
+            SyncGeometry();
+        }
 
         private void OnMotionChanged(object? sender, EventArgs e)
         {
-            if (!IsActive && _hoverVisualGroup is not null)
+            if (!CanAnimatePointer && _hoverVisualGroup is not null)
             {
                 _isHovering = false;
                 _hoverVisualGroup.StopAnimation(nameof(Visual.Opacity));
@@ -313,59 +354,140 @@ public static class GlassOpticsEngine
                     _rippleVisual.Opacity = 0f;
                 }
             }
-            if (!IsActive && _incidentVisual is not null)
+            if (!CanReflectIncident && _incidentGroup is not null)
             {
-                _incidentVisual.StopAnimation(nameof(Visual.Opacity));
-                _incidentVisual.Opacity = 0;
+                _incidentGroup.StopAnimation(nameof(Visual.Opacity));
+                _incidentGroup.Opacity = 0f;
+            }
+            if (_solarAmbientVisual is not null && _solarBevelVisual is not null)
+            {
+                var visible = !Accessibility.HighContrast ? 1f : 0f;
+                _solarAmbientVisual.Opacity = visible;
+                _solarBevelVisual.Opacity = visible;
             }
         }
 
-        internal void SetIncidentLight(Vector2 direction, float illuminance)
+        internal void SetIncidentLight(Vector2 direction, float illuminance, float warmth)
         {
-            if (illuminance <= 0 && _incidentVisual is null || !TryEnsureVisuals() || _width <= 1 || _height <= 1) return;
-            var compositor = _compositor!;
-            if (_incidentVisual is null)
+            if ((illuminance <= 0.001f && _incidentGroup is null) || !CanReflectIncident ||
+                !TryEnsureVisuals() || _width <= 1f || _height <= 1f)
             {
-                _incidentBrush = compositor.CreateRadialGradientBrush();
-                _incidentBrush.MappingMode = CompositionMappingMode.Absolute;
-                _incidentBrush.ColorStops.Add(compositor.CreateColorGradientStop(0, Color.FromArgb(70, 255, 239, 208)));
-                _incidentBrush.ColorStops.Add(compositor.CreateColorGradientStop(0.42f, Color.FromArgb(35, 202, 220, 251)));
-                _incidentBrush.ColorStops.Add(compositor.CreateColorGradientStop(1, Color.FromArgb(0, 202, 220, 251)));
-                var shape = compositor.CreateSpriteShape(_transmissionGeometry);
-                shape.FillBrush = _incidentBrush;
-                shape.StrokeBrush = _incidentBrush;
-                shape.StrokeThickness = 0.85f;
-                _incidentVisual = compositor.CreateShapeVisual();
-                _incidentVisual.Shapes.Add(shape);
-                _incidentVisual.Opacity = 0;
-                _rootVisual!.Children.InsertAtBottom(_incidentVisual);
+                if (illuminance <= 0.001f && _incidentGroup is not null)
+                {
+                    _incidentGroup.StopAnimation(nameof(Visual.Opacity));
+                    _incidentGroup.Opacity = 0f;
+                }
+                return;
             }
 
-            _incidentVisual.Size = new Vector2(_width, _height);
-            var radius = Math.Clamp(_width * 0.39f, 68f, 330f);
-            _incidentBrush!.EllipseRadius = new Vector2(radius, Math.Clamp(_height * 0.98f, 46f, 210f));
-            var incidence = 0.62f / MathF.Sqrt(0.3844f + direction.LengthSquared());
-            var strength = Math.Clamp(illuminance * (0.60f + 1.3f * Fresnel(incidence)), 0, 0.95f);
-            using var center = compositor.CreateVector2KeyFrameAnimation();
-            center.InsertKeyFrame(1, new Vector2((0.5f + direction.X * 0.42f) * _width, (0.18f + direction.Y * 0.22f) * _height), _easeOutQuint!);
-            center.Duration = TimeSpan.FromMilliseconds(210);
-            _incidentBrush.StartAnimation(nameof(CompositionRadialGradientBrush.EllipseCenter), center);
-            using var opacity = compositor.CreateScalarKeyFrameAnimation();
-            opacity.InsertKeyFrame(1, strength, _easeOutQuint!);
-            opacity.Duration = TimeSpan.FromMilliseconds(210);
-            _incidentVisual.StartAnimation(nameof(Visual.Opacity), opacity);
+            var compositor = _compositor!;
+            if (_incidentGroup is null)
+            {
+                _incidentGroup = compositor.CreateContainerVisual();
+                _incidentGroup.Opacity = 0f;
+
+                _incidentDiffuseBrush = compositor.CreateRadialGradientBrush();
+                _incidentDiffuseBrush.MappingMode = CompositionMappingMode.Absolute;
+                var diffuseShape = compositor.CreateSpriteShape(_transmissionGeometry);
+                diffuseShape.FillBrush = _incidentDiffuseBrush;
+                _incidentDiffuseVisual = compositor.CreateShapeVisual();
+                _incidentDiffuseVisual.Shapes.Add(diffuseShape);
+
+                _incidentRimBrush = compositor.CreateRadialGradientBrush();
+                _incidentRimBrush.MappingMode = CompositionMappingMode.Absolute;
+                var rimShape = compositor.CreateSpriteShape(_rimGeometry);
+                rimShape.StrokeBrush = _incidentRimBrush;
+                rimShape.StrokeThickness = _profile == GlassOpticsProfile.Cinema ? 1.35f : 1.15f;
+                _incidentRimVisual = compositor.CreateShapeVisual();
+                _incidentRimVisual.Shapes.Add(rimShape);
+
+                _incidentGroup.Children.InsertAtTop(_incidentDiffuseVisual);
+                _incidentGroup.Children.InsertAtTop(_incidentRimVisual);
+                _rootVisual!.Children.InsertAbove(_incidentGroup, _solarBevelVisual);
+
+                _incidentCenterAnim = compositor.CreateVector2KeyFrameAnimation();
+                _incidentCenterAnim.Duration = TimeSpan.FromMilliseconds(240);
+                _incidentRimCenterAnim = compositor.CreateVector2KeyFrameAnimation();
+                _incidentRimCenterAnim.Duration = TimeSpan.FromMilliseconds(240);
+                _incidentOpacityAnim = compositor.CreateScalarKeyFrameAnimation();
+                _incidentOpacityAnim.Duration = TimeSpan.FromMilliseconds(240);
+                ApplyIncidentPalette(warmth);
+            }
+
+            var size = new Vector2(_width, _height);
+            _incidentGroup.Size = size;
+            _incidentDiffuseVisual!.Size = size;
+            _incidentRimVisual!.Size = size;
+
+            var clampedDir = new Vector2(Math.Clamp(direction.X, -1.6f, 1.6f), Math.Clamp(direction.Y, -1.6f, 1.6f));
+            var rx = Math.Clamp(_width * 0.52f, 92f, 420f);
+            var ry = Math.Clamp(_height * 1.18f, 68f, 260f);
+            _incidentDiffuseBrush!.EllipseRadius = new Vector2(rx, ry);
+
+            var rimR = Math.Clamp(MathF.Max(_width, _height) * 0.58f, 90f, 360f);
+            _incidentRimBrush!.EllipseRadius = new Vector2(rimR, rimR * 0.84f);
+
+            var incidenceCos = 0.62f / MathF.Sqrt(0.3844f + clampedDir.LengthSquared());
+            var fresnelGain = 0.58f + 1.55f * Fresnel(incidenceCos);
+            var targetOpacity = Math.Clamp(illuminance * fresnelGain, 0f, 0.96f);
+
+            // Diffuse wash enters from the sunward side; Fresnel rim focuses right along the sunward beveled edge
+            var diffuseCenter = new Vector2(
+                (0.5f + clampedDir.X * 0.38f) * _width,
+                (0.24f + clampedDir.Y * 0.30f) * _height);
+            var rimCenter = new Vector2(
+                (0.5f + clampedDir.X * 0.48f) * _width,
+                (0.16f + clampedDir.Y * 0.36f) * _height);
+
+            _incidentDiffuseBrush.GradientOriginOffset = -clampedDir * 14f;
+            _incidentCenterAnim!.InsertKeyFrame(1f, diffuseCenter, _easeOutQuint!);
+            _incidentDiffuseBrush.StartAnimation(nameof(CompositionRadialGradientBrush.EllipseCenter), _incidentCenterAnim);
+
+            _incidentRimCenterAnim!.InsertKeyFrame(1f, rimCenter, _easeOutQuint!);
+            _incidentRimBrush.StartAnimation(nameof(CompositionRadialGradientBrush.EllipseCenter), _incidentRimCenterAnim);
+
+            _incidentOpacityAnim!.InsertKeyFrame(1f, targetOpacity, _easeOutQuint!);
+            _incidentGroup.StartAnimation(nameof(Visual.Opacity), _incidentOpacityAnim);
+        }
+
+        private void ApplyIncidentPalette(float warmth)
+        {
+            if (_compositor is null || _incidentDiffuseBrush is null || _incidentRimBrush is null) return;
+            var w = Math.Clamp(warmth, 0f, 1f);
+            var coreR = (byte)Math.Clamp((int)MathF.Round(244 + 11 * w), 0, 255);
+            var coreG = (byte)Math.Clamp((int)MathF.Round(232 + 12 * w), 0, 255);
+            var coreB = (byte)Math.Clamp((int)MathF.Round(228 - 28 * w), 0, 255);
+
+            _incidentDiffuseBrush.ColorStops.Clear();
+            _incidentDiffuseBrush.ColorStops.Add(_compositor.CreateColorGradientStop(0.00f, Color.FromArgb(62, coreR, coreG, coreB)));
+            _incidentDiffuseBrush.ColorStops.Add(_compositor.CreateColorGradientStop(0.32f, Color.FromArgb(30, 232, 224, 240)));
+            _incidentDiffuseBrush.ColorStops.Add(_compositor.CreateColorGradientStop(0.68f, Color.FromArgb(12, 184, 214, 252)));
+            _incidentDiffuseBrush.ColorStops.Add(_compositor.CreateColorGradientStop(1.00f, Color.FromArgb(0, 184, 214, 252)));
+
+            _incidentRimBrush.ColorStops.Clear();
+            _incidentRimBrush.ColorStops.Add(_compositor.CreateColorGradientStop(0.00f, Color.FromArgb(196, 255, 248, 232)));
+            _incidentRimBrush.ColorStops.Add(_compositor.CreateColorGradientStop(0.36f, Color.FromArgb(98, 255, 226, 188)));
+            _incidentRimBrush.ColorStops.Add(_compositor.CreateColorGradientStop(0.70f, Color.FromArgb(46, 186, 218, 255)));
+            _incidentRimBrush.ColorStops.Add(_compositor.CreateColorGradientStop(1.00f, Color.FromArgb(0, 186, 218, 255)));
         }
 
         private void OnVisualSizeChanged(object sender, SizeChangedEventArgs e) => SyncGeometry();
 
-        private bool IsActive =>
+        private bool CanRenderAny => !Accessibility.HighContrast && _mode != GlassOpticsMode.Off;
+
+        private bool CanAnimatePointer =>
             _mode == GlassOpticsMode.Interactive &&
             !Accessibility.HighContrast &&
             MotionService.CanAnimate;
 
+        private bool CanReflectIncident =>
+            CanRenderAny &&
+            MotionService.CanAnimate &&
+            MotionService.CanRunAmbientLoops;
+
         private bool TryEnsureVisuals()
         {
-            if (_visualsUnavailable || !IsActive || !_visualHost.IsLoaded) return false;
+            if (_visualsUnavailable || !CanRenderAny || !_visualHost.IsLoaded) return false;
             if (_visualsReady) return true;
             try
             {
@@ -391,11 +513,43 @@ public static class GlassOpticsEngine
 
             _rootVisual = c.CreateContainerVisual();
             _rootVisual.Clip = c.CreateInsetClip();
+
+            // Shared rounded geometries
+            _transmissionGeometry = c.CreateRoundedRectangleGeometry();
+            _rimGeometry = c.CreateRoundedRectangleGeometry();
+            _causticGeometry = c.CreateRectangleGeometry();
+            _bottomBounceGeometry = c.CreateRectangleGeometry();
+            _rippleGeometry = c.CreateRoundedRectangleGeometry();
+
+            // Layer 0a: Resting global directional sunlight wash (upper-left warm solar key -> cool sky tail)
+            _solarFillBrush = c.CreateLinearGradientBrush();
+            _solarFillBrush.MappingMode = CompositionMappingMode.Relative;
+            _solarFillBrush.StartPoint = new Vector2(0.06f, 0.0f);
+            _solarFillBrush.EndPoint = new Vector2(0.94f, 1.0f);
+            var solarFillShape = c.CreateSpriteShape(_transmissionGeometry);
+            solarFillShape.FillBrush = _solarFillBrush;
+            _solarAmbientVisual = c.CreateShapeVisual();
+            _solarAmbientVisual.Shapes.Add(solarFillShape);
+
+            // Layer 0b: Resting directional sunlight bevel rim (catches upper-left daylight along chamfer)
+            _solarBevelBrush = c.CreateLinearGradientBrush();
+            _solarBevelBrush.MappingMode = CompositionMappingMode.Relative;
+            _solarBevelBrush.StartPoint = new Vector2(0.08f, 0.0f);
+            _solarBevelBrush.EndPoint = new Vector2(0.92f, 1.0f);
+            var solarBevelShape = c.CreateSpriteShape(_rimGeometry);
+            solarBevelShape.StrokeBrush = _solarBevelBrush;
+            solarBevelShape.StrokeThickness = 1.0f;
+            _solarBevelVisual = c.CreateShapeVisual();
+            _solarBevelVisual.Shapes.Add(solarBevelShape);
+
+            _rootVisual.Children.InsertAtTop(_solarAmbientVisual);
+            _rootVisual.Children.InsertAtTop(_solarBevelVisual);
+
+            // Hover optical group
             _hoverVisualGroup = c.CreateContainerVisual();
             _hoverVisualGroup.Opacity = 0f;
 
             // Layer 1: Volumetric specular transmission + Snell lateral refraction
-            _transmissionGeometry = c.CreateRoundedRectangleGeometry();
             _transmissionBrush = c.CreateRadialGradientBrush();
             _transmissionBrush.MappingMode = CompositionMappingMode.Absolute;
             var transShape = c.CreateSpriteShape(_transmissionGeometry);
@@ -403,8 +557,15 @@ public static class GlassOpticsEngine
             _transmissionVisual = c.CreateShapeVisual();
             _transmissionVisual.Shapes.Add(transShape);
 
+            // Layer 1b: Focused convex optical lens caustic core
+            _lensCoreBrush = c.CreateRadialGradientBrush();
+            _lensCoreBrush.MappingMode = CompositionMappingMode.Absolute;
+            var lensCoreShape = c.CreateSpriteShape(_transmissionGeometry);
+            lensCoreShape.FillBrush = _lensCoreBrush;
+            _lensCoreVisual = c.CreateShapeVisual();
+            _lensCoreVisual.Shapes.Add(lensCoreShape);
+
             // Layer 2: Schlick Fresnel chamfered edge refraction + chromatic dispersion
-            _rimGeometry = c.CreateRoundedRectangleGeometry();
             _rimBrush = c.CreateRadialGradientBrush();
             _rimBrush.MappingMode = CompositionMappingMode.Absolute;
             var rimShape = c.CreateSpriteShape(_rimGeometry);
@@ -413,8 +574,7 @@ public static class GlassOpticsEngine
             _fresnelRimVisual = c.CreateShapeVisual();
             _fresnelRimVisual.Shapes.Add(rimShape);
 
-            // Layer 3: Dynamic top-bevel total-internal-reflection caustic ridge
-            _causticGeometry = c.CreateRectangleGeometry();
+            // Layer 3a: Top-bevel total-internal-reflection caustic ridge
             _causticBrush = c.CreateRadialGradientBrush();
             _causticBrush.MappingMode = CompositionMappingMode.Absolute;
             var causticShape = c.CreateSpriteShape(_causticGeometry);
@@ -422,12 +582,21 @@ public static class GlassOpticsEngine
             _causticRidgeVisual = c.CreateShapeVisual();
             _causticRidgeVisual.Shapes.Add(causticShape);
 
+            // Layer 3b: Bottom inner-lip counter-refracted sunlight bounce
+            _bottomBounceBrush = c.CreateRadialGradientBrush();
+            _bottomBounceBrush.MappingMode = CompositionMappingMode.Absolute;
+            var bottomShape = c.CreateSpriteShape(_bottomBounceGeometry);
+            bottomShape.FillBrush = _bottomBounceBrush;
+            _bottomBounceVisual = c.CreateShapeVisual();
+            _bottomBounceVisual.Shapes.Add(bottomShape);
+
             _hoverVisualGroup.Children.InsertAtTop(_transmissionVisual);
+            _hoverVisualGroup.Children.InsertAtTop(_lensCoreVisual);
             _hoverVisualGroup.Children.InsertAtTop(_fresnelRimVisual);
             _hoverVisualGroup.Children.InsertAtTop(_causticRidgeVisual);
+            _hoverVisualGroup.Children.InsertAtTop(_bottomBounceVisual);
 
             // Layer 4: Expanding click caustic refraction shockwave
-            _rippleGeometry = c.CreateRoundedRectangleGeometry();
             _rippleBrush = c.CreateRadialGradientBrush();
             _rippleBrush.MappingMode = CompositionMappingMode.Absolute;
             _rippleBrush.EllipseRadius = new Vector2(10f, 10f);
@@ -442,12 +611,14 @@ public static class GlassOpticsEngine
 
             ElementCompositionPreview.SetElementChildVisual(_visualHost, _rootVisual);
             _visualsReady = true;
+            WatchMotion();
             ApplyPalette();
             SyncGeometry();
         }
 
         private void ClearChildVisual()
         {
+            StopWatchingMotion();
             if (_visualsReady)
             {
                 try { ElementCompositionPreview.SetElementChildVisual(_visualHost, null); } catch { }
@@ -460,20 +631,38 @@ public static class GlassOpticsEngine
             _easeOutExpo = _easeOutQuint = null;
             _rootVisual = null;
             _hoverVisualGroup = null;
+            _solarAmbientVisual = null;
+            _solarFillBrush = null;
+            _solarBevelVisual = null;
+            _solarBevelBrush = null;
             _transmissionVisual = null;
             _transmissionGeometry = null;
             _transmissionBrush = null;
+            _lensCoreVisual = null;
+            _lensCoreBrush = null;
             _fresnelRimVisual = null;
             _rimGeometry = null;
             _rimBrush = null;
             _causticRidgeVisual = null;
             _causticGeometry = null;
             _causticBrush = null;
+            _bottomBounceVisual = null;
+            _bottomBounceGeometry = null;
+            _bottomBounceBrush = null;
             _rippleVisual = null;
             _rippleGeometry = null;
             _rippleBrush = null;
-            _incidentVisual = null;
-            _incidentBrush = null;
+            _incidentGroup = null;
+            _incidentDiffuseVisual = null;
+            _incidentDiffuseBrush = null;
+            _incidentRimVisual = null;
+            _incidentRimBrush = null;
+            _incidentCenterAnim?.Dispose();
+            _incidentRimCenterAnim?.Dispose();
+            _incidentOpacityAnim?.Dispose();
+            _incidentCenterAnim = null;
+            _incidentRimCenterAnim = null;
+            _incidentOpacityAnim = null;
         }
 
         public void SyncGeometry()
@@ -487,11 +676,21 @@ public static class GlassOpticsEngine
 
             var size = new Vector2(w, h);
             _rootVisual.Size = size;
+            _solarAmbientVisual!.Size = size;
+            _solarBevelVisual!.Size = size;
             _hoverVisualGroup!.Size = size;
             _transmissionVisual!.Size = size;
+            _lensCoreVisual!.Size = size;
             _fresnelRimVisual!.Size = size;
             _causticRidgeVisual!.Size = size;
+            _bottomBounceVisual!.Size = size;
             _rippleVisual!.Size = size;
+            if (_incidentGroup is not null)
+            {
+                _incidentGroup.Size = size;
+                _incidentDiffuseVisual!.Size = size;
+                _incidentRimVisual!.Size = size;
+            }
 
             var r = ResolveCornerRadius(w, h);
             var corner = new Vector2(r, r);
@@ -507,28 +706,40 @@ public static class GlassOpticsEngine
             _rimGeometry.Size = rimSize;
             _rimGeometry.CornerRadius = new Vector2(rimCorner, rimCorner);
 
-            var causticInset = Math.Clamp(r * 0.65f, 4f, Math.Max(4f, w * 0.25f));
+            var causticInset = Math.Clamp(r * 0.62f, 4f, Math.Max(4f, w * 0.25f));
+            var causticWidth = Math.Max(2f, w - causticInset * 2f);
             _causticGeometry!.Offset = new Vector2(causticInset, 0.5f);
-            _causticGeometry.Size = new Vector2(Math.Max(2f, w - causticInset * 2f), 1.25f);
+            _causticGeometry.Size = new Vector2(causticWidth, 1.25f);
+
+            _bottomBounceGeometry!.Offset = new Vector2(causticInset, Math.Max(1f, h - 1.5f));
+            _bottomBounceGeometry.Size = new Vector2(causticWidth, 1.0f);
 
             _rippleGeometry!.Offset = Vector2.Zero;
             _rippleGeometry.Size = size;
             _rippleGeometry.CornerRadius = corner;
 
-            // Calibrate optical radii to glass surface dimensions
-            var transRadius = Math.Clamp(MathF.Max(w, h) * 0.42f, 90f, 290f);
-            _transmissionBrush!.EllipseRadius = new Vector2(transRadius, transRadius * 0.88f);
+            // Calibrate optical radii to glass material:
+            // Light (sunlight + frosted glass) diffuses wider and softer;
+            // Dark (moonlight + clear glass) focuses crisper and tighter;
+            // Cinema stays fixed and theme-independent.
+            var isFrostedLight = _pointerHost.ActualTheme == ElementTheme.Light && _profile != GlassOpticsProfile.Cinema;
+            var transFactor = isFrostedLight ? 0.56f : 0.42f;
+            var transRadius = Math.Clamp(MathF.Max(w, h) * transFactor, 96f, isFrostedLight ? 360f : 290f);
+            _transmissionBrush!.EllipseRadius = new Vector2(transRadius, transRadius * (isFrostedLight ? 0.94f : 0.84f));
 
-            var rimRadius = Math.Clamp(MathF.Min(w, h) * 0.92f, 76f, 220f);
+            var lensFactor = isFrostedLight ? 0.72f : 0.46f;
+            var lensRadius = Math.Clamp(MathF.Min(w, h) * lensFactor, 28f, isFrostedLight ? 140f : 96f);
+            _lensCoreBrush!.EllipseRadius = new Vector2(lensRadius * 1.12f, lensRadius * 0.86f);
+
+            var rimRadius = Math.Clamp(MathF.Min(w, h) * (isFrostedLight ? 1.04f : 0.90f), 74f, 240f);
             _rimBrush!.EllipseRadius = new Vector2(rimRadius, rimRadius);
 
-            var causticSpan = Math.Clamp(w * 0.34f, 42f, 165f);
-            _causticBrush!.EllipseRadius = new Vector2(causticSpan, 18f);
+            var causticSpan = Math.Clamp(w * (isFrostedLight ? 0.42f : 0.31f), 40f, 185f);
+            _causticBrush!.EllipseRadius = new Vector2(causticSpan, isFrostedLight ? 22f : 15f);
+            _bottomBounceBrush!.EllipseRadius = new Vector2(causticSpan * 0.80f, isFrostedLight ? 18f : 13f);
 
             if (_lastX < 0 || _lastY < 0)
-            {
-                UpdateLightOrigin(w * 0.5f, h * 0.35f);
-            }
+                UpdateLightOrigin(w * 0.38f, h * 0.28f);
         }
 
         private float ResolveCornerRadius(float w, float h)
@@ -545,7 +756,7 @@ public static class GlassOpticsEngine
                 else if (_visualHost is Border vBorder)
                     raw = vBorder.CornerRadius.TopLeft;
                 else
-                    raw = 12;
+                    raw = 10;
             }
             return Math.Clamp((float)raw, 0f, MathF.Min(w, h) * 0.5f);
         }
@@ -553,70 +764,188 @@ public static class GlassOpticsEngine
         private void ApplyPalette()
         {
             if (!_visualsReady || _compositor is null) return;
-            var isLight = _pointerHost.ActualTheme == ElementTheme.Light && _profile != GlassOpticsProfile.Cinema;
+            var isCinema = _profile == GlassOpticsProfile.Cinema;
+            var isLight = !isCinema && _pointerHost.ActualTheme == ElementTheme.Light;
 
             var scale = _profile switch
             {
-                GlassOpticsProfile.Cinema => 1.15f,
-                GlassOpticsProfile.Control => 1.08f,
+                GlassOpticsProfile.Cinema => 1.16f,
+                GlassOpticsProfile.Control => 1.06f,
                 GlassOpticsProfile.Card => 0.96f,
-                GlassOpticsProfile.Rail => 0.85f,
+                GlassOpticsProfile.Rail => 0.86f,
                 _ => 1.0f
             };
             byte ScaleA(byte a) => (byte)Math.Clamp((int)MathF.Round(a * scale), 0, 255);
 
-            // 1. Volumetric Specular Transmission + subtle chromatic refraction dispersion
+            // 0. Resting directional light field:
+            //    - Light: warm sunlit frosted glass (broad warm-cream diffuse + soft morning bevel)
+            //    - Dark:  cool moonlit clear transmissive glass (crisp lunar silver-ice bevel + deep clarity)
+            //    - Cinema: fixed theme-independent neutral optical glass (only on GlassSurface hosts, never outline transparent buttons)
+            var ambientScale = _profile switch
+            {
+                GlassOpticsProfile.Cinema => _pointerHost is GlassSurface ? 0.95f : 0f,
+                GlassOpticsProfile.Rail => 0.74f,
+                GlassOpticsProfile.Card => 0.88f,
+                GlassOpticsProfile.Control => 0.92f,
+                _ => 1.0f
+            };
+            byte AmbA(byte a) => (byte)Math.Clamp((int)MathF.Round(a * ambientScale), 0, 255);
+
+            _solarFillBrush!.ColorStops.Clear();
+            _solarBevelBrush!.ColorStops.Clear();
+            if (isLight)
+            {
+                // Sunlight + Frosted Glass: broad warm sunlit milky scatter -> soft sky shadow edge
+                _solarFillBrush.ColorStops.Add(_compositor.CreateColorGradientStop(0.00f, Color.FromArgb(AmbA(64), 255, 250, 236)));
+                _solarFillBrush.ColorStops.Add(_compositor.CreateColorGradientStop(0.32f, Color.FromArgb(AmbA(26), 255, 244, 222)));
+                _solarFillBrush.ColorStops.Add(_compositor.CreateColorGradientStop(0.68f, Color.FromArgb(0, 255, 255, 255)));
+                _solarFillBrush.ColorStops.Add(_compositor.CreateColorGradientStop(1.00f, Color.FromArgb(AmbA(20), 178, 206, 236)));
+
+                _solarBevelBrush.ColorStops.Add(_compositor.CreateColorGradientStop(0.00f, Color.FromArgb(AmbA(165), 255, 252, 242)));
+                _solarBevelBrush.ColorStops.Add(_compositor.CreateColorGradientStop(0.34f, Color.FromArgb(AmbA(58), 255, 242, 218)));
+                _solarBevelBrush.ColorStops.Add(_compositor.CreateColorGradientStop(0.74f, Color.FromArgb(AmbA(16), 174, 202, 232)));
+                _solarBevelBrush.ColorStops.Add(_compositor.CreateColorGradientStop(1.00f, Color.FromArgb(AmbA(42), 180, 204, 232)));
+            }
+            else if (isCinema)
+            {
+                // Cinema player controls: theme-invariant clear optical glass
+                _solarFillBrush.ColorStops.Add(_compositor.CreateColorGradientStop(0.00f, Color.FromArgb(AmbA(22), 255, 248, 238)));
+                _solarFillBrush.ColorStops.Add(_compositor.CreateColorGradientStop(0.28f, Color.FromArgb(AmbA(8), 226, 238, 255)));
+                _solarFillBrush.ColorStops.Add(_compositor.CreateColorGradientStop(0.68f, Color.FromArgb(0, 255, 255, 255)));
+                _solarFillBrush.ColorStops.Add(_compositor.CreateColorGradientStop(1.00f, Color.FromArgb(AmbA(10), 156, 188, 240)));
+
+                _solarBevelBrush.ColorStops.Add(_compositor.CreateColorGradientStop(0.00f, Color.FromArgb(AmbA(60), 255, 250, 242)));
+                _solarBevelBrush.ColorStops.Add(_compositor.CreateColorGradientStop(0.30f, Color.FromArgb(AmbA(22), 220, 236, 255)));
+                _solarBevelBrush.ColorStops.Add(_compositor.CreateColorGradientStop(0.76f, Color.FromArgb(AmbA(6), 172, 204, 246)));
+                _solarBevelBrush.ColorStops.Add(_compositor.CreateColorGradientStop(1.00f, Color.FromArgb(AmbA(24), 178, 208, 248)));
+            }
+            else
+            {
+                // Moonlight + Clear Transmissive Glass: cool lunar silver-blue transmission & razor-sharp crystal edge
+                _solarFillBrush.ColorStops.Add(_compositor.CreateColorGradientStop(0.00f, Color.FromArgb(AmbA(24), 228, 240, 255)));
+                _solarFillBrush.ColorStops.Add(_compositor.CreateColorGradientStop(0.24f, Color.FromArgb(AmbA(10), 182, 214, 255)));
+                _solarFillBrush.ColorStops.Add(_compositor.CreateColorGradientStop(0.64f, Color.FromArgb(0, 180, 210, 255)));
+                _solarFillBrush.ColorStops.Add(_compositor.CreateColorGradientStop(1.00f, Color.FromArgb(AmbA(12), 146, 180, 242)));
+
+                _solarBevelBrush.ColorStops.Add(_compositor.CreateColorGradientStop(0.00f, Color.FromArgb(AmbA(82), 238, 247, 255)));
+                _solarBevelBrush.ColorStops.Add(_compositor.CreateColorGradientStop(0.28f, Color.FromArgb(AmbA(30), 184, 218, 255)));
+                _solarBevelBrush.ColorStops.Add(_compositor.CreateColorGradientStop(0.74f, Color.FromArgb(AmbA(8), 148, 188, 246)));
+                _solarBevelBrush.ColorStops.Add(_compositor.CreateColorGradientStop(1.00f, Color.FromArgb(AmbA(34), 174, 208, 252)));
+            }
+
+            // 1. Volumetric Specular Transmission + chromatic dispersion
             _transmissionBrush!.ColorStops.Clear();
             if (isLight)
             {
-                _transmissionBrush.ColorStops.Add(_compositor.CreateColorGradientStop(0.00f, Color.FromArgb(ScaleA(58), 255, 255, 255)));
-                _transmissionBrush.ColorStops.Add(_compositor.CreateColorGradientStop(0.32f, Color.FromArgb(ScaleA(28), 232, 244, 255)));
-                _transmissionBrush.ColorStops.Add(_compositor.CreateColorGradientStop(0.65f, Color.FromArgb(ScaleA(14), 255, 238, 224)));
+                // Warm diffused sunlight through frosted glass
+                _transmissionBrush.ColorStops.Add(_compositor.CreateColorGradientStop(0.00f, Color.FromArgb(ScaleA(68), 255, 250, 236)));
+                _transmissionBrush.ColorStops.Add(_compositor.CreateColorGradientStop(0.34f, Color.FromArgb(ScaleA(34), 255, 240, 216)));
+                _transmissionBrush.ColorStops.Add(_compositor.CreateColorGradientStop(0.68f, Color.FromArgb(ScaleA(14), 212, 234, 255)));
+                _transmissionBrush.ColorStops.Add(_compositor.CreateColorGradientStop(1.00f, Color.FromArgb(0, 255, 255, 255)));
+            }
+            else if (isCinema)
+            {
+                _transmissionBrush.ColorStops.Add(_compositor.CreateColorGradientStop(0.00f, Color.FromArgb(ScaleA(38), 255, 250, 242)));
+                _transmissionBrush.ColorStops.Add(_compositor.CreateColorGradientStop(0.32f, Color.FromArgb(ScaleA(18), 192, 224, 255)));
+                _transmissionBrush.ColorStops.Add(_compositor.CreateColorGradientStop(0.66f, Color.FromArgb(ScaleA(10), 255, 214, 186)));
                 _transmissionBrush.ColorStops.Add(_compositor.CreateColorGradientStop(1.00f, Color.FromArgb(0, 255, 255, 255)));
             }
             else
             {
-                _transmissionBrush.ColorStops.Add(_compositor.CreateColorGradientStop(0.00f, Color.FromArgb(ScaleA(34), 255, 255, 255)));
-                _transmissionBrush.ColorStops.Add(_compositor.CreateColorGradientStop(0.34f, Color.FromArgb(ScaleA(16), 186, 220, 255)));
-                _transmissionBrush.ColorStops.Add(_compositor.CreateColorGradientStop(0.68f, Color.FromArgb(ScaleA(9), 255, 214, 198)));
-                _transmissionBrush.ColorStops.Add(_compositor.CreateColorGradientStop(1.00f, Color.FromArgb(0, 255, 255, 255)));
+                // Cool silver moonlight refracting cleanly through clear crystal glass
+                _transmissionBrush.ColorStops.Add(_compositor.CreateColorGradientStop(0.00f, Color.FromArgb(ScaleA(42), 236, 246, 255)));
+                _transmissionBrush.ColorStops.Add(_compositor.CreateColorGradientStop(0.30f, Color.FromArgb(ScaleA(20), 178, 216, 255)));
+                _transmissionBrush.ColorStops.Add(_compositor.CreateColorGradientStop(0.64f, Color.FromArgb(ScaleA(10), 194, 206, 255)));
+                _transmissionBrush.ColorStops.Add(_compositor.CreateColorGradientStop(1.00f, Color.FromArgb(0, 220, 238, 255)));
+            }
+
+            // 1b. Focused Convex Lens Specular Core (crisper on Dark clear glass, softer/warmer on Light frosted glass)
+            _lensCoreBrush!.ColorStops.Clear();
+            if (isLight)
+            {
+                _lensCoreBrush.ColorStops.Add(_compositor.CreateColorGradientStop(0.00f, Color.FromArgb(ScaleA(42), 255, 252, 240)));
+                _lensCoreBrush.ColorStops.Add(_compositor.CreateColorGradientStop(0.46f, Color.FromArgb(ScaleA(16), 255, 242, 218)));
+                _lensCoreBrush.ColorStops.Add(_compositor.CreateColorGradientStop(1.00f, Color.FromArgb(0, 255, 255, 255)));
+            }
+            else if (isCinema)
+            {
+                _lensCoreBrush.ColorStops.Add(_compositor.CreateColorGradientStop(0.00f, Color.FromArgb(ScaleA(26), 255, 253, 246)));
+                _lensCoreBrush.ColorStops.Add(_compositor.CreateColorGradientStop(0.42f, Color.FromArgb(ScaleA(10), 226, 240, 255)));
+                _lensCoreBrush.ColorStops.Add(_compositor.CreateColorGradientStop(1.00f, Color.FromArgb(0, 255, 255, 255)));
+            }
+            else
+            {
+                _lensCoreBrush.ColorStops.Add(_compositor.CreateColorGradientStop(0.00f, Color.FromArgb(ScaleA(34), 244, 250, 255)));
+                _lensCoreBrush.ColorStops.Add(_compositor.CreateColorGradientStop(0.38f, Color.FromArgb(ScaleA(14), 186, 222, 255)));
+                _lensCoreBrush.ColorStops.Add(_compositor.CreateColorGradientStop(1.00f, Color.FromArgb(0, 200, 228, 255)));
             }
 
             // 2. Schlick Fresnel Chamfer Rim + Prismatic Grazing Dispersion
             _rimBrush!.ColorStops.Clear();
             if (isLight)
             {
-                _rimBrush.ColorStops.Add(_compositor.CreateColorGradientStop(0.00f, Color.FromArgb(ScaleA(225), 255, 255, 255)));
-                _rimBrush.ColorStops.Add(_compositor.CreateColorGradientStop(0.35f, Color.FromArgb(ScaleA(120), 178, 214, 252)));
-                _rimBrush.ColorStops.Add(_compositor.CreateColorGradientStop(0.66f, Color.FromArgb(ScaleA(64), 236, 152, 134)));
+                _rimBrush.ColorStops.Add(_compositor.CreateColorGradientStop(0.00f, Color.FromArgb(ScaleA(234), 255, 252, 240)));
+                _rimBrush.ColorStops.Add(_compositor.CreateColorGradientStop(0.36f, Color.FromArgb(ScaleA(122), 255, 232, 198)));
+                _rimBrush.ColorStops.Add(_compositor.CreateColorGradientStop(0.68f, Color.FromArgb(ScaleA(62), 184, 216, 250)));
+                _rimBrush.ColorStops.Add(_compositor.CreateColorGradientStop(1.00f, Color.FromArgb(0, 255, 255, 255)));
+            }
+            else if (isCinema)
+            {
+                _rimBrush.ColorStops.Add(_compositor.CreateColorGradientStop(0.00f, Color.FromArgb(ScaleA(174), 255, 250, 242)));
+                _rimBrush.ColorStops.Add(_compositor.CreateColorGradientStop(0.36f, Color.FromArgb(ScaleA(90), 178, 218, 255)));
+                _rimBrush.ColorStops.Add(_compositor.CreateColorGradientStop(0.68f, Color.FromArgb(ScaleA(48), 246, 174, 144)));
                 _rimBrush.ColorStops.Add(_compositor.CreateColorGradientStop(1.00f, Color.FromArgb(0, 255, 255, 255)));
             }
             else
             {
-                _rimBrush.ColorStops.Add(_compositor.CreateColorGradientStop(0.00f, Color.FromArgb(ScaleA(165), 255, 255, 255)));
-                _rimBrush.ColorStops.Add(_compositor.CreateColorGradientStop(0.36f, Color.FromArgb(ScaleA(86), 174, 214, 255)));
-                _rimBrush.ColorStops.Add(_compositor.CreateColorGradientStop(0.68f, Color.FromArgb(ScaleA(46), 245, 166, 146)));
-                _rimBrush.ColorStops.Add(_compositor.CreateColorGradientStop(1.00f, Color.FromArgb(0, 255, 255, 255)));
+                _rimBrush.ColorStops.Add(_compositor.CreateColorGradientStop(0.00f, Color.FromArgb(ScaleA(198), 242, 249, 255)));
+                _rimBrush.ColorStops.Add(_compositor.CreateColorGradientStop(0.34f, Color.FromArgb(ScaleA(106), 172, 214, 255)));
+                _rimBrush.ColorStops.Add(_compositor.CreateColorGradientStop(0.68f, Color.FromArgb(ScaleA(52), 198, 206, 255)));
+                _rimBrush.ColorStops.Add(_compositor.CreateColorGradientStop(1.00f, Color.FromArgb(0, 220, 238, 255)));
             }
 
-            // 3. Top-bevel traveling caustic catchlight
+            // 3a. Top-bevel traveling caustic catchlight
             _causticBrush!.ColorStops.Clear();
-            _causticBrush.ColorStops.Add(_compositor.CreateColorGradientStop(0.00f, Color.FromArgb(isLight ? ScaleA(220) : ScaleA(170), 255, 255, 255)));
-            _causticBrush.ColorStops.Add(_compositor.CreateColorGradientStop(0.45f, Color.FromArgb(isLight ? ScaleA(90) : ScaleA(68), 210, 232, 255)));
-            _causticBrush.ColorStops.Add(_compositor.CreateColorGradientStop(1.00f, Color.FromArgb(0, 255, 255, 255)));
+            if (isLight)
+            {
+                _causticBrush.ColorStops.Add(_compositor.CreateColorGradientStop(0.00f, Color.FromArgb(ScaleA(228), 255, 252, 240)));
+                _causticBrush.ColorStops.Add(_compositor.CreateColorGradientStop(0.45f, Color.FromArgb(ScaleA(96), 255, 236, 206)));
+                _causticBrush.ColorStops.Add(_compositor.CreateColorGradientStop(1.00f, Color.FromArgb(0, 255, 255, 255)));
+            }
+            else
+            {
+                _causticBrush.ColorStops.Add(_compositor.CreateColorGradientStop(0.00f, Color.FromArgb(ScaleA(194), 242, 249, 255)));
+                _causticBrush.ColorStops.Add(_compositor.CreateColorGradientStop(0.45f, Color.FromArgb(ScaleA(82), 186, 222, 255)));
+                _causticBrush.ColorStops.Add(_compositor.CreateColorGradientStop(1.00f, Color.FromArgb(0, 220, 238, 255)));
+            }
 
-            // 4. Click caustic refraction ring (hollow center -> crisp prism crest -> warm tail)
+            // 3b. Bottom inner-lip counter-refracted bounce
+            _bottomBounceBrush!.ColorStops.Clear();
+            if (isLight)
+            {
+                _bottomBounceBrush.ColorStops.Add(_compositor.CreateColorGradientStop(0.00f, Color.FromArgb(ScaleA(86), 255, 240, 214)));
+                _bottomBounceBrush.ColorStops.Add(_compositor.CreateColorGradientStop(0.50f, Color.FromArgb(ScaleA(42), 198, 224, 252)));
+                _bottomBounceBrush.ColorStops.Add(_compositor.CreateColorGradientStop(1.00f, Color.FromArgb(0, 255, 255, 255)));
+            }
+            else
+            {
+                _bottomBounceBrush.ColorStops.Add(_compositor.CreateColorGradientStop(0.00f, Color.FromArgb(ScaleA(82), 194, 226, 255)));
+                _bottomBounceBrush.ColorStops.Add(_compositor.CreateColorGradientStop(0.50f, Color.FromArgb(ScaleA(36), 210, 220, 255)));
+                _bottomBounceBrush.ColorStops.Add(_compositor.CreateColorGradientStop(1.00f, Color.FromArgb(0, 210, 232, 255)));
+            }
+
+            // 4. Click caustic refraction ring
             _rippleBrush!.ColorStops.Clear();
             _rippleBrush.ColorStops.Add(_compositor.CreateColorGradientStop(0.00f, Color.FromArgb(0, 255, 255, 255)));
-            _rippleBrush.ColorStops.Add(_compositor.CreateColorGradientStop(0.46f, Color.FromArgb(isLight ? (byte)16 : (byte)10, 200, 228, 255)));
-            _rippleBrush.ColorStops.Add(_compositor.CreateColorGradientStop(0.76f, Color.FromArgb(isLight ? ScaleA(110) : ScaleA(66), 255, 255, 255)));
-            _rippleBrush.ColorStops.Add(_compositor.CreateColorGradientStop(0.89f, Color.FromArgb(isLight ? ScaleA(42) : ScaleA(28), 232, 118, 98)));
+            _rippleBrush.ColorStops.Add(_compositor.CreateColorGradientStop(0.46f, Color.FromArgb(isLight ? (byte)18 : (byte)12, isLight ? (byte)255 : (byte)188, isLight ? (byte)242 : (byte)224, isLight ? (byte)214 : (byte)255)));
+            _rippleBrush.ColorStops.Add(_compositor.CreateColorGradientStop(0.76f, Color.FromArgb(isLight ? ScaleA(112) : ScaleA(78), isLight ? (byte)255 : (byte)240, isLight ? (byte)250 : (byte)248, isLight ? (byte)238 : (byte)255)));
+            _rippleBrush.ColorStops.Add(_compositor.CreateColorGradientStop(0.89f, Color.FromArgb(isLight ? ScaleA(44) : ScaleA(32), isLight ? (byte)240 : (byte)176, isLight ? (byte)158 : (byte)212, isLight ? (byte)122 : (byte)255)));
             _rippleBrush.ColorStops.Add(_compositor.CreateColorGradientStop(1.00f, Color.FromArgb(0, 255, 255, 255)));
         }
 
         private void OnPointerEntered(object sender, PointerRoutedEventArgs e)
         {
-            if (!TryEnsureVisuals()) return;
+            if (!CanAnimatePointer || !TryEnsureVisuals()) return;
             if (_width <= 1f || _height <= 1f) SyncGeometry();
             _isHovering = true;
             var pt = e.GetCurrentPoint(_visualHost).Position;
@@ -626,6 +955,7 @@ public static class GlassOpticsEngine
 
         private void OnPointerMoved(object sender, PointerRoutedEventArgs e)
         {
+            if (!CanAnimatePointer) return;
             var now = Environment.TickCount64;
             if (now - _lastMoveTick < 8) return; // 120Hz cap — zero stutter on 1000Hz gaming mice
             if (!TryEnsureVisuals()) return;
@@ -654,7 +984,14 @@ public static class GlassOpticsEngine
 
         private void OnPointerPressed(object sender, PointerRoutedEventArgs e)
         {
-            if (!e.GetCurrentPoint(_visualHost).Properties.IsLeftButtonPressed || !TryEnsureVisuals()) return;
+            if (!CanAnimatePointer || !e.GetCurrentPoint(_visualHost).Properties.IsLeftButtonPressed) return;
+            for (var element = e.OriginalSource as DependencyObject; element is not null && element != _pointerHost;
+                element = VisualTreeHelper.GetParent(element))
+            {
+                if (element is FrameworkElement child && Sessions.TryGetValue(child, out var session) && session.CanAnimatePointer)
+                    return;
+            }
+            if (!TryEnsureVisuals()) return;
             if (_width <= 1f || _height <= 1f) SyncGeometry();
             var pt = e.GetCurrentPoint(_visualHost).Position;
             var x = (float)pt.X;
@@ -673,21 +1010,29 @@ public static class GlassOpticsEngine
             _transmissionBrush!.EllipseCenter = pos;
             _rimBrush!.EllipseCenter = pos;
 
-            // Snell's Law optical slab parallax: shift internal specular origin slightly counter to pointer angle
+            // Snell's Law crown glass (n = 1.52, n^2 = 2.3104) slab refraction & convex lens shift
             if (_width > 1f && _height > 1f)
             {
-                var lateral = new Vector2(x * 2 / _width - 1, y * 2 / _height - 1);
-                var normal = 0.65f / MathF.Sqrt(0.4225f + lateral.LengthSquared());
-                var transmitted = MathF.Sqrt(1f - (1f - normal * normal) / 2.25f);
-                var bend = (1f - normal / transmitted) * 32f;
+                var lateral = new Vector2(x * 2f / _width - 1f, y * 2f / _height - 1f);
+                var cosThetaI = 0.65f / MathF.Sqrt(0.4225f + lateral.LengthSquared());
+                var sinSqThetaI = Math.Max(0f, 1f - cosThetaI * cosThetaI);
+                var cosThetaT = MathF.Sqrt(Math.Max(0.01f, 1f - sinSqThetaI / 2.3104f));
+                var bend = (1f - cosThetaI / cosThetaT) * 34f;
+
                 _transmissionBrush.GradientOriginOffset = -lateral * bend;
-                _rimBrush.GradientOriginOffset = lateral * (4f + 30f * Fresnel(normal));
-                _fresnelRimVisual!.Opacity = Math.Clamp(0.54f + 2.9f * Fresnel(normal), 0, 1);
-                _causticRidgeVisual!.Opacity = Math.Clamp(0.30f + (1f - y / _height) * 0.65f, 0, 1);
+                _lensCoreBrush!.EllipseCenter = pos - lateral * (bend * 0.35f);
+                _lensCoreBrush.GradientOriginOffset = new Vector2(-4f, -6f); // upper-left solar bias
+                _rimBrush.GradientOriginOffset = lateral * (4f + 32f * Fresnel(cosThetaI));
+
+                _fresnelRimVisual!.Opacity = Math.Clamp(0.56f + 2.95f * Fresnel(cosThetaI), 0f, 1f);
+                var normalizedY = Math.Clamp(y / _height, 0f, 1f);
+                _causticRidgeVisual!.Opacity = Math.Clamp(0.28f + (1f - normalizedY) * 0.68f, 0f, 1f);
+                _bottomBounceVisual!.Opacity = Math.Clamp(0.22f + normalizedY * 0.56f, 0f, 0.82f);
             }
 
-            // Traveling top-bevel caustic tracks pointer X smoothly
+            // Traveling top-bevel caustic tracks pointer X; bottom refracted bounce shifts slightly counter-angle
             _causticBrush!.EllipseCenter = new Vector2(x, 0.5f);
+            _bottomBounceBrush!.EllipseCenter = new Vector2(_width - (_width - x) * 0.88f, Math.Max(1f, _height - 1f));
         }
 
         private void AnimateHoverOpacity(float target, int durationMs, CompositionEasingFunction easing)

@@ -18,7 +18,7 @@
         <x:Double x:Key="DetailCoverWidth">240</x:Double>
         <x:Double x:Key="DetailCoverHeight">360</x:Double>
         <x:Double x:Key="EpisodePanelMaxHeight">430</x:Double>
-        <x:Double x:Key="DetailActionIconSize">20</x:Double>
+        <x:Double x:Key="DetailActionIconSize">18</x:Double>
         <Style x:Key="DetailActionButtonStyle" TargetType="Button" BasedOn="{StaticResource SecondaryButtonStyle}">
             <Setter Property="HorizontalAlignment" Value="Stretch" />
             <Setter Property="Height" Value="{StaticResource PrimaryButtonHeight}" />
@@ -167,7 +167,7 @@
                                                            Visibility="{Binding IsDownloading, Converter={StaticResource BoolToVisibility}, ConverterParameter=Inverse}" />
                                         <ProgressRing Width="{StaticResource DetailActionIconSize}" Height="{StaticResource DetailActionIconSize}" IsActive="{Binding IsDownloading}"
                                                       Visibility="{Binding IsDownloading, Converter={StaticResource BoolToVisibility}}" />
-                                        <TextBlock Text="下载" Style="{StaticResource BodyText}" VerticalAlignment="Center" />
+                                        <TextBlock Text="下载" VerticalAlignment="Center" />
                                     </StackPanel>
                                     <Button.Flyout>
                                         <Flyout Placement="BottomEdgeAlignedLeft">

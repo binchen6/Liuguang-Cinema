@@ -68,9 +68,10 @@
                         <Border x:Name="NavSearchHint" Grid.Column="2" CornerRadius="4"
                                 Background="{ThemeResource SurfaceAltBrush}"
                                 BorderBrush="{ThemeResource SubtleBorderBrush}" BorderThickness="1"
-                                Padding="6,2" VerticalAlignment="Center">
+                                Height="22" Padding="6,0" VerticalAlignment="Center">
                             <TextBlock Text="Ctrl F" FontFamily="{StaticResource MonoFontFamily}"
-                                       FontSize="12" Foreground="{ThemeResource TertiaryTextBrush}" />
+                                       FontSize="12" LineHeight="16" VerticalAlignment="Center"
+                                       Foreground="{ThemeResource TertiaryTextBrush}" />
                         </Border>
                     </Grid>
                 </Button>
@@ -175,12 +176,12 @@
                     </Grid>
                 </StackPanel>
 
-                <!-- 物理弹性变形朱砂导航滑轨（随跳转距离轻微拉伸并丝滑落定） -->
+                <!-- 物理弹性变形朱砂导航滑轨（内嵌 5px 避开圆角描边，随跳转距离轻微拉伸并丝滑落定） -->
                 <Border x:Name="FloatingNavIndicator" Grid.RowSpan="4"
                         Width="3" Height="20" CornerRadius="1.5"
                         Background="{ThemeResource SelectionIndicatorBrush}"
                         HorizontalAlignment="Left" VerticalAlignment="Top"
-                        Margin="10,0,0,0" Opacity="0" IsHitTestVisible="False" />
+                        Margin="15,0,0,0" Opacity="0" IsHitTestVisible="False" />
                 </Grid>
             </Grid>
         </Border>

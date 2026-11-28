@@ -1,5 +1,6 @@
 using System.IO.Compression;
 using System.Net;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using TV.Models;
@@ -17,17 +18,27 @@ public sealed class RepoPackService : IDisposable
 {
     public const string DefaultRepository = "binchen6/Liuguang-RepoPacks";
     public const string DefaultManifestUrl = $"https://raw.githubusercontent.com/{DefaultRepository}/main/manifest.json";
+    private const int MaxManifestBytes = 2 * 1024 * 1024;
     private const long MaxPackZipBytes = 32 * 1024 * 1024;
+    private static readonly Lazy<RepoPackManifest> DefaultCatalog = new(() =>
+    {
+        using var stream = typeof(RepoPackService).Assembly.GetManifestResourceStream("TV.RepoPacks.Manifest")
+            ?? throw new InvalidDataException("随包资源清单缺失。");
+        using var reader = new StreamReader(stream, Encoding.UTF8);
+        return ParseManifest(reader.ReadToEnd());
+    });
 
     private readonly SourceHttpClient _http;
     private readonly HttpClient _downloads;
     private readonly SemaphoreSlim _ioGate = new(1, 1);
+    private readonly SemaphoreSlim _catalogGate = new(1, 1);
     private readonly string _packsRoot;
     private readonly string _manifestUrl;
     private readonly string _manifestCachePath;
+    private readonly bool _useBundledCatalog;
+    private readonly SourceHttpClient? _systemCatalogHttp;
 
-    private RepoPackManifest? _cachedManifest;
-    private DateTimeOffset _manifestFetchedAt;
+    private volatile RepoPackCatalog? _catalog;
     private volatile IReadOnlyDictionary<string, InstalledRepoPack> _installed =
         new Dictionary<string, InstalledRepoPack>(StringComparer.OrdinalIgnoreCase);
 
@@ -43,7 +54,11 @@ public sealed class RepoPackService : IDisposable
         _manifestUrl = !string.IsNullOrWhiteSpace(manifestUrl)
             ? manifestUrl
             : (Environment.GetEnvironmentVariable("TV_REPOPACK_MANIFEST_URL") is { Length: > 0 } envUrl ? envUrl : DefaultManifestUrl);
-        _manifestCachePath = Path.Combine(_packsRoot, "manifest-origin-cache.json");
+        _manifestUrl = _manifestUrl.Trim();
+        _useBundledCatalog = string.Equals(_manifestUrl, DefaultManifestUrl, StringComparison.Ordinal);
+        var cacheName = _useBundledCatalog ? "manifest-origin-cache.json" :
+            "manifest-" + Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(_manifestUrl)))[..24] + ".json";
+        _manifestCachePath = Path.Combine(_packsRoot, cacheName);
 
         HttpMessageHandler handler = downloadHandler ?? new SocketsHttpHandler
         {
@@ -59,6 +74,9 @@ public sealed class RepoPackService : IDisposable
         _downloads = new HttpClient(handler) { Timeout = Timeout.InfiniteTimeSpan };
         ReloadInstalledPacks();
     }
+
+    internal RepoPackService(SourceHttpClient http, DnsResolverService dns, SourceHttpClient systemCatalogHttp)
+        : this(http, dns) => _systemCatalogHttp = systemCatalogHttp;
 
     public event EventHandler? Changed;
 
@@ -103,74 +121,109 @@ public sealed class RepoPackService : IDisposable
     public IReadOnlyList<LiveSource> GetSupplementalLives() =>
         _installed.Values.SelectMany(p => p.Definition.Lives).ToArray();
 
-    public async Task<RepoPackManifest> GetManifestAsync(bool forceRefresh = false, CancellationToken token = default)
+    public async Task<RepoPackManifest> GetManifestAsync(bool forceRefresh = false, CancellationToken token = default) =>
+        (await GetCatalogAsync(forceRefresh, token).ConfigureAwait(false)).Manifest;
+
+    internal async Task<RepoPackCatalog?> GetLocalCatalogAsync(CancellationToken token = default)
     {
         token.ThrowIfCancellationRequested();
-        if (!forceRefresh && _cachedManifest is not null && DateTimeOffset.UtcNow - _manifestFetchedAt < TimeSpan.FromMinutes(15))
-            return _cachedManifest;
+        if (_catalog is { } inMemory) return inMemory;
+        return await ReadCatalogCacheAsync(token).ConfigureAwait(false) ?? BundledCatalog();
+    }
 
-        if (!Uri.TryCreate(_manifestUrl, UriKind.Absolute, out var uri) ||
-            (uri.Scheme != Uri.UriSchemeHttps && !(uri.Scheme == Uri.UriSchemeHttp && uri.IsLoopback)) ||
-            uri.UserInfo.Length != 0)
-            throw new InvalidOperationException("资源包清单地址无效。");
+    internal async Task<RepoPackCatalog> GetCatalogAsync(bool forceRefresh = false, CancellationToken token = default)
+    {
+        token.ThrowIfCancellationRequested();
+        var observed = _catalog;
+        if (!forceRefresh && IsCurrent(observed)) return observed!;
 
+        await _catalogGate.WaitAsync(token).ConfigureAwait(false);
         try
         {
-            var (parsed, text) = await FetchManifestAsync(uri, token).ConfigureAwait(false);
-            _cachedManifest = parsed;
-            _manifestFetchedAt = DateTimeOffset.UtcNow;
-            var temporary = _manifestCachePath + "." + Guid.NewGuid().ToString("N") + ".tmp";
+            if (_catalog is { } latest && (!ReferenceEquals(observed, latest) || !forceRefresh && IsCurrent(latest)))
+                return latest;
+
+            if (!Uri.TryCreate(_manifestUrl, UriKind.Absolute, out var uri) ||
+                (uri.Scheme != Uri.UriSchemeHttps && !(uri.Scheme == Uri.UriSchemeHttp && uri.IsLoopback)) ||
+                uri.UserInfo.Length != 0)
+                throw new InvalidOperationException("资源包清单地址无效。");
+
             try
             {
-                Directory.CreateDirectory(_packsRoot);
-                await File.WriteAllTextAsync(temporary, text, Encoding.UTF8, token).ConfigureAwait(false);
-                File.Move(temporary, _manifestCachePath, overwrite: true);
+                var (manifest, json) = await FetchManifestAsync(uri, token).ConfigureAwait(false);
+                var catalog = new RepoPackCatalog(manifest, RepoPackCatalogSource.Online, DateTimeOffset.UtcNow);
+                _catalog = catalog;
+                await SaveCatalogCacheAsync(json, token).ConfigureAwait(false);
+                Diagnostics.Log($"[RepoPack] Loaded origin manifest ({manifest.Packs.Count} packs)");
+                return catalog;
             }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
-            finally
+            catch (Exception ex) when (!token.IsCancellationRequested && IsCatalogFailure(ex))
             {
-                try { File.Delete(temporary); } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
-            }
-            Diagnostics.Log($"[RepoPack] Loaded origin manifest ({parsed.Packs.Count} packs)");
-            return parsed;
-        }
-        catch (Exception ex) when (!token.IsCancellationRequested)
-        {
-            if (File.Exists(_manifestCachePath))
-            {
-                try
+                var fallback = _catalog is { Source: not RepoPackCatalogSource.Bundled } previous
+                    ? previous with { Source = RepoPackCatalogSource.Cached }
+                    : await ReadCatalogCacheAsync(token).ConfigureAwait(false) ?? BundledCatalog();
+                if (fallback is not null)
                 {
-                    var cachedText = await File.ReadAllTextAsync(_manifestCachePath, token).ConfigureAwait(false);
-                    _cachedManifest = ParseManifest(cachedText);
-                    return _cachedManifest;
+                    Diagnostics.Log($"[RepoPack] Using {fallback.Source} manifest after {ex.GetType().Name}");
+                    return _catalog = fallback with { CheckedAt = DateTimeOffset.UtcNow };
                 }
-                catch (Exception cacheError) when (cacheError is IOException or InvalidDataException or UnauthorizedAccessException or JsonException) { }
+                var reason = ex is OperationCanceledException or TimeoutException
+                    ? "连接清单服务器超时。可以稍后刷新或导入本地 ZIP。"
+                    : "暂时无法连接或读取清单。可以检查清单地址或导入本地 ZIP。";
+                throw new InvalidOperationException(reason, ex);
             }
-            var reason = ex is OperationCanceledException or TimeoutException
-                ? "连接 GitHub 超时，请检查网络后刷新，或从本地导入 ZIP。"
-                : ex.Message;
-            throw new InvalidOperationException("仓库资源包清单获取失败。 " + reason, ex);
         }
+        finally { _catalogGate.Release(); }
     }
+
+    private static bool IsCurrent(RepoPackCatalog? catalog) => catalog is not null &&
+        DateTimeOffset.UtcNow - catalog.CheckedAt < (catalog.Source == RepoPackCatalogSource.Online
+            ? TimeSpan.FromMinutes(15) : TimeSpan.FromSeconds(30));
+
+    private RepoPackCatalog? BundledCatalog() => _useBundledCatalog
+        ? new RepoPackCatalog(DefaultCatalog.Value, RepoPackCatalogSource.Bundled, DateTimeOffset.MinValue)
+        : null;
+
+    private async Task<RepoPackCatalog?> ReadCatalogCacheAsync(CancellationToken token)
+    {
+        try
+        {
+            var file = new FileInfo(_manifestCachePath);
+            if (!file.Exists || file.Length > MaxManifestBytes) return null;
+            var json = await File.ReadAllTextAsync(file.FullName, token).ConfigureAwait(false);
+            return new RepoPackCatalog(ParseManifest(json), RepoPackCatalogSource.Cached, file.LastWriteTimeUtc);
+        }
+        catch (Exception ex) when (IsCatalogFailure(ex) && ex is not OperationCanceledException) { return null; }
+    }
+
+    private async Task SaveCatalogCacheAsync(string json, CancellationToken token)
+    {
+        var temporary = _manifestCachePath + "." + Guid.NewGuid().ToString("N") + ".tmp";
+        try
+        {
+            Directory.CreateDirectory(_packsRoot);
+            await File.WriteAllTextAsync(temporary, json, Encoding.UTF8, token).ConfigureAwait(false);
+            File.Move(temporary, _manifestCachePath, overwrite: true);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            Diagnostics.Log($"[RepoPack] Could not save the online catalog: {ex.GetType().Name}");
+        }
+        finally { TryDeleteFile(temporary); }
+    }
+
+    private static bool IsCatalogFailure(Exception error) => error is
+        OperationCanceledException or TimeoutException or HttpRequestException or IOException or UnauthorizedAccessException or InvalidDataException or JsonException or FormatException;
 
     private async Task<(RepoPackManifest Manifest, string Json)> FetchManifestAsync(Uri origin, CancellationToken token)
     {
-        var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-        {
-            ["User-Agent"] = "Liuguang-Cinema/RepoPack",
-            ["Accept"] = "application/json"
-        };
-
-        // Both official endpoints serve the manifest that supplies ZIP checksums.
         using var stop = CancellationTokenSource.CreateLinkedTokenSource(token);
-        var candidates = new List<Task<(RepoPackManifest, string)>> { FetchAsync(origin, headers, TimeSpan.Zero) };
-        if (origin.AbsoluteUri.Equals(DefaultManifestUrl, StringComparison.Ordinal))
+        var operationToken = stop.Token;
+        var candidates = new List<Task<(RepoPackManifest, string)>> { FetchAsync(_http, origin, false, TimeSpan.Zero) };
+        if (_useBundledCatalog)
         {
             var api = new Uri("https://api.github.com/repos/" + DefaultRepository + "/contents/manifest.json?ref=main");
-            candidates.Add(FetchAsync(api, new Dictionary<string, string>(headers)
-            {
-                ["Accept"] = "application/vnd.github.raw+json"
-            }, TimeSpan.FromMilliseconds(500)));
+            candidates.Add(FetchAsync(_systemCatalogHttp ?? _http, api, true, TimeSpan.FromMilliseconds(350)));
         }
 
         Exception? lastError = null;
@@ -178,34 +231,53 @@ public sealed class RepoPackService : IDisposable
         {
             while (candidates.Count > 0)
             {
-                var result = await Task.WhenAny(candidates).ConfigureAwait(false);
+                var result = await Task.WhenAny(candidates).WaitAsync(token).ConfigureAwait(false);
                 candidates.Remove(result);
                 try { return await result.ConfigureAwait(false); }
-                catch (Exception ex) when (!token.IsCancellationRequested &&
-                    ex is OperationCanceledException or HttpRequestException or IOException or InvalidDataException or JsonException)
-                {
-                    lastError = ex;
-                }
+                catch (Exception ex) when (!token.IsCancellationRequested && IsCatalogFailure(ex)) { lastError = ex; }
             }
             throw lastError ?? new InvalidDataException("未收到有效的资源包清单。");
         }
         finally
         {
-            await stop.CancelAsync().ConfigureAwait(false);
-            try { await Task.WhenAll(candidates).ConfigureAwait(false); }
-            catch (Exception ex) when (ex is OperationCanceledException or HttpRequestException or IOException or InvalidDataException or JsonException) { }
+            stop.Cancel();
+            foreach (var pending in candidates) _ = ObserveCatalogFailureAsync(pending);
         }
 
-        async Task<(RepoPackManifest, string)> FetchAsync(Uri address, Dictionary<string, string> requestHeaders, TimeSpan delay)
+        async Task<(RepoPackManifest, string)> FetchAsync(SourceHttpClient client, Uri address, bool api, TimeSpan delay)
         {
-            await Task.Delay(delay, stop.Token).ConfigureAwait(false);
-            using var deadline = CancellationTokenSource.CreateLinkedTokenSource(stop.Token);
-            deadline.CancelAfter(TimeSpan.FromSeconds(12));
-            var payload = await _http.GetTrustedBytesAsync(address, requestHeaders, 2 * 1024 * 1024,
+            await Task.Delay(delay, operationToken).ConfigureAwait(false);
+            var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["User-Agent"] = "Liuguang-Cinema/RepoPack",
+                ["Accept"] = api ? "application/vnd.github.raw+json" : "application/json"
+            };
+            using var deadline = CancellationTokenSource.CreateLinkedTokenSource(operationToken);
+            deadline.CancelAfter(_useBundledCatalog ? TimeSpan.FromSeconds(8) : TimeSpan.FromSeconds(15));
+            var payload = await client.GetTrustedBytesAsync(address, headers, MaxManifestBytes,
                 destination => MediaRequestHeaders.SameOrigin(address, destination), deadline.Token).ConfigureAwait(false);
             var json = SourceHttpClient.DecodeText(payload.Content);
+            if (api) json = UnwrapGitHubContents(json);
+            operationToken.ThrowIfCancellationRequested();
             return (ParseManifest(json), json);
         }
+    }
+
+    private static async Task ObserveCatalogFailureAsync(Task pending)
+    {
+        try { await pending.ConfigureAwait(false); }
+        catch (Exception ex) when (IsCatalogFailure(ex)) { }
+    }
+
+    private static string UnwrapGitHubContents(string json)
+    {
+        using var document = JsonDocument.Parse(json.TrimStart('\uFEFF'));
+        var root = document.RootElement;
+        if (root.ValueKind == JsonValueKind.Object &&
+            root.TryGetProperty("encoding", out var encoding) && encoding.ValueKind == JsonValueKind.String && encoding.ValueEquals("base64") &&
+            root.TryGetProperty("content", out var content) && content.ValueKind == JsonValueKind.String)
+            return SourceHttpClient.DecodeText(Convert.FromBase64String(content.GetString()!));
+        return json;
     }
 
     public async Task<RepoPackManifestEntry?> FindMatchingPackAsync(
@@ -302,15 +374,33 @@ public sealed class RepoPackService : IDisposable
             var tempZip = Path.Combine(_packsRoot, $"{entry.Id}-{Guid.NewGuid():N}.zip");
             try
             {
-                var routeLabel = await GitHubMirrorService.DownloadVerifiedFileAsync(
-                    _downloads, entry.DownloadUrl, tempZip, entry.Sha256,
-                    MaxPackZipBytes, progress, token).ConfigureAwait(false);
+                var routeLabel = await TryCopyBundledZipAsync(entry, tempZip, token).ConfigureAwait(false)
+                    ? "客户端自带资源包"
+                    : await GitHubMirrorService.DownloadVerifiedFileAsync(_downloads, entry.DownloadUrl, tempZip, entry.Sha256,
+                        MaxPackZipBytes, progress, token).ConfigureAwait(false);
                 await InstallArchiveAsync(tempZip, entry, token).ConfigureAwait(false);
                 return routeLabel;
             }
             finally { TryDeleteFile(tempZip); }
         }
         finally { _ioGate.Release(); }
+    }
+
+    private async Task<bool> TryCopyBundledZipAsync(RepoPackManifestEntry entry, string destination, CancellationToken token)
+    {
+        if (!_useBundledCatalog || !entry.Id.Equals("y456y", StringComparison.OrdinalIgnoreCase) ||
+            !DefaultCatalog.Value.Packs.Any(pack => pack.Id.Equals(entry.Id, StringComparison.OrdinalIgnoreCase) &&
+                pack.Version == entry.Version && pack.Sha256.Equals(entry.Sha256, StringComparison.OrdinalIgnoreCase))) return false;
+        var assembly = typeof(RepoPackService).Assembly;
+        await using var source = assembly.GetManifestResourceStream("TV.RepoPacks.Y456y");
+        if (source is null) return false;
+        await using (var output = File.Create(destination))
+            await source.CopyToAsync(output, token).ConfigureAwait(false);
+        if (string.Equals(await GitHubMirrorService.ComputeFileSha256Async(destination, token).ConfigureAwait(false),
+            entry.Sha256, StringComparison.OrdinalIgnoreCase)) return true;
+        TryDeleteFile(destination);
+        Diagnostics.Log("[RepoPack] Bundled ZIP digest mismatch");
+        return false;
     }
 
     public async Task<RepoPackDefinition> ImportPackAsync(string path, CancellationToken token = default)
@@ -497,13 +587,21 @@ public sealed class RepoPackService : IDisposable
         if (document.RootElement.ValueKind != JsonValueKind.Object ||
             !document.RootElement.TryGetProperty("packs", out var entries) || entries.ValueKind != JsonValueKind.Array)
             throw new InvalidDataException("资源包清单缺少 packs 列表。");
-        var manifest = JsonSerializer.Deserialize<RepoPackManifest>(json.TrimStart('\uFEFF'), JsonUtil.Options)
+        if (!document.RootElement.TryGetProperty("schemaVersion", out var schema) ||
+            schema.ValueKind != JsonValueKind.Number || !schema.TryGetInt32(out var version) || version != 1)
+            throw new InvalidDataException("资源包清单版本不受支持。");
+        var manifest = document.RootElement.Deserialize<RepoPackManifest>(JsonUtil.Options)
             ?? throw new InvalidDataException("资源包清单为空。");
-        if (manifest.SchemaVersion != 1) throw new InvalidDataException("资源包清单版本不受支持。");
-        manifest.Packs ??= [];
-        manifest.Packs.RemoveAll(static entry => entry is null);
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var entry in manifest.Packs)
         {
+            if (entry is null || !IsValidPackId(entry.Id) || !seen.Add(entry.Id) ||
+                !Version.TryParse(entry.Version?.TrimStart('v', 'V'), out _) ||
+                !GitHubMirrorService.IsSha256Hex(entry.Sha256) ||
+                !Uri.TryCreate(entry.DownloadUrl, UriKind.Absolute, out var url) || !MediaRequestHeaders.IsHttpAddress(url) ||
+                (url.Scheme != Uri.UriSchemeHttps && !url.IsLoopback))
+                throw new InvalidDataException("资源包清单包含无效或重复的包。");
+            if (string.IsNullOrWhiteSpace(entry.Name)) entry.Name = entry.Id;
             entry.MatchHosts ??= [];
             entry.MatchUrlKeywords ??= [];
             entry.MatchSiteApis ??= [];
@@ -521,16 +619,20 @@ public sealed class RepoPackService : IDisposable
         return def;
     }
 
+    private static bool IsValidPackId(string? packId) => !string.IsNullOrWhiteSpace(packId) && packId.Length <= 64 &&
+        packId.All(c => char.IsAsciiLetterOrDigit(c) || c is '-' or '_');
+
     private static void ValidatePackId(string packId)
     {
-        if (string.IsNullOrWhiteSpace(packId) || packId.Length > 64 ||
-            !packId.All(c => char.IsAsciiLetterOrDigit(c) || c is '-' or '_'))
+        if (!IsValidPackId(packId))
             throw new ArgumentException("资源包标识无效。", nameof(packId));
     }
 
     public void Dispose()
     {
+        _systemCatalogHttp?.Dispose();
         _downloads.Dispose();
         _ioGate.Dispose();
+        _catalogGate.Dispose();
     }
 }

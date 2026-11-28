@@ -125,12 +125,12 @@
                         </Expander>
                     </StackPanel>
 
-                    <!-- 物理弹性朱砂分区滑轨 -->
+                    <!-- 物理弹性朱砂分区滑轨（内嵌 5px 避开圆角描边） -->
                     <Border x:Name="SettingsNavIndicator"
                             Width="3" Height="20" CornerRadius="1.5"
                             Background="{ThemeResource SelectionIndicatorBrush}"
                             HorizontalAlignment="Left" VerticalAlignment="Top"
-                            Margin="0,0,0,0" Opacity="0" IsHitTestVisible="False" />
+                            Margin="5,0,0,0" Opacity="0" IsHitTestVisible="False" />
                 </Grid>
                 </ScrollViewer>
             </controls:GlassSurface>
@@ -205,7 +205,7 @@
                                             <ColumnDefinition Width="Auto" />
                                         </Grid.ColumnDefinitions>
                                         <TextBlock Text="当前仓库" Style="{StaticResource LabelText}" Width="{StaticResource SettingsFormLabelWidth}" VerticalAlignment="Center" />
-                                        <controls:AnchoredChoice Grid.Column="1" Header="当前仓库" MinWidth="220"
+                                        <controls:AnchoredChoice Grid.Column="1" Header="当前仓库" ShowHeader="False" MinWidth="220"
                                                                  MinHeight="{StaticResource SecondaryButtonHeight}"
                                                                  HorizontalAlignment="Left" VerticalAlignment="Center"
                                                                  ItemsSource="{Binding Repositories}"
@@ -956,6 +956,7 @@
                                     </StackPanel>
                                     <StackPanel Orientation="Horizontal" Spacing="{StaticResource SpaceMini}">
                                         <Button Content="扫描可清理项" Command="{Binding ScanCleanupCommand}" Style="{StaticResource SecondaryButtonStyle}"
+                                                Height="{StaticResource PrimaryButtonHeight}" MinHeight="{StaticResource PrimaryButtonHeight}"
                                                 AutomationProperties.Name="扫描可清理项" />
                                         <Button Content="清理选中项" Click="OnCleanSelectedClick" Style="{StaticResource PrimaryButtonStyle}"
                                                 AutomationProperties.Name="清理选中项" />
@@ -1050,6 +1051,7 @@
                                                     AutomationProperties.Name="下载安装更新"
                                                     Visibility="{Binding HasAvailableUpdate, Converter={StaticResource BoolToVisibility}}" />
                                             <Button Content="检查更新" Command="{Binding CheckUpdateCommand}" Style="{StaticResource SecondaryButtonStyle}"
+                                                    Height="{StaticResource PrimaryButtonHeight}" MinHeight="{StaticResource PrimaryButtonHeight}"
                                                     AutomationProperties.Name="检查更新" />
                                         </StackPanel>
                                     </Grid>

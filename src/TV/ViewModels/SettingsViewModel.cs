@@ -531,24 +531,28 @@ public sealed partial class SettingsViewModel : ObservableObject
     {
         if (IsLoadingRepoPacks) return;
         IsLoadingRepoPacks = true;
-        if (forceRefresh) RepoPackStatus = "正在从 GitHub 获取仓库资源包清单…";
+        RepoPackStatus = "正在检查仓库资源包更新…";
         try
         {
-            var manifest = await _services.RepoPacks.GetManifestAsync(forceRefresh);
-            SyncRepoPacksCollection(manifest);
+            if (await _services.RepoPacks.GetLocalCatalogAsync() is { } local)
+                SyncRepoPacksCollection(local.Manifest);
+            else SyncInstalledPacksOnly();
+
+            var catalog = await _services.RepoPacks.GetCatalogAsync(forceRefresh);
+            SyncRepoPacksCollection(catalog.Manifest);
             var installedCount = _services.RepoPacks.InstalledPacks.Count;
-            RepoPackStatus = manifest.Packs.Count == 0
-                ? "当前清单暂无可用资源包"
-                : $"共发现 {manifest.Packs.Count} 个可用资源包 · 本机已启用 {installedCount} 个";
+            var sourceText = catalog.Source switch
+            {
+                RepoPackCatalogSource.Cached => "使用上次成功获取的清单",
+                RepoPackCatalogSource.Bundled => "使用随客户端提供的清单",
+                _ => "在线清单已更新"
+            };
+            RepoPackStatus = $"{sourceText} · {catalog.Manifest.Packs.Count} 个可用资源包 · 本机已启用 {installedCount} 个";
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is InvalidOperationException or OperationCanceledException)
         {
-            SyncInstalledPacksOnly();
-            RepoPackStatus = forceRefresh
-                ? ex.Message
-                : (_services.RepoPacks.InstalledPacks.Count > 0
-                    ? $"已启用 {_services.RepoPacks.InstalledPacks.Count} 个本地资源包（点刷新检查更新）"
-                    : "点击「刷新清单」获取在线仓库资源包");
+            Diagnostics.Log($"[RepoPack] Catalog refresh: {ex.GetType().Name}");
+            RepoPackStatus = "暂时无法更新在线清单。可以稍后刷新或导入本地 ZIP。";
         }
         finally { IsLoadingRepoPacks = false; }
     }

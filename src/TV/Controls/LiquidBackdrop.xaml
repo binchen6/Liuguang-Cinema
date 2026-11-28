@@ -4,15 +4,24 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     IsHitTestVisible="False"
     Loaded="OnLoaded">
-    <!-- 原研哉建筑感主题自适应光场：暗室极轻电影余辉 / 素白晨光青瓷漫射，为全站磨砂玻璃提供真实透光纵深；高对比自动隐藏 -->
+    <!-- 全局自然日光场：左上温润主日光 + 中央天光散射 + 右下低饱和暖余晖，为全站磨砂玻璃提供真实透光纵深；高对比自动隐藏 -->
     <Grid Background="{ThemeResource AppCanvasGradientBrush}">
         <Grid x:Name="AmbientLayer" IsHitTestVisible="False">
-            <Ellipse Width="960" Height="960" HorizontalAlignment="Left" VerticalAlignment="Top"
-                     Margin="-300,-340,0,0" Fill="{ThemeResource BackdropGlowPrimaryBrush}" />
-            <Ellipse Width="820" Height="820" HorizontalAlignment="Center" VerticalAlignment="Top"
-                     Margin="200,-260,0,0" Fill="{ThemeResource BackdropGlowSecondaryBrush}" />
-            <Ellipse Width="780" Height="780" HorizontalAlignment="Right" VerticalAlignment="Bottom"
-                     Margin="0,0,-240,-260" Fill="{ThemeResource BackdropGlowAccentBrush}" />
+            <Border HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
+                <Border.Background>
+                    <LinearGradientBrush StartPoint="0.0,0.0" EndPoint="0.85,1.0">
+                        <GradientStop Color="{ThemeResource SolarCanvasKeyColor}" Offset="0.0" />
+                        <GradientStop Color="{ThemeResource SolarCanvasMidColor}" Offset="0.38" />
+                        <GradientStop Color="Transparent" Offset="0.82" />
+                    </LinearGradientBrush>
+                </Border.Background>
+            </Border>
+            <Ellipse Width="1180" Height="980" HorizontalAlignment="Left" VerticalAlignment="Top"
+                     Margin="-360,-380,0,0" Fill="{ThemeResource BackdropGlowPrimaryBrush}" />
+            <Ellipse Width="960" Height="840" HorizontalAlignment="Center" VerticalAlignment="Top"
+                     Margin="240,-290,0,0" Fill="{ThemeResource BackdropGlowSecondaryBrush}" />
+            <Ellipse Width="920" Height="820" HorizontalAlignment="Right" VerticalAlignment="Bottom"
+                     Margin="0,0,-280,-300" Fill="{ThemeResource BackdropGlowAccentBrush}" />
         </Grid>
     </Grid>
 </UserControl>

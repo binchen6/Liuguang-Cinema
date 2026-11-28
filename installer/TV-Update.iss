@@ -51,7 +51,7 @@ VersionInfoDescription={#MyAppName}增量更新程序
 VersionInfoCopyright=Copyright (c) {#MyAppPublisher}
 MinVersion=10.0.17763
 CloseApplications=yes
-CloseApplicationsFilter=TV.exe,TV.dll,java.exe,catvod-engine.jar
+CloseApplicationsFilter=TV.exe,TV.dll,java.exe,python.exe,catvod-engine.jar
 RestartApplications=no
 SetupLogging=no
 #ifdef EnableSignTool
@@ -101,7 +101,7 @@ Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{a
 Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"; IconFilename: "{app}\{#MyAppExeName}"; IconIndex: 0; Check: DesktopShortcutExists
 
 [Run]
-Filename: "{app}\{#MyAppExeName}"; Description: "启动 {#MyAppName}"; Flags: nowait postinstall
+Filename: "{app}\{#MyAppExeName}"; Description: "启动 {#MyAppName}"; Flags: nowait postinstall; Check: ShouldRelaunchAfterUpdate
 
 [Code]
 const
@@ -210,17 +210,35 @@ begin
   SHChangeNotify(SHCNE_ASSOCCHANGED, SHCNF_IDLIST or SHCNF_FLUSH, 0, 0);
 end;
 
-procedure WaitForAppExecutableUnlock;
+function HasCommandLineSwitch(const SwitchName: String): Boolean;
 var
-  ExePath: String;
+  I: Integer;
+begin
+  Result := False;
+  for I := 1 to ParamCount do
+  begin
+    if CompareText(ParamStr(I), SwitchName) = 0 then
+    begin
+      Result := True;
+      exit;
+    end;
+  end;
+end;
+
+function ShouldRelaunchAfterUpdate: Boolean;
+begin
+  Result := (not HasCommandLineSwitch('/VERYSILENT')) and (not HasCommandLineSwitch('/NORELAUNCH'));
+end;
+
+procedure WaitForSingleFileUnlock(const FilePath: String);
+var
   Handle: THandle;
   Attempt: Integer;
 begin
-  ExePath := ExpandConstant('{app}\{#MyAppExeName}');
-  if not FileExists(ExePath) then exit;
-  for Attempt := 1 to 50 do
+  if not FileExists(FilePath) then exit;
+  for Attempt := 1 to 40 do
   begin
-    Handle := CreateFileW(ExePath, GenericWrite, 0, 0, OpenExisting, 0, 0);
+    Handle := CreateFileW(FilePath, GenericWrite, 0, 0, OpenExisting, 0, 0);
     if Handle <> THandle(-1) then
     begin
       CloseHandle(Handle);
@@ -230,9 +248,38 @@ begin
   end;
 end;
 
+procedure WaitForAppExecutableUnlock;
+begin
+  WaitForSingleFileUnlock(ExpandConstant('{app}\{#MyAppExeName}'));
+  WaitForSingleFileUnlock(ExpandConstant('{app}\TV.dll'));
+  WaitForSingleFileUnlock(ExpandConstant('{app}\runtime\catvod-engine.jar'));
+  WaitForSingleFileUnlock(ExpandConstant('{app}\runtime\java\bin\java.exe'));
+  WaitForSingleFileUnlock(ExpandConstant('{app}\runtime\python\python.exe'));
+end;
+
+function ReadManifestVersion(const ManifestPath: String): String;
+var
+  Lines: TArrayOfString;
+  I: Integer;
+  Line: String;
+begin
+  Result := '';
+  if not FileExists(ManifestPath) then exit;
+  if not LoadStringsFromFile(ManifestPath, Lines) then exit;
+  for I := 0 to GetArrayLength(Lines) - 1 do
+  begin
+    Line := Trim(Lines[I]);
+    if Pos('# version=', Line) = 1 then
+    begin
+      Result := Trim(Copy(Line, Length('# version=') + 1, Length(Line)));
+      exit;
+    end;
+  end;
+end;
+
 function CheckInstallDirectory: String;
 var
-  Directory, ProbePath, InstalledVersion: String;
+  Directory, ProbePath, InstalledVersion, ManifestVer: String;
   Handle: THandle;
   ErrorCode: Integer;
 begin
@@ -247,6 +294,22 @@ begin
     (InstalledVersion <> '{#MyAppVersion}.0') then
   begin
     Result := '此增量包适用于流光影院 {#MyBaseVersion}。当前版本是 ' + InstalledVersion + '。请使用完整安装包。';
+    exit;
+  end;
+  if (not FileExists(AddBackslash(Directory) + 'TV.exe')) or
+     (not FileExists(AddBackslash(Directory) + 'runtime\catvod-engine.jar')) or
+     (not FileExists(AddBackslash(Directory) + 'runtime\java\bin\java.exe')) or
+     (not FileExists(AddBackslash(Directory) + 'runtime\python\python.exe')) or
+     (not FileExists(AddBackslash(Directory) + 'libvlc\win-x64\libvlc.dll')) then
+  begin
+    Result := '当前安装目录缺少核心运行文件，无法应用增量补丁。请下载完整安装包覆盖修复。';
+    exit;
+  end;
+  ManifestVer := ReadManifestVersion(AddBackslash(Directory) + 'install-manifest.txt');
+  if (ManifestVer <> '') and ('{#MyBaseVersion}' <> '') and
+     (ManifestVer <> '{#MyBaseVersion}') and (ManifestVer <> '{#MyAppVersion}') then
+  begin
+    Result := '当前安装清单版本（' + ManifestVer + '）与增量基线（{#MyBaseVersion}）不一致。请使用完整安装包。';
     exit;
   end;
 

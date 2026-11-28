@@ -50,10 +50,10 @@
                     <TextBlock Text="媒体库" Style="{StaticResource PageTitleText}" />
                     <TextBlock x:Name="HeaderSubtitle" Text="继续观看、收藏、离线下载与本地影片的个人片库" Style="{StaticResource SecondaryText}" />
                 </StackPanel>
-                <TextBox x:Name="SearchBox" Grid.Column="1" Width="240" VerticalAlignment="Center"
+                <TextBox x:Name="SearchBox" Grid.Column="1" Width="240" Height="40" MinHeight="40" Padding="12,8" VerticalAlignment="Center"
                          PlaceholderText="搜索媒体库" AutomationProperties.Name="搜索媒体库"
                          Text="{Binding SearchQuery, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
-                <DropDownButton x:Name="LocalMediaButton" Grid.Column="2" Content="本地媒体" Style="{StaticResource SecondaryButtonStyle}" VerticalAlignment="Center"
+                <DropDownButton x:Name="LocalMediaButton" Grid.Column="2" Content="本地媒体" Style="{StaticResource GlassDropDownButtonStyle}" VerticalAlignment="Center"
                                 AutomationProperties.Name="本地媒体">
                     <DropDownButton.Flyout>
                         <MenuFlyout>
@@ -472,7 +472,8 @@
                                    Style="{StaticResource SecondaryText}" TextAlignment="Center" TextWrapping="Wrap" />
                         <StackPanel Orientation="Horizontal" Spacing="{StaticResource SpaceMini}" HorizontalAlignment="Center">
                             <Button Content="导入文件" Command="{Binding ImportFilesCommand}" Style="{StaticResource PrimaryButtonStyle}" />
-                            <Button Content="导入文件夹" Command="{Binding ImportFolderCommand}" Style="{StaticResource SecondaryButtonStyle}" />
+                            <Button Content="导入文件夹" Command="{Binding ImportFolderCommand}" Style="{StaticResource SecondaryButtonStyle}"
+                                    Height="{StaticResource PrimaryButtonHeight}" MinHeight="{StaticResource PrimaryButtonHeight}" />
                         </StackPanel>
                     </StackPanel>
                 </Grid>

@@ -22,6 +22,7 @@ using TV.Services.Packs;
 using TV.Services.Persistence;
 using TV.Services.Playback;
 using TV.Services.Spider;
+using TV.Services.Updates;
 using TV.Services.Vod;
 using TV.Services.Vod.Native;
 
@@ -105,6 +106,15 @@ var redacted = Diagnostics.Redact("Cookie: first=fixture-one; second=fixture-two
 Check(!redacted.Contains("fixture-", StringComparison.Ordinal), "Cookie pairs and signed media queries are redacted");
 
 using var siteHttp = new SourceHttpClient();
+var internationalAddress = new Uri("http://测试.example:8090/目录?固定=1");
+using (var internationalHttp = new SourceHttpClient(new InternationalHostFixture()))
+{
+    var normalized = await internationalHttp.GetStringAsync(internationalAddress.AbsoluteUri,
+        new Dictionary<string, string> { ["Referer"] = "https://测试.example/来源" });
+    Check(normalized == internationalAddress.IdnHost + "|" + internationalAddress.Port + "|" + internationalAddress.PathAndQuery + "|" +
+        "https://" + internationalAddress.IdnHost + "/%E6%9D%A5%E6%BA%90",
+        "Source requests encode internationalized hosts and referrers for HTTP proxies while retaining port, path and query");
+}
 var danmaku = new DanDanPlayService(siteHttp, database);
 var danmakuDefaults = DanmakuService.ParseContent("""
     <i>
@@ -576,13 +586,32 @@ Check(packFixtureHandler.SawMirrorDownload && packFixtureHandler.SawOriginManife
 using (var alternatePack = new RepoPackService(packFixtureHttp, packDns, Path.Combine(args[0], "alternate-packs")))
 {
     packFixtureHandler.RawUnavailable = true;
+    packFixtureHandler.UseApiEnvelope = true;
     Check((await alternatePack.GetManifestAsync()).Packs.Single().Id == "demo" && packFixtureHandler.SawApiManifest,
-        "Resource-pack refresh uses GitHub's contents API if the raw endpoint is unreachable");
+        "Resource-pack refresh reads the GitHub contents envelope if the raw endpoint is unreachable");
     packFixtureHandler.ApiUnavailable = true;
-    Check((await alternatePack.GetManifestAsync(forceRefresh: true)).Packs.Single().Id == "demo",
-        "A failed refresh retains an origin-verified cached manifest");
+    packFixtureHandler.CancelManifest = true;
+    var cachedCatalog = await alternatePack.GetCatalogAsync(forceRefresh: true);
+    Check(cachedCatalog.Manifest.Packs.Single().Id == "demo" && cachedCatalog.Source == RepoPackCatalogSource.Cached,
+        "An endpoint cancellation retains the last origin-verified catalog and reports its offline state");
+    var restartRoot = Path.Combine(args[0], "clean-offline-pack-profile");
+    using var offline = new RepoPackService(packFixtureHttp, packDns, restartRoot,
+        RepoPackService.DefaultManifestUrl, packFixtureHandler);
+    Check((await offline.GetLocalCatalogAsync())?.Source == RepoPackCatalogSource.Bundled,
+        "A fresh profile can show the bundled catalog before connecting");
+    var bundled = await offline.GetCatalogAsync(forceRefresh: true);
+    Check(bundled.Source == RepoPackCatalogSource.Bundled && bundled.Manifest.Packs.Any(pack => pack.Id == "y456y"),
+        "Both official endpoints cancel without preventing a clean Windows profile from listing the default pack");
+    var offlineInstall = await offline.AutoInstallForRepositoryAsync("http://www.y456y.com", null);
+    Check(offlineInstall.Installed && offline.TryGetInstalled("y456y", out _) && offlineInstall.RouteLabel == "客户端自带资源包",
+        "A verified bundled ZIP can activate the matching repository without downloading");
+    using var explicitCancellation = new CancellationTokenSource();
+    explicitCancellation.Cancel();
+    await CheckThrows<OperationCanceledException>(() => offline.GetCatalogAsync(true, explicitCancellation.Token),
+        "Explicit caller cancellation still cancels the refresh");
 }
 packFixtureHandler.RawUnavailable = packFixtureHandler.ApiUnavailable = false;
+packFixtureHandler.CancelManifest = packFixtureHandler.UseApiEnvelope = false;
 var mismatchedEntry = new RepoPackManifestEntry
 {
     Id = "demo", Version = "2.0.0", DownloadUrl = "https://github.com/binchen6/Liuguang-RepoPacks/releases/download/v1.0.0/demo-pack.zip", Sha256 = demoSha
@@ -632,6 +661,84 @@ Check(AudioMedia.IsAudio("https://music.example.invalid/recording.FLAC?quality=o
     new LocalMediaEntry(@"C:\Music\条目.opus", "条目", "", 4, DateTimeOffset.Now).IsMusic,
     "Music and video classification handles local filenames and signed stream URLs");
 
+// Cross-version & incremental update hardening regressions
+{
+    var updateTestRoot = Path.Combine(args[0], "update-hardening");
+    var installDir = Path.Combine(updateTestRoot, "app");
+    var cacheDir = Path.Combine(updateTestRoot, "cache");
+    Directory.CreateDirectory(Path.Combine(installDir, "runtime", "java", "bin"));
+    Directory.CreateDirectory(Path.Combine(installDir, "runtime", "python"));
+    Directory.CreateDirectory(Path.Combine(installDir, "libvlc", "win-x64"));
+    Directory.CreateDirectory(cacheDir);
+
+    var sampleFiles = new Dictionary<string, byte[]>
+    {
+        ["TV.exe"] = Encoding.UTF8.GetBytes("tv-exe-v201"),
+        ["TV.dll"] = Encoding.UTF8.GetBytes("tv-dll-v201"),
+        ["TV.pri"] = Encoding.UTF8.GetBytes("tv-pri-v201"),
+        [@"runtime\catvod-engine.jar"] = Encoding.UTF8.GetBytes("jar-v201"),
+        [@"runtime\java\bin\java.exe"] = Encoding.UTF8.GetBytes("java-v201"),
+        [@"runtime\python\python.exe"] = Encoding.UTF8.GetBytes("py-v201"),
+        [@"libvlc\win-x64\libvlc.dll"] = Encoding.UTF8.GetBytes("vlc-v201"),
+        ["extra.txt"] = Encoding.UTF8.GetBytes("extra-v201")
+    };
+    var manifestBuilder = new List<string> { "# version=2.0.1" };
+    foreach (var (rel, bytes) in sampleFiles)
+    {
+        var path = Path.Combine(installDir, rel);
+        File.WriteAllBytes(path, bytes);
+        var sha = Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant();
+        manifestBuilder.Add($"{sha}|{bytes.Length}|{rel}");
+    }
+
+    var fakeDigest = new string('a', 64);
+    var release202 = new AppUpdateRelease(
+        new Version(2, 0, 2), "v2.0.2", "流光影院 2.0.2", "常规更新",
+        "https://github.com/binchen6/Liuguang-Cinema/releases/tag/v2.0.2",
+        DateTimeOffset.UtcNow,
+        [
+            new AppUpdateAsset("TV-Setup-2.0.2-x64.exe", 160_000_000, "https://github.com/binchen6/Liuguang-Cinema/releases/download/v2.0.2/TV-Setup-2.0.2-x64.exe", fakeDigest),
+            new AppUpdateAsset("TV-Update-2.0.2-from-2.0.1-x64.exe", 8_000_000, "https://github.com/binchen6/Liuguang-Cinema/releases/download/v2.0.2/TV-Update-2.0.2-from-2.0.1-x64.exe", fakeDigest)
+        ]);
+
+    // 1. Missing install-manifest.txt -> forces full installer
+    var noManifestPkg = AppUpdateService.SelectPackageCore(release202, true, new Version(2, 0, 1), installDir, cacheDir);
+    Check(!noManifestPkg.Incremental && noManifestPkg.Asset.Name == "TV-Setup-2.0.2-x64.exe",
+        "Missing install-manifest.txt forces full installer instead of unsafe incremental patch");
+
+    // 2. Valid manifest -> selects incremental patch
+    File.WriteAllLines(Path.Combine(installDir, "install-manifest.txt"), manifestBuilder, new UTF8Encoding(false));
+    var intactPkg = AppUpdateService.SelectPackageCore(release202, true, new Version(2, 0, 1), installDir, cacheDir);
+    Check(intactPkg.Incremental && intactPkg.Asset.Name == "TV-Update-2.0.2-from-2.0.1-x64.exe",
+        "Intact manifest selects incremental update package for matching base version");
+
+    // 3. Cross-version jump (1.9.7 -> 2.0.2) -> automatically selects full installer
+    var crossVersionPkg = AppUpdateService.SelectPackageCore(release202, true, new Version(1, 9, 7), installDir, cacheDir);
+    Check(!crossVersionPkg.Incremental && crossVersionPkg.Asset.Name == "TV-Setup-2.0.2-x64.exe",
+        "Cross-version upgrade automatically selects full installer");
+
+    // 4. Release-level [FORCE-FULL-UPDATE] flag -> forces full installer even when delta exists
+    var forceFullRelease = release202 with { Notes = "[FORCE-FULL-UPDATE]\n重大运行时升级" };
+    var forceFullPkg = AppUpdateService.SelectPackageCore(forceFullRelease, true, new Version(2, 0, 1), installDir, cacheDir);
+    Check(!forceFullPkg.Incremental && forceFullPkg.Asset.Name == "TV-Setup-2.0.2-x64.exe",
+        "Release [FORCE-FULL-UPDATE] signal forces full installer");
+
+    // 5. Failed previous incremental install -> auto-recovers with full installer
+    AppUpdateService.RecordInstallAttemptCore(true, "2.0.1", "2.0.2", cacheDir);
+    var retryAfterFailPkg = AppUpdateService.SelectPackageCore(release202, true, new Version(2, 0, 1), installDir, cacheDir);
+    Check(!retryAfterFailPkg.Incremental && retryAfterFailPkg.Asset.Name == "TV-Setup-2.0.2-x64.exe",
+        "Previous failed incremental attempt automatically falls back to full installer");
+    Check(!AppUpdateService.WasPreviousIncrementalFailed("2.0.2", "2.0.3", cacheDir) &&
+          !File.Exists(Path.Combine(cacheDir, "incremental-attempt.txt")),
+        "Successful upgrade clears previous incremental attempt marker");
+
+    // 6. Tampered core binary -> detected by SHA-256 check and falls back to full installer
+    File.WriteAllBytes(Path.Combine(installDir, "TV.dll"), Encoding.UTF8.GetBytes("tv-dll-XXXX"));
+    var tamperedPkg = AppUpdateService.SelectPackageCore(release202, true, new Version(2, 0, 1), installDir, cacheDir);
+    Check(!tamperedPkg.Incremental && tamperedPkg.Asset.Name == "TV-Setup-2.0.2-x64.exe",
+        "Tampered core file hash fails incremental pre-flight and switches to full installer");
+}
+
 if (args.Contains("--verify-default-service", StringComparer.Ordinal))
 {
     Check(danmaku.HasDefaultService, "The build contains a valid default relay URL");
@@ -661,6 +768,18 @@ static string EncryptTvBoxAesHex(string plainText, string key, string iv)
     var cipherHex = Convert.ToHexString(cipher).ToLowerInvariant();
     var ivHex = Convert.ToHexString(Encoding.UTF8.GetBytes(iv)).ToLowerInvariant();
     return prefixHex + cipherHex + ivHex;
+}
+
+sealed class InternationalHostFixture : HttpMessageHandler
+{
+    protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken token)
+    {
+        var uri = request.RequestUri!;
+        return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent(uri.Host + "|" + uri.Port + "|" + uri.PathAndQuery + "|" + request.Headers.Referrer?.AbsoluteUri)
+        });
+    }
 }
 
 sealed class AutomaticDiscoveryFixture : HttpMessageHandler
@@ -989,6 +1108,8 @@ sealed class RepoPackFixtureHandler(string manifestJson, byte[] zipBytes) : Http
     internal bool SawApiManifest { get; private set; }
     internal bool RawUnavailable { get; set; }
     internal bool ApiUnavailable { get; set; }
+    internal bool UseApiEnvelope { get; set; }
+    internal bool CancelManifest { get; set; }
 
     protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
     {
@@ -999,11 +1120,15 @@ sealed class RepoPackFixtureHandler(string manifestJson, byte[] zipBytes) : Http
             SawOriginManifest |= raw;
             SawApiManifest |= !raw && request.RequestUri.Host == "api.github.com" &&
                 request.Headers.Accept.Any(media => media.MediaType == "application/vnd.github.raw+json");
+            if (CancelManifest)
+                return Task.FromException<HttpResponseMessage>(new TaskCanceledException("The operation was canceled."));
             if (raw ? RawUnavailable : ApiUnavailable)
                 return Task.FromResult(new HttpResponseMessage(HttpStatusCode.ServiceUnavailable));
             return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
             {
-                Content = new StringContent(manifestJson, Encoding.UTF8, "application/json")
+                Content = new StringContent(!raw && UseApiEnvelope
+                    ? JsonSerializer.Serialize(new { encoding = "base64", content = Convert.ToBase64String(Encoding.UTF8.GetBytes(manifestJson)) })
+                    : manifestJson, Encoding.UTF8, "application/json")
             });
         }
         if (url.EndsWith("demo-pack.zip", StringComparison.OrdinalIgnoreCase))

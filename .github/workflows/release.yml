@@ -50,24 +50,7 @@ jobs:
             "has_cert=false" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
           }
 
-      - name: Download previous release for incremental package
-        shell: pwsh
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          $version = ([xml](Get-Content 'Directory.Build.props' -Raw)).Project.PropertyGroup.Version
-          $releases = gh release list --exclude-drafts --exclude-pre-releases --limit 25 --json tagName
-          if ($LASTEXITCODE -ne 0) { throw 'Failed to list previous releases' }
-          $previous = $releases | ConvertFrom-Json | ForEach-Object { $_ } |
-            Where-Object { $_.tagName -match '^v\d+\.\d+\.\d+$' -and [version]$_.tagName.Substring(1) -lt [version]$version } |
-            Sort-Object { [version]$_.tagName.Substring(1) } -Descending | Select-Object -First 1 -ExpandProperty tagName
-          if ($previous) {
-            New-Item -ItemType Directory -Force 'artifacts/prerequisites/update-base' | Out-Null
-            gh release download $previous --pattern '*-win-x64-portable.zip' --dir 'artifacts/prerequisites/update-base' --clobber
-            if ($LASTEXITCODE -ne 0) { throw 'Failed to download incremental base package' }
-          }
-
-      - name: Build installer and portable package
+      - name: Build installer
         shell: pwsh
         env:
           DANDANPLAY_RELAY_URL: ${{ vars.DANDANPLAY_RELAY_URL }}
@@ -88,7 +71,7 @@ jobs:
               throw "Invalid DANDANPLAY_RELAY_URL entry: $entry (must be a public HTTPS URL without query/fragment)."
             }
           }
-          pwsh -NoProfile -File ./scripts/build-installer.ps1 -NoRestore
+          pwsh -NoProfile -File ./scripts/build-installer.ps1 -NoRestore -ForceFullUpdate
 
       - name: Verify installer fast-launch non-regression gate
         shell: pwsh
@@ -97,7 +80,7 @@ jobs:
           $setup = "artifacts/installers/TV-Setup-$version-x64.exe"
           pwsh -NoProfile -File ./scripts/Test-InstallerLaunchSpeed.ps1 -InstallerPath $setup -AssertIssSettings -Runs 2 -MaxColdMs 3500 -MaxWarmMs 1200
 
-      - name: Verify clean installation and incremental upgrade on Windows
+      - name: Verify clean installation on Windows
         shell: pwsh
         run: |
           $version = ([xml](Get-Content 'Directory.Build.props' -Raw)).Project.PropertyGroup.Version
@@ -126,26 +109,6 @@ jobs:
           node --test server/dandanplay-relay/worker.test.mjs
           if ($LASTEXITCODE -ne 0) { throw 'DanDanPlay relay regression checks failed' }
 
-          $bases = @(Get-ChildItem -Path 'artifacts/prerequisites/update-base' -Filter '*-win-x64-portable.zip' -File -ErrorAction SilentlyContinue)
-          if ($bases.Count -gt 0) {
-            $updates = @(Get-ChildItem -LiteralPath 'artifacts/installers' -Filter "TV-Update-$version-from-*-x64.exe" -File)
-            if ($bases.Count -ne 1 -or $updates.Count -ne 1) { throw 'Expected a single incremental base and update package' }
-            $upgraded = Join-Path $env:RUNNER_TEMP 'Liuguang previous portable'
-            Expand-Archive -LiteralPath $bases[0].FullName -DestinationPath $upgraded
-            Test-InstallPackage $updates[0] $upgraded
-            Get-Process -Name TV -ErrorAction SilentlyContinue |
-              Where-Object { $_.Path -eq (Join-Path $upgraded 'TV.exe') } | Stop-Process
-            $expected = Join-Path $env:RUNNER_TEMP 'Liuguang current portable'
-            Expand-Archive -LiteralPath "artifacts/installers/TV-$version-win-x64-portable.zip" -DestinationPath $expected
-            foreach ($file in Get-ChildItem -LiteralPath $expected -File -Recurse) {
-              $relative = [IO.Path]::GetRelativePath($expected, $file.FullName)
-              $patchedFile = Join-Path $upgraded $relative
-              if ((Get-FileHash -LiteralPath $patchedFile).Hash -ne (Get-FileHash -LiteralPath $file.FullName).Hash) {
-                throw "Incremental file differs from the full release: $relative"
-              }
-            }
-          }
-
       - name: Clean temporary signing certificate
         if: always() && steps.cert.outputs.has_cert == 'true'
         shell: pwsh
@@ -159,9 +122,6 @@ jobs:
         with:
           subject-path: |
             artifacts/installers/TV-Setup-*-x64.exe
-            artifacts/installers/TV-*-win-x64-portable.zip
-            artifacts/installers/TV-Update-*-x64.exe
-            artifacts/installers/TV-Update-*-x64.exe.sha256
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -170,7 +130,3 @@ jobs:
           path: |
             artifacts/installers/TV-Setup-*-x64.exe
             artifacts/installers/TV-Setup-*-x64.exe.sha256
-            artifacts/installers/TV-*-win-x64-portable.zip
-            artifacts/installers/TV-Update-*-x64.exe
-            artifacts/installers/TV-Update-*-x64.exe.sha256
-            artifacts/installers/TV-*-win-x64-portable.zip.sha256

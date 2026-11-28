@@ -23,7 +23,10 @@ public sealed partial class UpdateDialog : ContentDialog
         try
         {
             var package = updates.SelectPackage(release);
-            PackageText.Text = $"{(package.Incremental ? "增量更新" : "完整安装")} · {FormatSize(package.Asset.Size)} · 下载后校验 SHA-256";
+            var label = string.IsNullOrWhiteSpace(package.SelectionReason)
+                ? (package.Incremental ? "增量更新" : "完整安装")
+                : $"{(package.Incremental ? "增量更新" : "完整安装")}（{package.SelectionReason}）";
+            PackageText.Text = $"{label} · {FormatSize(package.Asset.Size)} · 下载后校验 SHA-256";
         }
         catch (Exception ex)
         {
@@ -71,6 +74,7 @@ public sealed partial class UpdateDialog : ContentDialog
             StatusText.Text = $"{(downloaded.Package.Incremental ? "增量补丁" : "完整安装包")}已校验，正在启动安装。";
             PrimaryButtonText = "正在安装";
             CloseButtonText = "请稍候";
+            _updates.RecordInstallAttempt(downloaded.Package, _release.Version);
             App.Window.BeginUpdateInstallation(downloaded.Path);
         }
         catch (OperationCanceledException)

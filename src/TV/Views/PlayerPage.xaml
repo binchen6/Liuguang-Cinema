@@ -43,76 +43,20 @@
         <SolidColorBrush x:Key="ButtonBorderBrushPointerOver" Color="#52FFFFFF" />
         <SolidColorBrush x:Key="ButtonBorderBrushPressed" Color="#68FFFFFF" />
 
-        <!-- 中央清透光学磨砂玻璃圆镜播放键（背景与五层光影由外层 GlassSurface 承载） -->
+        <!-- 中央清透光学磨砂玻璃圆镜播放键（背景与五层光影由外层 GlassSurface 承载，内层自适应铺满避免溢出偏心） -->
         <Style x:Key="PlayerCenterPlayButtonStyle" TargetType="Button" BasedOn="{StaticResource PlayerIconButtonStyle}">
-            <Setter Property="Width" Value="{StaticResource PlayerCenterButtonSize}" />
-            <Setter Property="Height" Value="{StaticResource PlayerCenterButtonSize}" />
-            <Setter Property="MinWidth" Value="{StaticResource PlayerCenterButtonSize}" />
-            <Setter Property="MinHeight" Value="{StaticResource PlayerCenterButtonSize}" />
+            <Setter Property="Width" Value="NaN" />
+            <Setter Property="Height" Value="NaN" />
+            <Setter Property="MinWidth" Value="0" />
+            <Setter Property="MinHeight" Value="0" />
+            <Setter Property="HorizontalAlignment" Value="Stretch" />
+            <Setter Property="VerticalAlignment" Value="Stretch" />
             <Setter Property="Background" Value="Transparent" />
             <Setter Property="BorderBrush" Value="Transparent" />
             <Setter Property="BorderThickness" Value="0" />
             <Setter Property="Foreground" Value="#FFF8F7F2" />
-            <Setter Property="CornerRadius" Value="38" />
-        </Style>
-
-        <!-- 底部主播放/暂停键：清透珠光晶白玻璃圆钮 -->
-        <Style x:Key="PlayerPrimaryTransportStyle" TargetType="Button">
-            <Setter Property="controls:GlassOpticsEngine.Mode" Value="Interactive" />
-            <Setter Property="controls:GlassOpticsEngine.Profile" Value="Control" />
-            <Setter Property="Width" Value="38" />
-            <Setter Property="Height" Value="38" />
-            <Setter Property="MinWidth" Value="38" />
-            <Setter Property="MinHeight" Value="38" />
-            <Setter Property="Padding" Value="0" />
-            <Setter Property="CornerRadius" Value="19" />
-            <Setter Property="Background" Value="#D6F8F7F2" />
-            <Setter Property="BorderBrush" Value="#8AFFFFFF" />
-            <Setter Property="BorderThickness" Value="1" />
-            <Setter Property="Foreground" Value="#0D0D10" />
-            <Setter Property="HorizontalContentAlignment" Value="Center" />
-            <Setter Property="VerticalContentAlignment" Value="Center" />
-            <Setter Property="UseSystemFocusVisuals" Value="True" />
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="Button">
-                        <Border x:Name="RootBorder"
-                                Background="{TemplateBinding Background}"
-                                BorderBrush="{TemplateBinding BorderBrush}"
-                                BorderThickness="{TemplateBinding BorderThickness}"
-                                CornerRadius="{TemplateBinding CornerRadius}"
-                                Padding="{TemplateBinding Padding}">
-                            <ContentPresenter x:Name="ContentPresenter"
-                                              Content="{TemplateBinding Content}"
-                                              ContentTemplate="{TemplateBinding ContentTemplate}"
-                                              Foreground="{TemplateBinding Foreground}"
-                                              HorizontalContentAlignment="{TemplateBinding HorizontalContentAlignment}"
-                                              VerticalContentAlignment="{TemplateBinding VerticalContentAlignment}" />
-                            <VisualStateManager.VisualStateGroups>
-                                <VisualStateGroup x:Name="CommonStates">
-                                    <VisualState x:Name="Normal" />
-                                    <VisualState x:Name="PointerOver">
-                                        <VisualState.Setters>
-                                            <Setter Target="RootBorder.Background" Value="#F8FFFFFF" />
-                                            <Setter Target="RootBorder.BorderBrush" Value="#A8FFFFFF" />
-                                        </VisualState.Setters>
-                                    </VisualState>
-                                    <VisualState x:Name="Pressed">
-                                        <VisualState.Setters>
-                                            <Setter Target="RootBorder.Background" Value="#C8DDDAD2" />
-                                        </VisualState.Setters>
-                                    </VisualState>
-                                    <VisualState x:Name="Disabled">
-                                        <VisualState.Setters>
-                                            <Setter Target="RootBorder.Opacity" Value="0.42" />
-                                        </VisualState.Setters>
-                                    </VisualState>
-                                </VisualStateGroup>
-                            </VisualStateManager.VisualStateGroups>
-                        </Border>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
+            <Setter Property="CornerRadius" Value="37" />
+            <Setter Property="controls:GlassOpticsEngine.RadiusOverride" Value="37" />
         </Style>
 
         <Style x:Key="PlayerControlGroupStyle" TargetType="Border">
@@ -257,8 +201,8 @@
                         Style="{StaticResource PlayerCenterPlayButtonStyle}"
                         Click="OnCenterPlayClick"
                         ToolTipService.ToolTip="播放 / 暂停 (空格)" AutomationProperties.Name="播放">
-                    <controls:LineIcon PathData="{StaticResource IconPlaySolid}" IconSize="31" IsFilled="True"
-                                       Margin="4,0,0,0" Foreground="#FFF8F7F2" />
+                    <controls:LineIcon PathData="{StaticResource IconPlaySolid}" IconSize="30" IsFilled="True"
+                                       Foreground="#FFF8F7F2" />
                 </Button>
             </controls:GlassSurface>
         </Grid>
@@ -375,7 +319,8 @@
                                                    FontWeight="SemiBold" Foreground="#FFF8F7F2" Text="00:00" />
                                     </Border>
                                     <Slider x:Name="SeekSlider" Minimum="0" Maximum="{Binding DurationMs}" Value="{Binding PositionMs, Mode=TwoWay}"
-                                            VerticalAlignment="Center" MinHeight="28"
+                                            Style="{StaticResource GlassSliderStyle}"
+                                            VerticalAlignment="Center"
                                             ValueChanged="OnSeekValueChanged"
                                             PointerMoved="OnSeekTrackPointerMoved"
                                             PointerExited="OnSeekTrackPointerExited"
@@ -403,11 +348,11 @@
                                         <Button x:Name="PlayPauseButton" Style="{StaticResource PlayerPrimaryTransportStyle}"
                                                 Click="OnPlayPauseClick"
                                                 ToolTipService.ToolTip="播放 / 暂停 (空格)" AutomationProperties.Name="播放暂停">
-                                            <Grid Width="38" Height="38">
-                                                <controls:LineIcon PathData="{StaticResource IconPauseSolid}" IconSize="20" IsFilled="True"
+                                            <Grid HorizontalAlignment="Center" VerticalAlignment="Center">
+                                                <controls:LineIcon PathData="{StaticResource IconPauseSolid}" IconSize="19" IsFilled="True"
                                                                    Foreground="#0D0D10"
                                                                    Visibility="{Binding IsPlaying, Converter={StaticResource BoolToVisibility}}" />
-                                                <controls:LineIcon PathData="{StaticResource IconPlaySolid}" IconSize="20" IsFilled="True"
+                                                <controls:LineIcon PathData="{StaticResource IconPlaySolid}" IconSize="19" IsFilled="True"
                                                                    Foreground="#0D0D10"
                                                                    Visibility="{Binding IsPlaying, Converter={StaticResource BoolToVisibility}, ConverterParameter=Inverse}" />
                                             </Grid>
@@ -460,7 +405,7 @@
                                         </DropDownButton>
                                         <Button x:Name="VolumeButton" Style="{StaticResource PlayerIconButtonStyle}"
                                                 ToolTipService.ToolTip="音量 (↑↓ 调节)" AutomationProperties.Name="音量">
-                                            <Grid Width="38" Height="38">
+                                            <Grid HorizontalAlignment="Center" VerticalAlignment="Center">
                                                 <controls:LineIcon PathData="{StaticResource IconVolume}" IconSize="17" Foreground="#FFF8F7F2"
                                                                    Visibility="{Binding IsMuted, Converter={StaticResource BoolToVisibility}, ConverterParameter=Inverse}" />
                                                 <controls:LineIcon PathData="{StaticResource IconVolumeMute}" IconSize="17" Foreground="#CCF8F7F2"
@@ -477,7 +422,7 @@
                                                         </Grid.ColumnDefinitions>
                                                         <Button Style="{StaticResource PlayerIconButtonStyle}" Click="OnMuteClick"
                                                                 ToolTipService.ToolTip="静音 (M)" AutomationProperties.Name="静音">
-                                                            <Grid Width="38" Height="38">
+                                                            <Grid HorizontalAlignment="Center" VerticalAlignment="Center">
                                                                 <controls:LineIcon PathData="{StaticResource IconVolume}" IconSize="17" Foreground="#FFF8F7F2"
                                                                                    Visibility="{Binding IsMuted, Converter={StaticResource BoolToVisibility}, ConverterParameter=Inverse}" />
                                                                 <controls:LineIcon PathData="{StaticResource IconVolumeMute}" IconSize="17" Foreground="#CCF8F7F2"
@@ -485,6 +430,7 @@
                                                             </Grid>
                                                         </Button>
                                                         <Slider Grid.Column="1" Width="140" Minimum="0" Maximum="100"
+                                                                Style="{StaticResource GlassSliderStyle}"
                                                                 Value="{Binding Volume, Mode=TwoWay}"
                                                                 VerticalAlignment="Center" AutomationProperties.Name="音量滑块" />
                                                     </Grid>
@@ -519,10 +465,11 @@
                                             </DropDownButton.Flyout>
                                         </DropDownButton>
                                         <Button x:Name="SubtitleSettingsButton" Style="{StaticResource PlayerIconButtonStyle}"
+                                                HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch"
                                                 Click="OnSubtitleSettingsClick"
                                                 ToolTipService.ToolTip="字幕设置 / AI 字幕"
                                                 AutomationProperties.Name="字幕设置">
-                                            <Grid Width="38" Height="38">
+                                            <Grid>
                                                 <controls:LineIcon PathData="{StaticResource IconSubtitle}" IconSize="17" Foreground="#FFF8F7F2" />
                                                 <Border x:Name="SubtitleActiveIndicator" Width="12" Height="2"
                                                         CornerRadius="1"
@@ -532,10 +479,11 @@
                                             </Grid>
                                         </Button>
                                         <Button x:Name="DanmakuToggleButton" Style="{StaticResource PlayerIconButtonStyle}"
+                                                HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch"
                                                 Click="OnDanmakuToggleClick" RightTapped="OnDanmakuRightTapped"
                                                 ToolTipService.ToolTip="显示弹幕 (D · 右键设置)"
                                                 AutomationProperties.Name="弹幕开关">
-                                            <Grid Width="38" Height="38">
+                                            <Grid>
                                                 <controls:LineIcon PathData="{StaticResource IconDanmaku}" IconSize="17" Foreground="#FFF8F7F2" />
                                                 <Border x:Name="DanmakuOnIndicator" Width="12" Height="2"
                                                         CornerRadius="1"

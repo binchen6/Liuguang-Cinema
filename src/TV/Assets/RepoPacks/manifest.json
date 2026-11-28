@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "updatedAt": "2026-11-27T12:13:43Z",
+  "packs": [
+    {
+      "id": "y456y",
+      "name": "摸鱼 (y456y) 专属适配包",
+      "version": "1.0.0",
+      "description": "为 www.y456y.com 提供有声听书、无损音乐、短剧、少儿、体育、影视、网盘及桌面说明等专属适配规则（原生/通用已覆盖站点优先由客户端本体提供）。",
+      "matchHosts": [
+        "www.y456y.com",
+        "y456y.com"
+      ],
+      "matchUrlKeywords": [
+        "y456y"
+      ],
+      "matchSiteApis": [
+        "csp_FishCloud",
+        "csp_PianDan",
+        "csp_FishConfig",
+        "csp_TingBookJinXia"
+      ],
+      "downloadUrl": "https://github.com/binchen6/Liuguang-RepoPacks/releases/download/v1.0.0/y456y-pack-v1.0.0.zip",
+      "sha256": "b70f247042371440620ca602993304371f6e253cef96e2ddc865c251e07a0829",
+      "sizeBytes": 4339,
+      "siteCount": 46
+    }
+  ]
+}

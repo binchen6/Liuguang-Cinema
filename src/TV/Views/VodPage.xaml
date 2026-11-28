@@ -58,7 +58,8 @@
                                     <RowDefinition Height="Auto" />
                                 </Grid.RowDefinitions>
 
-                                <Border x:Name="PosterFrame" Grid.Row="0" CornerRadius="{StaticResource RadiusCard}"
+                                <Border x:Name="PosterFrame" Grid.Row="0" Style="{StaticResource GlassOpticalPanelBorderStyle}"
+                                        CornerRadius="{StaticResource RadiusCard}"
                                         BorderThickness="1" BorderBrush="{ThemeResource GlassEdgeBrush}"
                                         Background="{ThemeResource PosterPlaceholderBrush}">
                                     <Grid>
@@ -76,19 +77,20 @@
                                         </Rectangle>
                                         <Border Visibility="{Binding Item.Remarks, Converter={StaticResource StringToVisibility}}"
                                                 Background="{ThemeResource GlassDarkBadgeBrush}" BorderBrush="#2EFFFFFF" BorderThickness="1"
-                                                CornerRadius="5" Padding="7,3"
+                                                CornerRadius="5" Height="24" Padding="8,0"
                                                 HorizontalAlignment="Left" VerticalAlignment="Top" Margin="9">
                                             <TextBlock Text="{Binding Item.Remarks}" FontSize="{StaticResource FontSizeMeta}"
-                                                       FontWeight="SemiBold" Foreground="{ThemeResource GlassDarkBadgeInkBrush}" MaxWidth="112" TextTrimming="CharacterEllipsis" />
+                                                       FontWeight="SemiBold" Foreground="{ThemeResource GlassDarkBadgeInkBrush}"
+                                                       MaxWidth="112" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
                                         </Border>
                                         <Border Visibility="{Binding Rating, Converter={StaticResource StringToVisibility}}"
                                                 Background="{ThemeResource GlassDarkBadgeBrush}" BorderBrush="#2EFFFFFF" BorderThickness="1"
-                                                CornerRadius="5" Padding="7,3"
+                                                CornerRadius="5" Height="24" Padding="8,0"
                                                 HorizontalAlignment="Right" VerticalAlignment="Top" Margin="9">
-                                            <StackPanel Orientation="Horizontal" Spacing="4">
+                                            <StackPanel Orientation="Horizontal" Spacing="5" VerticalAlignment="Center">
                                                 <Ellipse Width="4.5" Height="4.5" Fill="{ThemeResource VermilionBrush}" VerticalAlignment="Center" />
                                                 <TextBlock Text="{Binding Rating}" Style="{StaticResource MonoMetaText}"
-                                                           FontWeight="SemiBold" Foreground="{ThemeResource GlassDarkBadgeInkBrush}" />
+                                                           FontWeight="SemiBold" Foreground="{ThemeResource GlassDarkBadgeInkBrush}" VerticalAlignment="Center" />
                                             </StackPanel>
                                         </Border>
                                         <!-- 磨砂圆镜播放浮层 -->
@@ -97,7 +99,7 @@
                                                     Background="#E8F4F3EE" BorderBrush="#66FFFFFF" BorderThickness="1"
                                                     HorizontalAlignment="Center" VerticalAlignment="Center">
                                                 <controls:LineIcon PathData="{StaticResource IconPlaySolid}" IconSize="20" IsFilled="True"
-                                                                   Margin="2,0,0,0" Foreground="#0D0D10" />
+                                                                   Foreground="#0D0D10" />
                                             </Border>
                                         </Grid>
                                     </Grid>
@@ -136,15 +138,18 @@
                         <StackPanel Orientation="Horizontal" Spacing="14" VerticalAlignment="Center">
                             <TextBlock Text="点播" Style="{StaticResource PageTitleText}" VerticalAlignment="Center" />
                             <DropDownButton x:Name="RepoSwitcherButton"
+                                            Style="{StaticResource GlassDropDownButtonStyle}"
                                             Background="{ThemeResource GlassChipBrush}"
                                             BorderBrush="{ThemeResource GlassEdgeBrush}"
-                                            BorderThickness="1" CornerRadius="14"
-                                            Padding="12,4,10,4" MinHeight="30" VerticalAlignment="Center"
+                                            Height="34" MinHeight="34" CornerRadius="17"
+                                            controls:GlassOpticsEngine.RadiusOverride="17"
+                                            Padding="13,0,11,0" VerticalAlignment="Center"
                                             ToolTipService.ToolTip="切换片源仓库"
                                             AutomationProperties.Name="切换仓库">
                                 <DropDownButton.Content>
                                     <TextBlock Text="{Binding ActiveRepositoryName}" Style="{StaticResource MetaText}"
-                                               Foreground="{ThemeResource PrimaryTextBrush}" MaxWidth="220" TextTrimming="CharacterEllipsis" />
+                                               Foreground="{ThemeResource PrimaryTextBrush}" MaxWidth="220"
+                                               TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
                                 </DropDownButton.Content>
                                 <DropDownButton.Flyout>
                                     <MenuFlyout x:Name="RepoSwitcherFlyout" Placement="BottomEdgeAlignedLeft" Opening="OnRepoMenuOpening" />
@@ -155,10 +160,9 @@
                     <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
                         <Button x:Name="HeaderSearchButton" Style="{StaticResource SecondaryButtonStyle}" Click="OnSearchClick"
                                 AutomationProperties.Name="打开搜索">
-                            <StackPanel Orientation="Horizontal" Spacing="8">
+                            <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
                                 <controls:LineIcon PathData="{StaticResource IconSearch}" IconSize="15" />
-                                <TextBlock Text="搜索" Style="{StaticResource SecondaryText}"
-                                           Foreground="{ThemeResource PrimaryTextBrush}" />
+                                <TextBlock Text="搜索" VerticalAlignment="Center" />
                             </StackPanel>
                         </Button>
                         <Button x:Name="HeaderReloadButton" Style="{StaticResource IconButtonStyle}" Command="{Binding ReloadCommand}"
@@ -190,7 +194,8 @@
                                             Loaded="OnFeaturedLoaded" Click="OnCardClick"
                                             PointerEntered="OnFeaturedIn" PointerExited="OnFeaturedOut"
                                             PointerPressed="OnCardPressed" PointerReleased="OnCardReleased" PointerCanceled="OnCardReleased">
-                                        <Border CornerRadius="{StaticResource RadiusPanel}" BorderThickness="1"
+                                        <Border Style="{StaticResource GlassOpticalPanelBorderStyle}"
+                                                CornerRadius="{StaticResource RadiusPanel}" BorderThickness="1"
                                                 BorderBrush="{ThemeResource GlassEdgeBrush}"
                                                 Background="{ThemeResource PosterPlaceholderBrush}">
                                             <Grid>
@@ -206,12 +211,12 @@
                                                 <!-- 右上极简磨砂评分印记 -->
                                                 <Border Visibility="{Binding Rating, Converter={StaticResource StringToVisibility}}"
                                                         Background="{ThemeResource GlassDarkBadgeBrush}" BorderBrush="#33FFFFFF" BorderThickness="1"
-                                                        CornerRadius="6" Padding="8,3"
+                                                        CornerRadius="6" Height="24" Padding="8,0"
                                                         HorizontalAlignment="Right" VerticalAlignment="Top" Margin="12">
-                                                    <StackPanel Orientation="Horizontal" Spacing="5">
+                                                    <StackPanel Orientation="Horizontal" Spacing="5" VerticalAlignment="Center">
                                                         <Ellipse Width="5" Height="5" Fill="{ThemeResource VermilionBrush}" VerticalAlignment="Center" />
                                                         <TextBlock Text="{Binding Rating}" Style="{StaticResource MonoMetaText}"
-                                                                   FontWeight="SemiBold" Foreground="{ThemeResource GlassDarkBadgeInkBrush}" />
+                                                                   FontWeight="SemiBold" Foreground="{ThemeResource GlassDarkBadgeInkBrush}" VerticalAlignment="Center" />
                                                     </StackPanel>
                                                 </Border>
                                                 <!-- 底部光学展陈铭牌 -->
@@ -264,8 +269,8 @@
                                       VerticalAlignment="Center">
                             <Grid x:Name="CategoryTrackHost" VerticalAlignment="Center">
                                 <!-- 统一横向导航高反差弹簧滑行胶囊：单实例物理跟随，杜绝多选态残留 -->
-                                <Border x:Name="CategoryGlidePill" Height="36" Width="84"
-                                        CornerRadius="{StaticResource RadiusChip}"
+                                <Border x:Name="CategoryGlidePill" Height="38" Width="84"
+                                        CornerRadius="19"
                                         Background="{ThemeResource NavChipSelectedBackgroundBrush}"
                                         HorizontalAlignment="Left" VerticalAlignment="Center"
                                         Opacity="0" IsHitTestVisible="False" />
@@ -302,10 +307,9 @@
                                                      PlaceholderText="选择站点" />
                             <Button x:Name="FilterButton" Style="{StaticResource SecondaryButtonStyle}" VerticalAlignment="Center"
                                     AutomationProperties.Name="筛选">
-                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
                                     <controls:LineIcon PathData="{StaticResource IconFilter}" IconSize="16" />
-                                    <TextBlock Text="筛选" Style="{StaticResource SecondaryText}"
-                                               Foreground="{ThemeResource PrimaryTextBrush}" VerticalAlignment="Center" />
+                                    <TextBlock Text="筛选" VerticalAlignment="Center" />
                                 </StackPanel>
                                 <Button.Flyout>
                                     <Flyout Placement="BottomEdgeAlignedRight">

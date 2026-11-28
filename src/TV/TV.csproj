@@ -26,6 +26,8 @@
   </PropertyGroup>
   <ItemGroup>
     <Content Include="Assets\App.ico" CopyToOutputDirectory="PreserveNewest" />
+    <EmbeddedResource Include="Assets\RepoPacks\manifest.json" LogicalName="TV.RepoPacks.Manifest" />
+    <EmbeddedResource Include="Assets\RepoPacks\y456y-pack-v1.0.0.zip" LogicalName="TV.RepoPacks.Y456y" />
     <InternalsVisibleTo Include="TV.ReleaseRegression" />
     <AssemblyMetadata Include="DanDanPlayRelayUrl" Value="$(DanDanPlayRelayUrl)" Condition="'$(DanDanPlayRelayUrl)' != ''" />
   </ItemGroup>

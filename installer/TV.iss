@@ -52,7 +52,7 @@ VersionInfoDescription={#MyAppName}安装程序
 VersionInfoCopyright=Copyright (c) {#MyAppPublisher}
 MinVersion=10.0.17763
 CloseApplications=yes
-CloseApplicationsFilter=TV.exe,TV.dll,java.exe,catvod-engine.jar
+CloseApplicationsFilter=TV.exe,TV.dll,java.exe,python.exe,catvod-engine.jar
 RestartApplications=no
 SetupLogging=no
 #ifdef EnableSignTool
@@ -65,6 +65,14 @@ Name: "chinesesimp"; MessagesFile: "Languages\ChineseSimplified.isl"
 
 [Tasks]
 Name: "desktopicon"; Description: "创建桌面快捷方式"; GroupDescription: "附加任务："; Flags: unchecked
+
+[InstallDelete]
+; Clean managed runtime & bundled pack directories on cross-version full upgrades so removed/renamed files never mix with new payloads
+Type: filesandordirs; Name: "{app}\runtime\java"
+Type: filesandordirs; Name: "{app}\runtime\python"
+Type: filesandordirs; Name: "{app}\libvlc"
+Type: filesandordirs; Name: "{app}\licenses"
+Type: filesandordirs; Name: "{app}\Assets\RepoPacks"
 
 [Files]
 ; Already-compressed payloads stored without re-compression for faster install & lower CPU overhead
@@ -105,6 +113,7 @@ Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; WorkingDi
 
 [Run]
 Filename: "{app}\{#MyAppExeName}"; Description: "启动 {#MyAppName}"; Flags: nowait postinstall skipifsilent unchecked
+Filename: "{app}\{#MyAppExeName}"; Description: "启动 {#MyAppName}"; Flags: nowait postinstall; Check: ShouldRelaunchAfterSilentUpdate
 
 [Code]
 const
@@ -158,17 +167,119 @@ begin
   SHChangeNotify(SHCNE_ASSOCCHANGED, SHCNF_IDLIST or SHCNF_FLUSH, 0, 0);
 end;
 
-procedure WaitForAppExecutableUnlock;
 var
-  ExePath: String;
+  PreviousManifestFiles: TStringList;
+
+function HasCommandLineSwitch(const SwitchName: String): Boolean;
+var
+  I: Integer;
+begin
+  Result := False;
+  for I := 1 to ParamCount do
+  begin
+    if CompareText(ParamStr(I), SwitchName) = 0 then
+    begin
+      Result := True;
+      exit;
+    end;
+  end;
+end;
+
+function ShouldRelaunchAfterSilentUpdate: Boolean;
+begin
+  if not WizardSilent then
+  begin
+    Result := False;
+    exit;
+  end;
+  if HasCommandLineSwitch('/NORELAUNCH') then
+  begin
+    Result := False;
+    exit;
+  end;
+  Result := HasCommandLineSwitch('/RELAUNCH') or (not HasCommandLineSwitch('/VERYSILENT'));
+end;
+
+function LoadManifestFileList(const ManifestPath: String): TStringList;
+var
+  Lines: TArrayOfString;
+  I, Bar1, Bar2: Integer;
+  Line, RelPath: String;
+begin
+  Result := TStringList.Create;
+  Result.Sorted := True;
+  Result.Duplicates := dupIgnore;
+  if not FileExists(ManifestPath) then exit;
+  if not LoadStringsFromFile(ManifestPath, Lines) then exit;
+  for I := 0 to GetArrayLength(Lines) - 1 do
+  begin
+    Line := Trim(Lines[I]);
+    if (Line = '') or (Line[1] = '#') then continue;
+    Bar1 := Pos('|', Line);
+    if Bar1 <= 0 then continue;
+    Delete(Line, 1, Bar1);
+    Bar2 := Pos('|', Line);
+    if Bar2 <= 0 then continue;
+    RelPath := Trim(Copy(Line, Bar2 + 1, Length(Line)));
+    if (RelPath <> '') and (Pos('..', RelPath) = 0) and (Pos(':', RelPath) = 0) and (RelPath[1] <> '\') and (RelPath[1] <> '/') then
+      Result.Add(Lowercase(RelPath));
+  end;
+end;
+
+procedure CapturePreviousManifest;
+begin
+  if PreviousManifestFiles <> nil then
+  begin
+    PreviousManifestFiles.Free;
+    PreviousManifestFiles := nil;
+  end;
+  PreviousManifestFiles := LoadManifestFileList(ExpandConstant('{app}\install-manifest.txt'));
+end;
+
+procedure CleanObsoleteManifestFiles;
+var
+  CurrentManifestFiles: TStringList;
+  I, DummyIndex: Integer;
+  RelPath, FullPath, DirPath, AppDir: String;
+begin
+  if (PreviousManifestFiles = nil) or (PreviousManifestFiles.Count = 0) then exit;
+  CurrentManifestFiles := LoadManifestFileList(ExpandConstant('{app}\install-manifest.txt'));
+  try
+    if CurrentManifestFiles.Count = 0 then exit;
+    AppDir := RemoveBackslash(ExpandConstant('{app}'));
+    for I := 0 to PreviousManifestFiles.Count - 1 do
+    begin
+      RelPath := PreviousManifestFiles[I];
+      if (Pos('unins', RelPath) = 1) then continue;
+      if not CurrentManifestFiles.Find(RelPath, DummyIndex) then
+      begin
+        FullPath := AddBackslash(AppDir) + RelPath;
+        if FileExists(FullPath) then
+        begin
+          if DeleteFile(FullPath) then
+            Log('Removed obsolete file from previous version: ' + RelPath);
+          DirPath := RemoveBackslash(ExtractFileDir(FullPath));
+          while (Length(DirPath) > Length(AppDir)) and RemoveDir(DirPath) do
+            DirPath := RemoveBackslash(ExtractFileDir(DirPath));
+        end;
+      end;
+    end;
+  finally
+    CurrentManifestFiles.Free;
+    PreviousManifestFiles.Free;
+    PreviousManifestFiles := nil;
+  end;
+end;
+
+procedure WaitForSingleFileUnlock(const FilePath: String);
+var
   Handle: THandle;
   Attempt: Integer;
 begin
-  ExePath := ExpandConstant('{app}\{#MyAppExeName}');
-  if not FileExists(ExePath) then exit;
-  for Attempt := 1 to 50 do
+  if not FileExists(FilePath) then exit;
+  for Attempt := 1 to 40 do
   begin
-    Handle := CreateFileW(ExePath, GenericWrite, 0, 0, OpenExisting, 0, 0);
+    Handle := CreateFileW(FilePath, GenericWrite, 0, 0, OpenExisting, 0, 0);
     if Handle <> THandle(-1) then
     begin
       CloseHandle(Handle);
@@ -178,9 +289,23 @@ begin
   end;
 end;
 
+procedure WaitForAppExecutableUnlock;
+begin
+  WaitForSingleFileUnlock(ExpandConstant('{app}\{#MyAppExeName}'));
+  WaitForSingleFileUnlock(ExpandConstant('{app}\TV.dll'));
+  WaitForSingleFileUnlock(ExpandConstant('{app}\runtime\catvod-engine.jar'));
+  WaitForSingleFileUnlock(ExpandConstant('{app}\runtime\java\bin\java.exe'));
+  WaitForSingleFileUnlock(ExpandConstant('{app}\runtime\python\python.exe'));
+end;
+
 procedure CurStepChanged(CurStep: TSetupStep);
 begin
-  if CurStep = ssPostInstall then RefreshShellIcons;
+  if CurStep = ssInstall then CapturePreviousManifest;
+  if CurStep = ssPostInstall then
+  begin
+    CleanObsoleteManifestFiles;
+    RefreshShellIcons;
+  end;
 end;
 
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);

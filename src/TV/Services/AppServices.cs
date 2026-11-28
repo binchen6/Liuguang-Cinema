@@ -65,7 +65,7 @@ public sealed class AppServices : IDisposable
         _bilibili = new Lazy<BilibiliVodProvider>(() => bilibili);
         Sniffer = new SniffService(Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread());
         NativeVod = NativeVodProviderRouter.CreateDefault(http, Cloud, bilibili, Sniffer);
-        RepoPacks = new RepoPackService(http, dns);
+        RepoPacks = new RepoPackService(http, dns, new SourceHttpClient(dns, null, useSystemDns: true));
         var jsSpider = new JsSpiderClient(http);
         var pySpider = new PySpiderClient(http);
         var autoHtml = new UniversalAutoHtmlVodProvider(http, Cloud);

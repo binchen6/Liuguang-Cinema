@@ -20,6 +20,7 @@
         <StackPanel Orientation="Horizontal" Spacing="{StaticResource SpaceMini}">
             <Button x:Name="ScanButton" Content="扫码登录" Click="OnScanClick" Style="{StaticResource PrimaryButtonStyle}" />
             <Button x:Name="SignOutButton" Content="退出登录" Click="OnSignOutClick" Style="{StaticResource GhostButtonStyle}"
+                    Height="{StaticResource PrimaryButtonHeight}" MinHeight="{StaticResource PrimaryButtonHeight}"
                     Visibility="Collapsed" />
         </StackPanel>
     </StackPanel>

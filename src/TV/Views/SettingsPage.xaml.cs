@@ -101,21 +101,10 @@ public sealed partial class SettingsPage : Page
     {
         if (!_headerToggleCache.TryGetValue(section, out var toggle))
         {
-            if (FindTemplateChild(section, "HeaderToggle") is not ToggleButton found) return;
+            if (VisualTreeHelpers.FindDescendantByName(section, "HeaderToggle") is not ToggleButton found) return;
             _headerToggleCache[section] = toggle = found;
         }
         VisualStateManager.GoToState(toggle, active ? "Checked" : "Normal", false);
-    }
-
-    private static FrameworkElement? FindTemplateChild(DependencyObject root, string name)
-    {
-        for (var index = 0; index < Microsoft.UI.Xaml.Media.VisualTreeHelper.GetChildrenCount(root); index++)
-        {
-            var child = Microsoft.UI.Xaml.Media.VisualTreeHelper.GetChild(root, index);
-            if (child is FrameworkElement element && element.Name == name) return element;
-            if (FindTemplateChild(child, name) is { } match) return match;
-        }
-        return null;
     }
 
     /// <summary>点击当前分区会折叠；为保持导航语义，折叠当前分区时立即重新展开。</summary>

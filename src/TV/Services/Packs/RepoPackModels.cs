@@ -4,6 +4,10 @@ using TV.Models;
 
 namespace TV.Services.Packs;
 
+internal enum RepoPackCatalogSource { Online, Cached, Bundled }
+
+internal sealed record RepoPackCatalog(RepoPackManifest Manifest, RepoPackCatalogSource Source, DateTimeOffset CheckedAt);
+
 public sealed class RepoPackManifest
 {
     [JsonPropertyName("schemaVersion")] public int SchemaVersion { get; set; } = 1;

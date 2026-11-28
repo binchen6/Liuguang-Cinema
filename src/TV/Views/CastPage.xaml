@@ -78,8 +78,8 @@
                                    Style="{StaticResource MetaText}" TextWrapping="Wrap" />
                     </StackPanel>
 
-                    <controls:GlassSurface Style="{StaticResource AppPanelGlassStyle}">
-                        <StackPanel Spacing="12">
+                    <controls:GlassSurface Style="{StaticResource AppPanelGlassStyle}" Padding="18,14">
+                        <StackPanel Spacing="10">
                             <StackPanel Spacing="2">
                                 <TextBlock Text="RECEIVER · 接收端" Style="{StaticResource EyebrowText}" />
                                 <TextBlock Text="连接状态" Style="{StaticResource SectionTitleText}" />
@@ -110,14 +110,14 @@
                         </StackPanel>
                     </controls:GlassSurface>
 
-                    <controls:GlassSurface Style="{StaticResource AppPanelGlassStyle}">
-                        <StackPanel Spacing="10">
+                    <controls:GlassSurface Style="{StaticResource AppPanelGlassStyle}" Padding="18,14">
+                        <StackPanel Spacing="8">
                             <StackPanel Spacing="2">
                                 <TextBlock Text="TELEMETRY · 会话" Style="{StaticResource EyebrowText}" />
                                 <TextBlock Text="设备与会话" Style="{StaticResource SectionTitleText}" />
                             </StackPanel>
                             <Border Height="1" Background="{ThemeResource DividerBrush}" />
-                            <Grid ColumnSpacing="{StaticResource SpaceSmall}" MinHeight="{StaticResource ListRowHeight}">
+                            <Grid ColumnSpacing="{StaticResource SpaceSmall}" MinHeight="42">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="Auto" />
                                     <ColumnDefinition Width="*" />
@@ -132,7 +132,7 @@
                                 </StackPanel>
                             </Grid>
                             <Border Height="1" Background="{ThemeResource DividerBrush}" />
-                            <Grid ColumnSpacing="{StaticResource SpaceSmall}" MinHeight="{StaticResource ListRowHeight}">
+                            <Grid ColumnSpacing="{StaticResource SpaceSmall}" MinHeight="42">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="Auto" />
                                     <ColumnDefinition Width="*" />
@@ -146,7 +146,7 @@
                                 </StackPanel>
                             </Grid>
                             <Border Height="1" Background="{ThemeResource DividerBrush}" />
-                            <Grid ColumnSpacing="{StaticResource SpaceSmall}" MinHeight="{StaticResource ListRowHeight}">
+                            <Grid ColumnSpacing="{StaticResource SpaceSmall}" MinHeight="42">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="Auto" />
                                     <ColumnDefinition Width="*" />
@@ -254,9 +254,15 @@
                                             Style="{StaticResource PlayerIconButtonStyle}"
                                             ToolTipService.ToolTip="播放或暂停"
                                             AutomationProperties.Name="播放或暂停">
-                                        <FontIcon x:Name="PreviewPlayIcon" Glyph="&#xE768;" FontSize="16" Foreground="#FFF8F7F2" />
+                                        <Grid HorizontalAlignment="Center" VerticalAlignment="Center">
+                                            <controls:LineIcon x:Name="PreviewPlayIcon" PathData="{StaticResource IconPlaySolid}"
+                                                               IconSize="17" IsFilled="True" Foreground="#FFF8F7F2" />
+                                            <controls:LineIcon x:Name="PreviewPauseIcon" PathData="{StaticResource IconPauseSolid}"
+                                                               IconSize="17" IsFilled="True" Foreground="#FFF8F7F2" Visibility="Collapsed" />
+                                        </Grid>
                                     </Button>
                                     <Slider Grid.Column="1" x:Name="PreviewPosition" Minimum="0" Maximum="1"
+                                            Style="{StaticResource GlassSliderStyle}"
                                             StepFrequency="1" IsEnabled="False" VerticalAlignment="Center"
                                             AutomationProperties.Name="播放进度"
                                             ValueChanged="OnPreviewPositionChanged" />

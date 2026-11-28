@@ -66,7 +66,7 @@ public sealed partial class SearchPage : Page
         {
             if (!IsLoaded) return;
             ConfigureResultsPanel();
-            _resultScroll = FindScrollViewer(ResultsList);
+            _resultScroll = Controls.VisualTreeHelpers.FindDescendant<ScrollViewer>(ResultsList);
             if (_scrollOffset > 0) _resultScroll?.ChangeView(null, _scrollOffset, null, true);
         });
     }
@@ -368,58 +368,19 @@ public sealed partial class SearchPage : Page
             Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(e.ItemContainer, scope.Name);
     }
 
+    private readonly Controls.CardHoverTracker _resultCards = new("ResultArt", withPlayOverlay: true);
+
     private void OnResultContainerChanging(ListViewBase sender, ContainerContentChangingEventArgs e)
     {
         if (e.ItemContainer.ContentTemplateRoot is FrameworkElement card)
-        {
-            var parts = GetCardParts(card);
-            MotionService.ResetCard(card, parts.Overlay, parts.Badge, parts.Art);
-        }
+            _resultCards.Reset(card);
         if (!e.InRecycleQueue && e.Item is VodCardViewModel vm) _ = vm.LoadVisualAsync();
     }
 
-    private sealed record CardParts(FrameworkElement? Overlay, FrameworkElement? Badge, FrameworkElement? Art);
-    private readonly System.Runtime.CompilerServices.ConditionalWeakTable<FrameworkElement, CardParts> _resultParts = new();
-
-    private CardParts GetCardParts(FrameworkElement card)
-    {
-        if (_resultParts.TryGetValue(card, out var cached) && (cached.Art is not null || cached.Overlay is not null)) return cached;
-        var parts = new CardParts(FindNamedDescendant(card, "PlayOverlay"), FindNamedDescendant(card, "PlayBadge"), FindNamedDescendant(card, "ResultArt"));
-        if (parts.Art is not null || parts.Overlay is not null) _resultParts.AddOrUpdate(card, parts);
-        return parts;
-    }
-
-    private static FrameworkElement? FindNamedDescendant(DependencyObject root, string name)
-    {
-        if (root is FrameworkElement fe && fe.Name == name) return fe;
-        for (var i = 0; i < VisualTreeHelper.GetChildrenCount(root); i++)
-            if (FindNamedDescendant(VisualTreeHelper.GetChild(root, i), name) is { } found) return found;
-        return null;
-    }
-
-    private void OnResultCardIn(object sender, PointerRoutedEventArgs e)
-    {
-        if (sender is not FrameworkElement element) return;
-        var parts = GetCardParts(element);
-        MotionService.SetCardHover(element, parts.Overlay, parts.Badge, parts.Art, true);
-    }
-
-    private void OnResultCardOut(object sender, PointerRoutedEventArgs e)
-    {
-        if (sender is not FrameworkElement element) return;
-        var parts = GetCardParts(element);
-        MotionService.SetCardHover(element, parts.Overlay, parts.Badge, parts.Art, false);
-    }
-
-    private void OnResultCardPressed(object sender, PointerRoutedEventArgs e)
-    {
-        if (sender is FrameworkElement element) MotionService.SetCardPressed(element, true);
-    }
-
-    private void OnResultCardReleased(object sender, PointerRoutedEventArgs e)
-    {
-        if (sender is FrameworkElement element) MotionService.SetCardPressed(element, false);
-    }
+    private void OnResultCardIn(object sender, PointerRoutedEventArgs e) => _resultCards.SetHovered(sender, true);
+    private void OnResultCardOut(object sender, PointerRoutedEventArgs e) => _resultCards.SetHovered(sender, false);
+    private void OnResultCardPressed(object sender, PointerRoutedEventArgs e) => Controls.CardHoverTracker.SetPressed(sender, true);
+    private void OnResultCardReleased(object sender, PointerRoutedEventArgs e) => Controls.CardHoverTracker.SetPressed(sender, false);
 
     private void OnHistoryClick(object sender, RoutedEventArgs e)
     {
@@ -433,16 +394,5 @@ public sealed partial class SearchPage : Page
     private void OnRemoveHistoryClick(object sender, RoutedEventArgs e)
     {
         if (sender is Button { DataContext: string query }) ViewModel.RemoveHistoryCommand.Execute(query);
-    }
-
-    internal static ScrollViewer? FindScrollViewer(DependencyObject element)
-    {
-        for (var index = 0; index < VisualTreeHelper.GetChildrenCount(element); index++)
-        {
-            var child = VisualTreeHelper.GetChild(element, index);
-            if (child is ScrollViewer viewer) return viewer;
-            if (FindScrollViewer(child) is { } nested) return nested;
-        }
-        return null;
     }
 }

@@ -115,7 +115,7 @@ public static class ScrollWheelBehavior
         if (mode == HorizontalWheelMode.ShiftOnly && !shiftDown && !isHorizontalWheel)
             return;
 
-        var scroller = host as ScrollViewer ?? FindDescendantScrollViewer(host);
+        var scroller = host as ScrollViewer ?? VisualTreeHelpers.FindDescendant<ScrollViewer>(host);
         if (scroller is null || scroller.ScrollableWidth <= 0.5) return;
 
         // Standard horizontal wheel reports positive=right; vertical wheel reports positive=up (scroll left)
@@ -145,7 +145,7 @@ public static class ScrollWheelBehavior
     {
         if (e.Handled) return;
         if (e.OriginalSource is not DependencyObject source) return;
-        if (FindAncestorNumberBox(source) is not { } box) return;
+        if (VisualTreeHelpers.FindAncestor<NumberBox>(source) is not { } box) return;
         // If user explicitly focused the NumberBox to adjust its value, allow normal NumberBox wheel stepping.
         if (box.FocusState != FocusState.Unfocused) return;
 
@@ -185,27 +185,5 @@ public static class ScrollWheelBehavior
         if (Math.Abs(next - target.VerticalOffset) <= 0.5) return false;
         target.ChangeView(null, next, null, disableAnimation: false);
         return true;
-    }
-
-    private static ScrollViewer? FindDescendantScrollViewer(DependencyObject root)
-    {
-        var count = VisualTreeHelper.GetChildrenCount(root);
-        for (var i = 0; i < count; i++)
-        {
-            var child = VisualTreeHelper.GetChild(root, i);
-            if (child is ScrollViewer sv) return sv;
-            if (FindDescendantScrollViewer(child) is { } nested) return nested;
-        }
-        return null;
-    }
-
-    private static NumberBox? FindAncestorNumberBox(DependencyObject? current)
-    {
-        while (current is not null)
-        {
-            if (current is NumberBox box) return box;
-            current = VisualTreeHelper.GetParent(current);
-        }
-        return null;
     }
 }

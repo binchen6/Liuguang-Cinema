@@ -76,18 +76,6 @@ public static class NavigationMotion
             return byIndex;
         return null;
     }
-
-    internal static ScrollViewer? FindDescendantScrollViewer(DependencyObject root)
-    {
-        var count = VisualTreeHelper.GetChildrenCount(root);
-        for (var i = 0; i < count; i++)
-        {
-            var child = VisualTreeHelper.GetChild(root, i);
-            if (child is ScrollViewer viewer) return viewer;
-            if (FindDescendantScrollViewer(child) is { } nested) return nested;
-        }
-        return null;
-    }
 }
 
 public sealed class NavigationRailController
@@ -204,7 +192,7 @@ public sealed class NavigationRailController
     private void TryAttachInnerScroller()
     {
         if (_listView is null || _outerScroller is not null) return;
-        var found = NavigationMotion.FindDescendantScrollViewer(_listView);
+        var found = VisualTreeHelpers.FindDescendant<ScrollViewer>(_listView);
         if (ReferenceEquals(found, _innerScroller)) return;
         if (_innerScroller is not null) _innerScroller.ViewChanged -= OnInnerScrollViewChanged;
         _innerScroller = found;
