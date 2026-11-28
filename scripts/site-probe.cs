@@ -198,11 +198,13 @@ async Task<Row> ProbeSiteAsync(SourceSite site)
         Evidence? decodeResult = null;
         if (decoder is not null && playbackProof?.Status != "SAMPLE" && play is { Parse: 0, Jx: 0 } && PlayUrlResolver.IsDirectMediaUrl(play.Url))
         {
+            var audioOnly = play.ContentType?.StartsWith("audio/", StringComparison.OrdinalIgnoreCase) == true ||
+                Path.GetExtension(new Uri(play.Url).AbsolutePath).ToLowerInvariant() is ".mp3" or ".m4a" or ".flac" or ".aac" or ".wav" or ".opus";
             decodeResult = play.UseHttpProxy
                 ? await DecodeAsync(decoder, cloud.ProxyMedia(new CloudPlayResult(play.Url, play.Headers, play.ContentType)
                     { UnwrapPngHlsSegments = play.UnwrapPngHlsSegments }),
-                    new Dictionary<string, string>(), audioTracks: play.AudioTracks)
-                : await DecodeAsync(decoder, play.Url, play.Headers, audioTracks: play.AudioTracks);
+                    new Dictionary<string, string>(), audioTracks: play.AudioTracks, audioOnly: audioOnly)
+                : await DecodeAsync(decoder, play.Url, play.Headers, audioTracks: play.AudioTracks, audioOnly: audioOnly);
             playbackProof = decodeResult;
         }
         resolved.Add(failure is not null ? failure with { Summary = $"{line.Name}：{failure.Summary}" } :
@@ -260,13 +262,14 @@ async Task<Row> ProbeLiveAsync(LiveSource source, string key)
 }
 
 static async Task<Evidence> DecodeAsync(LibVLC decoder, string address, IReadOnlyDictionary<string, string> headers,
-    bool live = false, IReadOnlyList<Uri>? audioTracks = null)
+    bool live = false, IReadOnlyList<Uri>? audioTracks = null, bool audioOnly = false)
 {
     if (!Uri.TryCreate(address, UriKind.Absolute, out var uri) || uri.Scheme is not ("http" or "https"))
         return Unavailable("后台解码抽样仅支持 HTTP(S) 媒体");
     using var player = new MediaPlayer(decoder);
     using var media = new Media(decoder, uri);
     media.AddOption(":http-reconnect=true");
+    if (audioOnly) media.AddOption(":no-video");
     if (headers.TryGetValue("User-Agent", out var agent)) media.AddOption(":http-user-agent=" + agent);
     if (headers.TryGetValue("Referer", out var referer)) media.AddOption(":http-referrer=" + referer);
     foreach (var track in audioTracks ?? []) media.AddSlave(MediaSlaveType.Audio, 3, track);
@@ -290,7 +293,8 @@ static async Task<Evidence> DecodeAsync(LibVLC decoder, string address, IReadOnl
         }
         playedAudio = Math.Max(playedAudio, stats.PlayedAudioBuffers);
         // Some live FLV streams leave the reported time at zero while frames continue to decode.
-        verified = decodedVideo > 0 && (player.Time >= 3500 || live && frameSpan >= 3500);
+        verified = audioOnly ? player.Time >= 3500 && (playedAudio > 0 || player.AudioTrack >= 0) :
+            decodedVideo > 0 && (player.Time >= 3500 || live && frameSpan >= 3500);
         if (verified) break;
         await Task.Delay(150);
     }
@@ -298,7 +302,8 @@ static async Task<Evidence> DecodeAsync(LibVLC decoder, string address, IReadOnl
         DecodedVideo = decodedVideo, PlayedAudioBuffers = playedAudio, FirstFrameMs = firstFrameAt,
         FrameSpanMs = frameSpan, State = player.State.ToString() };
     player.Stop();
-    var summary = $"后台解码 {metrics.TimeMs}ms，{decodedVideo} 视频帧";
+    var summary = audioOnly ? $"音频时钟 {metrics.TimeMs}ms，{playedAudio} 音频缓冲" :
+        $"后台解码 {metrics.TimeMs}ms，{decodedVideo} 视频帧";
     return verified ? Sample(summary, metrics) : new("BLOCKED", $"{summary}，{metrics.State}", metrics);
 }
 

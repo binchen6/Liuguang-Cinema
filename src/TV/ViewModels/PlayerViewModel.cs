@@ -170,6 +170,7 @@ public sealed partial class PlayerViewModel : ObservableObject
     /// <summary>播放器页面把 VideoView 挂好后调用，避免“先播后挂”导致黑屏无声。</summary>
     public void NotifyVideoReady() => _viewReady.TrySetResult();
     internal event EventHandler? VideoOutputRequested;
+    internal bool NeedsVideoOutput { get; private set; }
     internal event EventHandler<PlaybackRequest?>? MusicPresentationRequested;
     [ObservableProperty] private bool _isMusicMode;
     internal PlaybackRequest? MusicRequest { get; private set; }
@@ -185,6 +186,7 @@ public sealed partial class PlayerViewModel : ObservableObject
 
     private void ResetVideoReady()
     {
+        NeedsVideoOutput = false;
         if (_viewReady.Task.IsCompleted) _viewReady = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
     }
 
@@ -771,6 +773,7 @@ public sealed partial class PlayerViewModel : ObservableObject
 
     private Task EnsureVideoOutputAsync(CancellationToken token)
     {
+        NeedsVideoOutput = true;
         VideoOutputRequested?.Invoke(this, EventArgs.Empty);
         return _viewReady.Task.WaitAsync(TimeSpan.FromSeconds(8), token);
     }

@@ -366,6 +366,7 @@ public sealed partial class PlayerPage : Page
         Diagnostics.Log($"Player page loaded, output ready={ViewModel.Service.IsVideoOutputReady}");
         if (RateFlyout.Items.Count == 0) BuildFlyouts();
         SyncMusicStage();
+        if (ViewModel.NeedsVideoOutput) OnVideoOutputRequested(this, EventArgs.Empty);
         if (ViewModel.MusicRequest is { } musicRequest && ViewModel.IsMusicMode) OnMusicPresentationRequested(this, musicRequest);
         Focus(FocusState.Programmatic);
         _ = RefreshDanmakuToggleAsync();
