@@ -1,3 +1,5 @@
+using System.Runtime.InteropServices;
+using Microsoft.UI;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Input;
 using Microsoft.UI.Xaml;
@@ -32,8 +34,12 @@ public sealed partial class MainWindow : Window
     private WindowCloseBehavior _closeBehavior;
     private bool _titleInputQueued;
     private RectInt32[]? _titleInputRegions;
+    private static readonly SolidColorBrush PlayerBlackBrush = new(Colors.Black);
     private sealed record NavigationEntry(string Tag, VodCardViewModel? Detail = null, PlaybackRequest? Playback = null);
     private readonly Stack<NavigationEntry> _back = new();
+
+    [DllImport("dwmapi.dll")]
+    private static extern int DwmSetWindowAttribute(nint hwnd, int attribute, ref int value, int size);
 
     public MainWindow()
     {
@@ -60,11 +66,20 @@ public sealed partial class MainWindow : Window
         }
         catch (Exception ex) { Diagnostics.Log($"标题栏高度定制不可用: {ex.GetType().Name}"); }
         RestorePlacement();
-        AppWindow.Changed += (_, _) =>
+        AppWindow.Changed += (_, args) =>
         {
             CapturePlacement();
             var minimized = AppWindow.Presenter is OverlappedPresenter p && p.State == OverlappedPresenterState.Minimized;
             MotionService.SetWindowMinimized(minimized);
+            if (args.DidPresenterChange)
+            {
+                UpdateWindowChrome();
+                UpdatePaneLayout();
+            }
+            else if (args.DidSizeChange || args.DidPositionChange)
+            {
+                ScheduleTitleBarInput();
+            }
         };
         Title = "流光影院";
         TryApplyWindowIcon();
@@ -96,7 +111,7 @@ public sealed partial class MainWindow : Window
         ViewModel.Player.CompactOverlayRequested += OnCompactOverlayRequested;
         ShellRoot.ActualThemeChanged += (_, _) =>
         {
-            UpdateCaptionTheme();
+            UpdateWindowChrome();
             DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Normal, () =>
             {
                 if (!_closing && !string.IsNullOrEmpty(_currentTag))
@@ -285,10 +300,12 @@ public sealed partial class MainWindow : Window
         {
             _currentTag = previous;
             AppBackdrop.Visibility = previous == "player" ? Visibility.Collapsed : Visibility.Visible;
+            UpdateWindowChrome();
             SyncNavSelection(previous);
             UpdateBackButton();
             return;
         }
+        UpdateWindowChrome();
         SyncNavSelection(tag);
         UpdateBackButton();
     }
@@ -517,8 +534,55 @@ public sealed partial class MainWindow : Window
     private void OnTitleBarLoaded(object sender, RoutedEventArgs e)
     {
         AppTitleBar.XamlRoot.Changed += (_, _) => ScheduleTitleBarInput();
+        UpdateWindowChrome();
+    }
+
+    private void UpdateWindowChrome()
+    {
+        var presenterKind = AppWindow.Presenter.Kind;
+        _fullScreen = presenterKind == AppWindowPresenterKind.FullScreen;
+        _compact = presenterKind == AppWindowPresenterKind.CompactOverlay;
+        var hideTitleBar = _fullScreen || _compact;
+        var isPlayer = _currentTag == "player";
+
+        AppTitleBar.Visibility = hideTitleBar ? Visibility.Collapsed : Visibility.Visible;
+        TitleBarRow.Height = hideTitleBar ? new GridLength(0) : new GridLength(48);
+
+        if (isPlayer)
+            ShellRoot.Background = PlayerBlackBrush;
+        else if (ThemeResources.ResolveThemeBrush(ShellRoot, "AppBackgroundBrush") is { } appBackground)
+            ShellRoot.Background = appBackground;
+
+        if (AppWindowTitleBar.IsCustomizationSupported())
+        {
+            try
+            {
+                var caption = AppWindow.TitleBar;
+                caption.ExtendsContentIntoTitleBar = true;
+                caption.PreferredHeightOption = hideTitleBar ? TitleBarHeightOption.Collapsed : TitleBarHeightOption.Tall;
+                caption.BackgroundColor = Colors.Transparent;
+                caption.InactiveBackgroundColor = Colors.Transparent;
+                caption.ButtonBackgroundColor = Colors.Transparent;
+                caption.ButtonInactiveBackgroundColor = Colors.Transparent;
+            }
+            catch (Exception ex) { Diagnostics.Log($"标题栏模式更新跳过: {ex.GetType().Name}"); }
+        }
+
         UpdateCaptionTheme();
+        SyncDwmDarkMode(isPlayer || ShellRoot.ActualTheme != ElementTheme.Light);
         ScheduleTitleBarInput();
+    }
+
+    private void SyncDwmDarkMode(bool dark)
+    {
+        try
+        {
+            var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
+            if (hwnd == 0) return;
+            var enabled = dark ? 1 : 0;
+            _ = DwmSetWindowAttribute(hwnd, 20, ref enabled, sizeof(int));
+        }
+        catch { }
     }
 
     private void UpdateCaptionTheme()
@@ -528,8 +592,9 @@ public sealed partial class MainWindow : Window
         Windows.UI.Color? inactiveForeground = null;
         if (!ThemeResources.IsHighContrast)
         {
-            // 与 Styles/Tokens.xaml 的 PrimaryTextBrush / SecondaryTextBrush 保持一致。
-            if (ShellRoot.ActualTheme == ElementTheme.Light)
+            // 与 Styles/Tokens.xaml 的 PrimaryTextBrush / SecondaryTextBrush 保持一致；
+            // 播放器页面始终为深色画布，窗口化时标题栏按钮同步保持浅色。
+            if (_currentTag != "player" && ShellRoot.ActualTheme == ElementTheme.Light)
             {
                 foreground = Windows.UI.Color.FromArgb(255, 0x1F, 0x20, 0x24);
                 inactiveForeground = Windows.UI.Color.FromArgb(255, 0x53, 0x55, 0x5E);
@@ -545,6 +610,10 @@ public sealed partial class MainWindow : Window
             var caption = AppWindow.TitleBar;
             caption.ButtonForegroundColor = foreground;
             caption.ButtonInactiveForegroundColor = inactiveForeground;
+            caption.BackgroundColor = Colors.Transparent;
+            caption.InactiveBackgroundColor = Colors.Transparent;
+            caption.ButtonBackgroundColor = Colors.Transparent;
+            caption.ButtonInactiveBackgroundColor = Colors.Transparent;
         }
         catch (Exception ex) { Diagnostics.Log($"标题栏按钮配色跳过: {ex.GetType().Name}"); }
     }
@@ -597,9 +666,7 @@ public sealed partial class MainWindow : Window
             Diagnostics.Log($"窗口呈现模式切换失败 ({kind}): {ex.GetType().Name}");
             return;
         }
-        _fullScreen = AppWindow.Presenter.Kind == AppWindowPresenterKind.FullScreen;
-        _compact = AppWindow.Presenter.Kind == AppWindowPresenterKind.CompactOverlay;
-        AppTitleBar.Visibility = _fullScreen || _compact ? Visibility.Collapsed : Visibility.Visible;
+        UpdateWindowChrome();
         UpdatePaneLayout();
     }
 

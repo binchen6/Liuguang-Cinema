@@ -678,8 +678,10 @@ using (var alternatePack = new RepoPackService(packFixtureHttp, packDns, Path.Co
     Check((await offline.GetLocalCatalogAsync())?.Source == RepoPackCatalogSource.Bundled,
         "A fresh profile can show the bundled catalog before connecting");
     var bundled = await offline.GetCatalogAsync(forceRefresh: true);
-    Check(bundled.Source == RepoPackCatalogSource.Bundled && bundled.Manifest.Packs.Any(pack => pack.Id == "y456y"),
-        "Both official endpoints cancel without preventing a clean Windows profile from listing the default pack");
+    Check(bundled.Source == RepoPackCatalogSource.Bundled &&
+          bundled.Manifest.Packs.Any(pack => pack.Id == "y456y") &&
+          bundled.Manifest.Packs.Any(pack => pack.Id == "fantaitang"),
+        "Both official endpoints cancel without preventing a clean Windows profile from listing the default packs");
     var offlineInstall = await offline.AutoInstallForRepositoryAsync("http://www.y456y.com", null);
     Check(offlineInstall.Installed && offline.TryGetInstalled("y456y", out _) && offlineInstall.RouteLabel == "客户端自带资源包",
         "A verified bundled ZIP can activate the matching repository without downloading");

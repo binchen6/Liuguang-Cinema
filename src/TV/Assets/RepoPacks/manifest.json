@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-11-27T12:13:43Z",
+  "updatedAt": "2026-11-28T11:11:07Z",
   "packs": [
     {
       "id": "y456y",
@@ -24,6 +24,21 @@
       "sha256": "b70f247042371440620ca602993304371f6e253cef96e2ddc865c251e07a0829",
       "sizeBytes": 4339,
       "siteCount": 46
+    },
+    {
+      "id": "fantaitang",
+      "downloadUrl": "https://github.com/binchen6/Liuguang-RepoPacks/releases/download/fantaitang-v1.0.0/fantaitang-pack-v1.0.0.zip",
+      "sha256": "9547d71119de2dbb2a2bb728156fd8757fbbcbf7b5668e32c2afc582029bab3a",
+      "sizeBytes": 1000,
+      "name": "饭太硬桌面适配包",
+      "description": "用于旧版饭太硬仓库迁移及手动启用。提供仓库专属说明和受限站点的兼容提示，无需安装原生库。",
+      "matchHosts": [
+        "饭太硬.cc",
+        "饭太硬.net",
+        "fty.888484.xyz"
+      ],
+      "version": "1.0.0",
+      "siteCount": 7
     }
   ]
 }

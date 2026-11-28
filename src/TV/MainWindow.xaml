@@ -189,11 +189,11 @@
         <!-- 右侧：标题栏操作区 + 页面内容 -->
         <Grid Grid.Column="1">
             <Grid.RowDefinitions>
-                <RowDefinition Height="48" />
+                <RowDefinition x:Name="TitleBarRow" Height="48" />
                 <RowDefinition Height="*" />
             </Grid.RowDefinitions>
 
-            <Grid x:Name="AppTitleBar" Grid.Row="0" Background="Transparent"
+            <Grid x:Name="AppTitleBar" Grid.Row="0" Height="48" Background="Transparent"
                   Loaded="OnTitleBarLoaded" SizeChanged="OnTitleBarSizeChanged">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="Auto" />
